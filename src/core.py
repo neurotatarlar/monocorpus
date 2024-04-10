@@ -4,6 +4,8 @@ from extractors.pdf import pdf_to_text
 from file_utils import pick_files, precreate_folders, move_file
 from post_processor import post_process
 from type_detection import detect_type, FileType
+from bibliographic import prompt_bibliographic_info
+import subprocess
 
 
 def process(count):
@@ -53,8 +55,11 @@ def _process_files(files_to_process):
             continue
 
         if post_process(path_to_tmp_txt_file):
-            move_file(file, Dirs.COMPLETED.get_real_path())
+            # move_file(file, Dirs.COMPLETED.get_real_path())
             report.processed_docs.append(file)
+            subprocess.call(('xdg-open', file))
+            normalized_name = prompt_bibliographic_info()
+            print("========", normalized_name)
         else:
             move_file(file, Dirs.NOT_TATAR.get_real_path())
             report.not_tt_documents.append(file)

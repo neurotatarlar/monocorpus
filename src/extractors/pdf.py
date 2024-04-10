@@ -25,13 +25,13 @@ def pdf_to_text(path_to_pdf_file):
         doc = PDFDocument(parser)
         rsrcmgr = PDFResourceManager()
         layout_params = LAParams(
-            line_overlap=0.5,  # how much 2 chars overlap to be considered as a single word
-            char_margin=2.0,  # how close 2 chars must be to each other to be considered as a single word
-            line_margin=2,  # how close 2 lines must be to each other to be considered as a single paragraph
-            word_margin=0.1,  # how close 2 words must be to each other to be considered as a single line
-            boxes_flow=0.0,  # how much a horizontal(-1.0) and vertical(1.0) position of a text matters
+            line_overlap=0.5,       # how much 2 chars overlap to be considered as a single word
+            char_margin=2.0,        # how close 2 chars must be to each other to be considered as a single word
+            line_margin=2,          # how close 2 lines must be to each other to be considered as a single paragraph
+            word_margin=0.1,        # how close 2 words must be to each other to be considered as a single line
+            boxes_flow=0.0,         # how much a horizontal(-1.0) and vertical(1.0) position of a text matters
             detect_vertical=False,  # ignore vertical text
-            all_texts=False  # ignore text in figures
+            all_texts=False         # ignore text in figures
         )
         device = TextConverter(rsrcmgr, output, laparams=layout_params)
         interpreter = PDFPageInterpreter(rsrcmgr, device)

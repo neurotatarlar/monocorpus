@@ -56,7 +56,7 @@ def post_process(path_to_txt_file):
                         # made up the word
                         word_str = ''.join(word)
                         # normalize the word by replacing look-alike chars with the chars of Tatar alphabet
-                        valid_chars_count, tatar_specific_chars_count, normalized_word = _normalize_word(word_str)
+                        valid_chars_count, tatar_specific_chars_count, normalized_word = normalize_word(word_str)
 
                         total_valid_chars_count += valid_chars_count
                         total_tatar_specific_chars_count += tatar_specific_chars_count
@@ -96,12 +96,12 @@ def _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, tot
             total_tatar_specific_chars_count / total_chars_count >= MINIMAL_TATAR_SPECIFIC_CHARS_THRESHOLD)
 
 
-def _normalize_word(word):
+def normalize_word(word):
     """
     Normalize the word by replacing look-alike chars with the chars of Tatar alphabet
 
     :param word: word to normalize
-    :return:
+    :return: tuple of valid Tatar chars count, Tatar specific chars count, normalized word
     """
 
     # count of chars than we expect to be in Tatar word (see consts.EXPECTED_CHARS)
@@ -126,9 +126,8 @@ def _normalize_word(word):
         result = word
     elif valid_tatar_chars_in_word_coef >= MINIMAL_VALID_CHARS_IN_WORD_THRESHOLD:
         # the word consists of both Tatar and non-tatar chars, but Tatar chars are major, so we need to transform it
-        print(f"Found anomaly in word '{word}', tatarish coef={valid_tatar_chars_in_word_coef}")
         buf = []
-        for pos, original_ch in enumerate(word):
+        for original_ch in word:
             replaced_ch = _replace_tatar_char_look_alikes(original_ch)
             buf.append(replaced_ch)
             if original_ch != replaced_ch:

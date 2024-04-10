@@ -12,6 +12,7 @@ from core import process
 
 app = typer.Typer()
 
+from bibliographic import prompt_bibliographic_info
 
 @app.command()
 def _process(count: int = 10):

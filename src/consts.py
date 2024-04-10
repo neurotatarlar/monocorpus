@@ -27,17 +27,15 @@ VALID_NON_ALPHA_NUMERIC = {' ', '/', '\\', '"', "'", '@', '#', '$', '%', '^', '&
 
 DIGITS = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
 
-ROMAN_NUMERALS = {'I', 'X', 'V', 'L', 'C', 'D', 'M'}
-
 TATAR_ALPHA_NUMERIC = TATAR_CYRILLIC_ALPHABET.union(DIGITS)
 
 """All characters that legit to be in the Tatar text"""
-EXPECTED_CHARS = TATAR_ALPHA_NUMERIC.union(VALID_NON_ALPHA_NUMERIC).union(ROMAN_NUMERALS)
+EXPECTED_CHARS = TATAR_ALPHA_NUMERIC.union(VALID_NON_ALPHA_NUMERIC)
 
 
 class Dirs(Enum):
     """
-    Enum with all the directories that are used in the project
+    Enum with all the directories and files that are used in the project
 
     - ENTRY_POINT: Directory where all the files begins their journey
     - NOT_A_DOCUMENT: Directory where files that are not documents at all are moved (e.g. images, archives)
@@ -54,6 +52,7 @@ class Dirs(Enum):
     DIRTY = "workdir/700_dirty"
     ARTIFACTS = 'workdir/900_artifacts'
     COMPLETED = 'workdir/999_completed'
+    WORKDIR = 'workdir'
 
     def get_real_path(self):
         parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))

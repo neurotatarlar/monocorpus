@@ -4,3 +4,4 @@ pdfminer.six==20231228
 ebookLib==0.18
 beautifulsoup4==4.12.3
 huggingface_hub>=0.20.2
+nltk==3.8.1
