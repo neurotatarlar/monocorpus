@@ -37,6 +37,20 @@ To get started with the project, follow these steps:
 4. **Explore the Output:**
    - Processed text files will be saved in the `workdir/900_artifacts` directory.
 
+5. **Push the resulting file (probably in jsonl format):**
+   - Log in using command and paste the token for your account: 
+   ```
+   huggingface-cli login
+   ```
+   - Put your credentials to the `src/config.ini` file and start the script from `src` folder: 
+   ```
+   python hf_connector.py 
+   ```
+   or you could provide the credentials using cli args:
+   ```
+   python hf_connector.py --file_path path_to_file.jsonl --repo_id username/repo_name
+   ```   
+
 ## Project Structure
 
 - **`src/`:** Contains the main script for text extraction and processing.
