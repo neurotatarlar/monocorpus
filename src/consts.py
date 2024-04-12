@@ -45,17 +45,22 @@ class Dirs(Enum):
     - ARTIFACTS: Directory where all processing artifacts(e.g. txt files with extracted text) are stored
     - COMPLETED: Directory where files that are processed successfully are moved
     """
-    ENTRY_POINT = "workdir/000_entry_point"
-    NOT_A_DOCUMENT = "workdir/800_not_a_document"
-    NOT_SUPPORTED_FORMAT_YET = "workdir/810_not_supported_yet"
-    NOT_TATAR = "workdir/820_not_tt_document"
-    DIRTY = "workdir/700_dirty"
-    ARTIFACTS = 'workdir/900_artifacts'
-    COMPLETED = 'workdir/999_completed'
     WORKDIR = 'workdir'
+
+    ENTRY_POINT = "workdir/000_entry_point"
+
+    DIRTY = "workdir/100_dirty"
+
+    NOT_A_DOCUMENT = "workdir/500_not_a_document"
+    NOT_SUPPORTED_FORMAT_YET = "workdir/510_not_supported_yet"
+    NOT_TATAR = "workdir/520_not_tt_document"
+
+    ARTIFACTS = 'workdir/900_artifacts'
+    EXTRACTED_DOCS = 'workdir/910_extracted_docs'
+    COMPLETED = 'workdir/999_completed'
 
     def get_real_path(self):
         parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
         paths = [parent_dir, '..', self.value]
-        foo = os.path.join(*paths)
-        return foo
+        real_path = os.path.join(*paths)
+        return real_path

@@ -1,30 +1,25 @@
 import os
 
-import typer
 from post_processor import normalize_word
 from nltk import edit_distance
-from itertools import groupby
-from collections import OrderedDict
 from consts import Dirs
-from file_utils import get_real_path_to_dir_with_executed_script
+from cli_wrapper import prompt, secho, confirm_prompt
+
+# todo process punctuation marks 
+
+WRITERS_LIST_FILE_NAME = 'writers_list.txt'
 
 
-# todo autocompletion for author
-# todo confirm in any layout
-# todo replace cyrillic chars in latin words
-
-WRITERS_LIST_FILE = 'writers_list.txt'
-
-def prompt_bibliographic_info():
+def prompt_bibliographic_info() -> tuple[str, str, str]:
     author = ''
     title = ''
     while True:
-        author = typer.prompt("Enter book's author. If there is no author, just press Enter",
+        author = prompt("Enter book's author. If there is no author, just press Enter",
                               default=author if author else '')
-        title = typer.prompt("Enter book's title. If there is no title, just press Enter  ",
+        title = prompt("Enter book's title. If there is no title, just press Enter  ",
                              default=title if title else '')
         if not author and not title:
-            typer.secho("Author and title are empty. Please provide at least one of them", fg=typer.colors.RED)
+            secho(message = "Author and title are empty. Please provide at least one of them")
             continue
 
         author = _normalize(author, capitalize=True)
@@ -32,7 +27,7 @@ def prompt_bibliographic_info():
 
         closest_author = _find_closest(author)
         if closest_author and closest_author != author:
-            if typer.confirm(f"Closest author found is '{closest_author}'. Replace with this author?", default=True):
+            if confirm_prompt(f"Closest author found is '{closest_author}'. Replace with this author?"):
                 author = closest_author
             else:
                 append_writer([author])
@@ -42,19 +37,19 @@ def prompt_bibliographic_info():
 
         normalized_name = author + "__" + title if author and title else author or title
 
-        if typer.confirm(f"Normalized name is '{normalized_name}'. Continue with this name?", default=True):
-            return normalized_name
+        if confirm_prompt(f"Normalized name is '{normalized_name}'. Continue with this name?"):
+            return author, title, normalized_name
 
 
 def get_writers_list():
-    path = os.path.join(Dirs.WORKDIR.get_real_path(), WRITERS_LIST_FILE)
+    path = os.path.join(Dirs.WORKDIR.get_real_path(), WRITERS_LIST_FILE_NAME)
     with open(path) as f:
         writers = f.read().splitlines()
     return writers
 
 
 def append_writer(writers):
-    path = os.path.join(Dirs.WORKDIR.get_real_path(), WRITERS_LIST_FILE)
+    path = os.path.join(Dirs.WORKDIR.get_real_path(), WRITERS_LIST_FILE_NAME)
     with open(path, 'a') as f:
         for w in writers:
             f.write(f'{w}')
@@ -64,8 +59,9 @@ def _find_closest(author, distance_threshold=3):
     writers = get_writers_list()
     min_distance = 128
     closest = None
+    l_author = author.lower()
     for w in writers:
-        distance = edit_distance(author, w)
+        distance = edit_distance(l_author, w.lower())
         if distance < min_distance:
             min_distance = distance
             closest = w
