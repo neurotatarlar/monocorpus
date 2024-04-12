@@ -1,26 +1,30 @@
-# todo try to extract ISBN from the book
 # todo support DJVU, FB2 formats
-# todo check if book was recognized or not
-# todo check files is not processed yet
-# todo define books title and author
 # todo support annotations like [1], currently they are just merged with the preceding word
-
+# todo tests for name normalization
+# todo update README 
+import time
+import uuid
+from typing import Annotated
 
 import typer
 
-from core import process
+from core import extract_text, process_files
+
+from domain.text_source import TextSource
+from file_utils import calculate_crc32
 
 app = typer.Typer()
+import json
 
 
 @app.command()
-def _process(count: int = 10):
-    """
-    Run processing of documents
+def extract(count: int = 10):
+    extract_text(count)
 
-    :param count: Number of documents to process
-    """
-    process(count)
+
+@app.command()
+def process(count: int = 10):
+    process_files(count)
 
 
 if __name__ == "__main__":

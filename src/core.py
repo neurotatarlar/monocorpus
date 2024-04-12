@@ -1,92 +1,113 @@
+import uuid
+from typing import Dict
+
+import typer
+
 from consts import Dirs
-from extractors.epub import epub_to_text
-from extractors.pdf import pdf_to_text
-from file_utils import pick_files, precreate_folders, move_file
+from extractors import PdfExtractor, EpubExtractor
+from file_utils import pick_files, precreate_folders, move_file, calculate_crc32
 from post_processor import post_process
+from domain.report import ProcessingReport
+from domain.text_source import TextSource
 from type_detection import detect_type, FileType
+from bibliographic import prompt_bibliographic_info
+import os
+import json
+
+INDEX_FILE_NAME = 'index.json'
 
 
-def process(count):
-    """
-    Processes files in the workdir
-
-    :param count: Number of files to process
-    """
+def extract_text(count):
     # preparation
     precreate_folders()
 
     # pick files to process
-    files_to_process = pick_files(Dirs.ENTRY_POINT.get_real_path(), count)
-    # process files
-    report = _process_files(files_to_process)
-    print(report)
+    if files_to_process := pick_files(Dirs.ENTRY_POINT.get_real_path(), count):
+        report = _extract_text_from_files(files_to_process)
+        typer.echo(report)
+    else:
+        typer.echo(f"No documents to extract text from, please put some documents to the folder `{Dirs.ENTRY_POINT.value}`")
 
 
-def _process_files(files_to_process):
+def process_files(count):
+    # preparation
+    precreate_folders()
+
+    # pick files to process
+    if files_to_process := pick_files(Dirs.DIRTY.get_real_path(), count):
+        _process_files(files_to_process)
+    else:
+        typer.echo(f"No dirty texts to process, please extract some texts first and put them to the folder `{Dirs.DIRTY.value}`")
+
+
+def _extract_text_from_files(files_to_process):
     report = ProcessingReport()
+    index = load_index()
 
     for file in files_to_process:
-        print(f"Processing file: {file}")
-
-        detected_type = detect_type(file)
-        print(f"Detected type: {detected_type}")
-
-        if detected_type in [FileType.FB2, FileType.DJVU]:
-            # These types are not supported yet, so we just move it to specific folder
-            move_file(file, Dirs.NOT_SUPPORTED_FORMAT_YET.get_real_path())
-            report.not_supported_yet.append(file)
-            print(
-                f"File `{file}` has unsupported format {detected_type}, moving it to the folder {Dirs.NOT_SUPPORTED_FORMAT_YET}")
-
-        elif detected_type == FileType.OTHER:
-            # This file is not a document at all. Again, we just move it to specific folder
-            move_file(file, Dirs.NOT_A_DOCUMENT.get_real_path())
-            report.not_a_documents.append(file)
-            print(f"File `{file}` is not a document, moving it to the folder {Dirs.NOT_A_DOCUMENT}")
-
-        if detected_type == FileType.PDF:
-            path_to_tmp_txt_file = pdf_to_text(file)
-        elif detected_type == FileType.EPUB:
-            path_to_tmp_txt_file = epub_to_text(file)
+        crc32 = calculate_crc32(file)
+        if crc32 in index:
+            file_name = os.path.basename(file)
+            dir_to_move, report_method = Dirs.EXTRACTED_DOCS, lambda x: x.already_extracted(file_name)
         else:
-            # we never should reach this point as long as we covered all the cases above
-            continue
+            detected_type = detect_type(file)
+            index[crc32] = {}
+            dir_to_move, report_method = _extract_based_on_type(crc32, file, detected_type)
 
-        if post_process(path_to_tmp_txt_file):
-            move_file(file, Dirs.COMPLETED.get_real_path())
-            report.processed_docs.append(file)
-        else:
-            move_file(file, Dirs.NOT_TATAR.get_real_path())
-            report.not_tt_documents.append(file)
-
-        report.processed_counter += 1
+        move_file(file, dir_to_move.get_real_path())
+        dump_index(index)
+        report_method(report)
 
     return report
 
 
-class ProcessingReport:
-    """
-    Report of the processing
+def _extract_based_on_type(source_id, file, detected_type):
+    file_name = os.path.basename(file)
+    match detected_type:
+        case FileType.FB2 | FileType.DJVU:
+            # These types are not supported yet, so we just move it to specific folder
+            return Dirs.NOT_SUPPORTED_FORMAT_YET, lambda x: x.not_supported_yet(file_name)
+        case FileType.OTHER:
+            # This file is not a document at all. Again, we just move it to specific folder
+            return Dirs.NOT_A_DOCUMENT, lambda x: x.not_a_document(file_name)
 
-    processed_counter: Number of processed files
-    not_a_documents: List of files that are not documents at all
-    not_supported_yet: List of files with formats that are not supported yet
-    processed_docs: List of files that are processed successfully
-    not_tt_documents: List of files that are not in Tatar language
-    """
+        case FileType.PDF:
+            PdfExtractor().extract(source_id, file)
+        case FileType.EPUB:
+            EpubExtractor().extract(source_id, file)
+    return Dirs.EXTRACTED_DOCS, lambda x: x.extracted_doc(file_name)
 
-    def __init__(self):
-        self.processed_counter = 0
-        self.not_a_documents = []
-        self.not_supported_yet = []
-        self.processed_docs = []
-        self.not_tt_documents = []
 
-    def __str__(self):
-        return (
-            "\nOverall report:\n"
-            f"Processed {self.processed_counter} file(s): {self.processed_docs},\n"
-            f"{len(self.not_a_documents)} file(s) is not a document(s): {self.not_a_documents},\n"
-            f"{len(self.not_tt_documents)} file(s) is not a document(s) in Tatar language: {self.not_tt_documents},\n"
-            f"{len(self.not_supported_yet)} file(s) has unsupported yet format: {self.not_supported_yet}"
-        )
+def _process_files(files_to_process):
+    report = ProcessingReport()
+    index = load_index()
+
+    for file in files_to_process:
+        is_tatar, crc32 = post_process(file)
+        if is_tatar:
+            report._extracted_docs.append(file)
+            typer.launch(file)
+            author, title, normalized_name = prompt_bibliographic_info()
+            index[crc32] = TextSource(str(author), str(title), str(normalized_name))
+            dump_index(index)
+        else:
+            move_file(file, Dirs.NOT_TATAR.get_real_path())
+            report._not_tt_documents.append(file)
+
+        report._processed_files += 1
+
+    return report
+
+
+def load_index() -> Dict[str, TextSource]:
+    with open(INDEX_FILE_NAME, 'r', encoding='utf-8') as index:
+        return json.load(index)
+ 
+
+
+def dump_index(index: Dict[str, TextSource]):
+    with open(INDEX_FILE_NAME, 'w', encoding='utf-8') as sink:
+        json.dump(index, sink, indent=4, sort_keys=True, default=lambda o: o.__dict__)
+
+
+

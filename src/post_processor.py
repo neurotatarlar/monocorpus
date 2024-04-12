@@ -1,4 +1,6 @@
 import os.path
+import typer
+import re
 
 from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
     EXPECTED_CHARS
@@ -39,13 +41,16 @@ def post_process(path_to_txt_file):
     :param path_to_txt_file:
     :return:
     """
-    print(f"Post-processing file: {path_to_txt_file}")
+    typer.echo(f"Post-processing file: {path_to_txt_file}")
 
     total_chars_count = 0
     total_valid_chars_count = 0
     total_tatar_specific_chars_count = 0
     new_path = os.path.join(Dirs.ARTIFACTS.get_real_path(), os.path.basename(path_to_txt_file))
     with open(path_to_txt_file, 'r', encoding="utf-8") as input, open(new_path, 'w', encoding="utf-8") as output:
+        re_result = re.search(r"(0x[A-Fa-f0-9]{8})", input.readline())
+        crc32 = re_result.group(1) if re_result else None
+
         word = []
         while ch := input.read(1):
             match ch:
@@ -56,7 +61,7 @@ def post_process(path_to_txt_file):
                         # made up the word
                         word_str = ''.join(word)
                         # normalize the word by replacing look-alike chars with the chars of Tatar alphabet
-                        valid_chars_count, tatar_specific_chars_count, normalized_word = _normalize_word(word_str)
+                        valid_chars_count, tatar_specific_chars_count, normalized_word = normalize_word(word_str)
 
                         total_valid_chars_count += valid_chars_count
                         total_tatar_specific_chars_count += tatar_specific_chars_count
@@ -71,7 +76,8 @@ def post_process(path_to_txt_file):
                     word.append(ch)
             total_chars_count += 1
 
-    return _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, total_tatar_specific_chars_count)
+    is_tatar_text = _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, total_tatar_specific_chars_count)
+    return is_tatar_text, crc32
 
 
 def _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, total_tatar_specific_chars_count):
@@ -96,12 +102,12 @@ def _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, tot
             total_tatar_specific_chars_count / total_chars_count >= MINIMAL_TATAR_SPECIFIC_CHARS_THRESHOLD)
 
 
-def _normalize_word(word):
+def normalize_word(word):
     """
     Normalize the word by replacing look-alike chars with the chars of Tatar alphabet
 
     :param word: word to normalize
-    :return:
+    :return: tuple of valid Tatar chars count, Tatar specific chars count, normalized word
     """
 
     # count of chars than we expect to be in Tatar word (see consts.EXPECTED_CHARS)
@@ -126,13 +132,12 @@ def _normalize_word(word):
         result = word
     elif valid_tatar_chars_in_word_coef >= MINIMAL_VALID_CHARS_IN_WORD_THRESHOLD:
         # the word consists of both Tatar and non-tatar chars, but Tatar chars are major, so we need to transform it
-        print(f"Found anomaly in word '{word}', tatarish coef={valid_tatar_chars_in_word_coef}")
         buf = []
-        for pos, original_ch in enumerate(word):
+        for original_ch in word:
             replaced_ch = _replace_tatar_char_look_alikes(original_ch)
             buf.append(replaced_ch)
             if original_ch != replaced_ch:
-                print(
+                typer.echo(
                     f"In word '{word}' replaced char `{original_ch}`({hex(ord(original_ch))}) "
                     f"with `{replaced_ch}`({hex(ord(replaced_ch))})"
                 )
@@ -142,7 +147,7 @@ def _normalize_word(word):
         # the word consists of both Tatar and non-Tatar chars, but non-Tatar
         # chars are major, so we consider it as non-Tatar word, just return it as is
         # todo should we replace Tatar chars with non-Tatar ones?
-        print(f"Found anomaly in word '{word}', tatarish coef is {valid_tatar_chars_in_word_coef}")
+        typer.echo(f"Found anomaly in word '{word}', tatarish coef is {valid_tatar_chars_in_word_coef}")
         result = word
     return valid_tatar_chars_in_word, tatar_specific_chars_in_word, result
 
@@ -203,7 +208,7 @@ def _replace_tatar_char_look_alikes(char):
         case 'Ґ' | 'Ғ':
             return 'Г'
         case _ if char not in TATAR_ALPHA_NUMERIC:
-            print(f"Unexpected char: `{char}`({hex(ord(char))}), please cover this char as well")
+            typer.echo(f"Unexpected char: `{char}`({hex(ord(char))}), please cover this char as well")
             return char
         case _:
             return char
@@ -231,7 +236,7 @@ def _replace_nonalphanum_chars(char):
         case ' ' | '' | ' ' | '':
             return None
         case _ if char not in VALID_NON_ALPHA_NUMERIC:
-            print(f"Unexpected char: `{char}`({hex(ord(char))}), it will be removed; if it is relevant char please add "
+            typer.echo(f"Unexpected char: `{char}`({hex(ord(char))}), it will be removed; if it is relevant char please add "
                   f"it to the list")
             return None
         case _:
