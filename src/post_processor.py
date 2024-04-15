@@ -1,6 +1,7 @@
 import os.path
-import typer
 import re
+
+import typer
 
 from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
     EXPECTED_CHARS
@@ -76,7 +77,8 @@ def post_process(path_to_txt_file):
                     word.append(ch)
             total_chars_count += 1
 
-    is_tatar_text = _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, total_tatar_specific_chars_count)
+    is_tatar_text = _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count,
+                                                 total_tatar_specific_chars_count)
     return is_tatar_text, crc32
 
 
@@ -236,8 +238,9 @@ def _replace_nonalphanum_chars(char):
         case ' ' | '' | ' ' | '':
             return None
         case _ if char not in VALID_NON_ALPHA_NUMERIC:
-            typer.echo(f"Unexpected char: `{char}`({hex(ord(char))}), it will be removed; if it is relevant char please add "
-                  f"it to the list")
+            typer.echo(
+                f"Unexpected char: `{char}`({hex(ord(char))}), it will be removed; if it is relevant char please add "
+                f"it to the list")
             return None
         case _:
             return char

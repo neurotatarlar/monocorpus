@@ -1,4 +1,7 @@
 class ProcessingReport:
+    """
+    Class to store the report of the processing of the files
+    """
 
     def __init__(self):
         self._processed_files = 0

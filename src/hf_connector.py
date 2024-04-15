@@ -1,6 +1,8 @@
 import argparse
 import configparser
+
 from huggingface_hub import HfApi, HfFolder
+
 
 def push_to_huggingface_repo(file_path, repo_id, commit_message="Updating the dataset file"):
     """
@@ -23,7 +25,8 @@ def push_to_huggingface_repo(file_path, repo_id, commit_message="Updating the da
     repo_files = api.list_repo_files(repo_id, token=token)
     if any(file['name'] == file_path for file in repo_files):
         # If the file exists, delete it
-        api.delete_file(repo_id, file_path, token=token, commit_message=f"Delete {file_path}, so we could repalce it by updated version of the file")
+        api.delete_file(repo_id, file_path, token=token,
+                        commit_message=f"Delete {file_path}, so we could repalce it by updated version of the file")
 
     # Upload the new file to the repository
     api.upload_file(
@@ -38,7 +41,8 @@ def push_to_huggingface_repo(file_path, repo_id, commit_message="Updating the da
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Push a file to a Hugging Face repository.')
     parser.add_argument('--file_path', type=str, help='The path to the file you want to upload.')
-    parser.add_argument('--repo_id', type=str, help='The repository ID on Hugging Face, in the format "username/repo_name".')
+    parser.add_argument('--repo_id', type=str,
+                        help='The repository ID on Hugging Face, in the format "username/repo_name".')
     args = parser.parse_args()
 
     # If no arguments were provided, try to read them from the config file

@@ -1,30 +1,31 @@
-from abc import ABC, abstractmethod
 import os.path
+import os.path
+from abc import ABC, abstractmethod
 
 import ebooklib
 from bs4 import BeautifulSoup
-from consts import Dirs
 from ebooklib import epub
-from rich.progress import track
-import os.path
-import time
-
-from consts import Dirs
 from pdfminer.converter import TextConverter
 from pdfminer.layout import LAParams
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
+from pdfminer.pdfinterp import resolve1
 from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFParser
 from rich.progress import track
-from pdfminer.pdfinterp import resolve1
-import typer
+
+from consts import Dirs
 
 
 class Extractor(ABC):
+    """
+    Abstract class for extractors
+    """
+
     @abstractmethod
     def extract(self, source_id, path_to_epub_file) -> str:
         pass
+
 
 class PdfExtractor(Extractor):
     def extract(self, source_id, path_to_src_file):
@@ -43,22 +44,24 @@ class PdfExtractor(Extractor):
             doc = PDFDocument(parser)
             rsrcmgr = PDFResourceManager()
             layout_params = LAParams(
-                line_overlap=0.5,       # how much 2 chars overlap to be considered as a single word
-                char_margin=2.0,        # how close 2 chars must be to each other to be considered as a single word
-                line_margin=2,          # how close 2 lines must be to each other to be considered as a single paragraph
-                word_margin=0.1,        # how close 2 words must be to each other to be considered as a single line
-                boxes_flow=0.0,         # how much a horizontal(-1.0) and vertical(1.0) position of a text matters
+                line_overlap=0.5,  # how much 2 chars overlap to be considered as a single word
+                char_margin=2.0,  # how close 2 chars must be to each other to be considered as a single word
+                line_margin=2,  # how close 2 lines must be to each other to be considered as a single paragraph
+                word_margin=0.1,  # how close 2 words must be to each other to be considered as a single line
+                boxes_flow=0.0,  # how much a horizontal(-1.0) and vertical(1.0) position of a text matters
                 detect_vertical=False,  # ignore vertical text
-                all_texts=False         # ignore text in figures
+                all_texts=False  # ignore text in figures
             )
             device = TextConverter(rsrcmgr, output, laparams=layout_params)
             interpreter = PDFPageInterpreter(rsrcmgr, device)
             pages_iter = PDFPage.create_pages(doc)
             total_pages = resolve1(doc.catalog['Pages'])['Count']
-            for value in track(pages_iter, description=f"Extracting text from document `{full_file_name}`", total=total_pages):
+            for value in track(pages_iter, description=f"Extracting text from document `{full_file_name}`",
+                               total=total_pages):
                 interpreter.process_page(value)
 
         return path_to_txt_file
+
 
 class EpubExtractor(Extractor):
     def extract(self, source_id, path_to_src_file):
@@ -74,7 +77,7 @@ class EpubExtractor(Extractor):
 
         with open(path_to_txt_file, 'w', encoding='utf-8') as output:
             output.writelines(f"=====#{source_id}#=====Please do not delete this identification\n")
-            
+
             pages_iter = list(book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
             for item in track(pages_iter, description=f"Processing document `{file_name}`"):
                 soup = BeautifulSoup(item.get_body_content(), "html.parser")
