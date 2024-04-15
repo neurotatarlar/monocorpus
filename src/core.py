@@ -1,23 +1,29 @@
-import uuid
+import json
+import os
 from typing import Dict
 
 import typer
 
+from bibliographic import prompt_bibliographic_info
 from consts import Dirs
+from domain.report import ProcessingReport
+from domain.text_source import TextSource
 from extractors import PdfExtractor, EpubExtractor
 from file_utils import pick_files, precreate_folders, move_file, calculate_crc32
 from post_processor import post_process
-from domain.report import ProcessingReport
-from domain.text_source import TextSource
 from type_detection import detect_type, FileType
-from bibliographic import prompt_bibliographic_info
-import os
-import json
 
+"""
+The list of processed files is stored in the index file.
+"""
 INDEX_FILE_NAME = 'index.json'
 
 
 def extract_text(count):
+    """
+    Extract text from the files in the entry point folder
+    :param count: number of files to process
+    """
     # preparation
     precreate_folders()
 
@@ -26,10 +32,16 @@ def extract_text(count):
         report = _extract_text_from_files(files_to_process)
         typer.echo(report)
     else:
-        typer.echo(f"No documents to extract text from, please put some documents to the folder `{Dirs.ENTRY_POINT.value}`")
+        typer.echo(
+            f"No documents to extract text from, please put some documents to the folder `{Dirs.ENTRY_POINT.value}`")
 
 
 def process_files(count):
+    """
+    Post-process extracted texts
+
+    :param count: number of files to process
+    """
     # preparation
     precreate_folders()
 
@@ -37,7 +49,8 @@ def process_files(count):
     if files_to_process := pick_files(Dirs.DIRTY.get_real_path(), count):
         _process_files(files_to_process)
     else:
-        typer.echo(f"No dirty texts to process, please extract some texts first and put them to the folder `{Dirs.DIRTY.value}`")
+        typer.echo(
+            f"No dirty texts to process, please extract some texts first and put them to the folder `{Dirs.DIRTY.value}`")
 
 
 def _extract_text_from_files(files_to_process):
@@ -100,14 +113,20 @@ def _process_files(files_to_process):
 
 
 def load_index() -> Dict[str, TextSource]:
+    """
+    Load the index file
+
+    :return: the index file
+    """
     with open(INDEX_FILE_NAME, 'r', encoding='utf-8') as index:
         return json.load(index)
- 
 
 
 def dump_index(index: Dict[str, TextSource]):
+    """
+    Dump the index to the file
+
+    :param index: the index to dump
+    """
     with open(INDEX_FILE_NAME, 'w', encoding='utf-8') as sink:
         json.dump(index, sink, indent=4, sort_keys=True, default=lambda o: o.__dict__)
-
-
-

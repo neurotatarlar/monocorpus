@@ -1,10 +1,11 @@
-from uuid import UUID, uuid4
 from dataclasses import dataclass
-import json
-from enum import Enum
+
 
 @dataclass
 class TextSource:
+    """
+    Represents a text source that is being processed.
+    """
     author: str
     title: str
     normalized_name: str

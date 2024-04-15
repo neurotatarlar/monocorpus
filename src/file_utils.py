@@ -1,7 +1,6 @@
 import binascii
 import os
 import stat
-import sys
 
 from consts import Dirs
 

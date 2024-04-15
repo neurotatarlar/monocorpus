@@ -60,6 +60,9 @@ class Dirs(Enum):
     COMPLETED = 'workdir/999_completed'
 
     def get_real_path(self):
+        """
+        Get the real path of the directory
+        """
         parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
         paths = [parent_dir, '..', self.value]
         real_path = os.path.join(*paths)

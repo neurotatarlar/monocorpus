@@ -1,25 +1,28 @@
 import os
 
-from post_processor import normalize_word
 from nltk import edit_distance
-from consts import Dirs
-from cli_wrapper import prompt, secho, confirm_prompt
 
-# todo process punctuation marks 
+from cli_wrapper import prompt, secho, confirm_prompt
+from consts import Dirs
+from post_processor import normalize_word
 
 WRITERS_LIST_FILE_NAME = 'writers_list.txt'
 
 
 def prompt_bibliographic_info() -> tuple[str, str, str]:
+    """
+    Prompt user for the bibliographic information about the book
+    :return: book's author, book's title, normalized name
+    """
     author = ''
     title = ''
     while True:
         author = prompt("Enter book's author. If there is no author, just press Enter",
-                              default=author if author else '')
+                        default=author if author else '')
         title = prompt("Enter book's title. If there is no title, just press Enter  ",
-                             default=title if title else '')
+                       default=title if title else '')
         if not author and not title:
-            secho(message = "Author and title are empty. Please provide at least one of them")
+            secho(message="Author and title are empty. Please provide at least one of them")
             continue
 
         author = _normalize(author, capitalize=True)
@@ -31,7 +34,7 @@ def prompt_bibliographic_info() -> tuple[str, str, str]:
                 author = closest_author
             else:
                 append_writer([author])
-                
+
         author = '_'.join(author.split())
         title = '_'.join(title.split())
 
@@ -42,6 +45,10 @@ def prompt_bibliographic_info() -> tuple[str, str, str]:
 
 
 def get_writers_list():
+    """
+    Get the list of writers from the file
+    :return: list of writers
+    """
     path = os.path.join(Dirs.WORKDIR.get_real_path(), WRITERS_LIST_FILE_NAME)
     with open(path) as f:
         writers = f.read().splitlines()
@@ -49,6 +56,10 @@ def get_writers_list():
 
 
 def append_writer(writers):
+    """
+    Append new writers to the list of writers
+    :param writers: list of writers
+    """
     path = os.path.join(Dirs.WORKDIR.get_real_path(), WRITERS_LIST_FILE_NAME)
     with open(path, 'a') as f:
         for w in writers:
