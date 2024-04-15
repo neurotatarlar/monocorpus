@@ -8,7 +8,8 @@ from bibliographic import prompt_bibliographic_info
 from consts import Dirs
 from domain.report import ProcessingReport
 from domain.text_source import TextSource
-from extractors import PdfExtractor, EpubExtractor
+from extractors.pdf import PdfExtractor
+from extractors.epub import EpubExtractor
 from file_utils import pick_files, precreate_folders, move_file, calculate_crc32
 from post_processor import post_process
 from type_detection import detect_type, FileType
