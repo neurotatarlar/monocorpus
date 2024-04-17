@@ -93,24 +93,17 @@ def _extract_based_on_type(source_id, file, detected_type):
 
 
 def _process_files(files_to_process):
-    report = ProcessingReport()
     index = load_index()
 
     for file in files_to_process:
         is_tatar, crc32 = post_process(file)
         if is_tatar:
-            report._extracted_docs.append(file)
-            typer.launch(file)
             author, title, normalized_name = prompt_bibliographic_info()
             index[crc32] = TextSource(str(author), str(title), str(normalized_name))
             dump_index(index)
         else:
+            typer.echo(f"File '{file}' is not in Tatar language, moving to the folder `{Dirs.NOT_TATAR.value}`")
             move_file(file, Dirs.NOT_TATAR.get_real_path())
-            report._not_tt_documents.append(file)
-
-        report._processed_files += 1
-
-    return report
 
 
 def load_index() -> Dict[str, TextSource]:
@@ -130,4 +123,4 @@ def dump_index(index: Dict[str, TextSource]):
     :param index: the index to dump
     """
     with open(INDEX_FILE_NAME, 'w', encoding='utf-8') as sink:
-        json.dump(index, sink, indent=4, sort_keys=True, default=lambda o: o.__dict__)
+        json.dump(index, sink, indent=4, sort_keys=True, default=lambda o: o.__dict__, ensure_ascii=False)

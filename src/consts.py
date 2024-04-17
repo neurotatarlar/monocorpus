@@ -29,9 +29,6 @@ DIGITS = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
 
 TATAR_ALPHA_NUMERIC = TATAR_CYRILLIC_ALPHABET.union(DIGITS)
 
-"""All characters that legit to be in the Tatar text"""
-EXPECTED_CHARS = TATAR_ALPHA_NUMERIC.union(VALID_NON_ALPHA_NUMERIC)
-
 
 class Dirs(Enum):
     """
