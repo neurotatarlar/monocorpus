@@ -8,10 +8,11 @@ functionality to extract texts from books and save them in files.
 ## Features
 - Extract text from EPUB and PDF files.
 - Post-processing of extracted text to remove unwanted characters (e.g. OCR artifacts). More precisely, the following steps are performed: 
-  - Remove sudden ASCII chars in the tatar word (e.g. **с**[0x0441)]у --> **с**[0x0441]у) 
+  - Remove sudden ASCII chars in the tatar word (e.g. **с**[0x0063)]у --> **с**[0x0441]у) 
   - Remove sudden non-ASCII chars in the non-tatar word (e.g. **а**[0x0430]rm --> **a**[0x0061]rm)
   - Unify punctuation marks by replacing look-alikes with a single variant (e.g. '»' | '«' | '“' | '”' | '„' --> '"')
   - Remove unwanted characters (e.g. '•') 
+  - Remove sudden digits at the end of the word (e.g. башына2 —> башына)
   
 ## Getting Started
 
@@ -55,7 +56,7 @@ python src/main.py extract
 python src/main.py process
 ```
 
-5**Explore the Output:**
+5. **Explore the Output:**
 
 - Processed text files will be saved in the `workdir/900_artifacts` directory.
 
