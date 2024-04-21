@@ -22,8 +22,6 @@ class EpubExtractor(Extractor):
         book = epub.read_epub(path_to_src_file, {'ignore_ncx': True})
 
         with open(path_to_txt_file, 'w', encoding='utf-8') as output:
-            output.writelines(f"=====#{source_id}#=====Please do not delete this identification\n")
-
             pages_iter = list(book.get_items_of_type(ebooklib.ITEM_DOCUMENT))
             for item in track(pages_iter, description=f"Processing document `{file_name}`"):
                 soup = BeautifulSoup(item.get_body_content(), "html.parser")

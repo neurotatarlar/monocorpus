@@ -1,16 +1,13 @@
 import json
 import os
-from typing import Dict
 
 import typer
 
-from bibliographic import prompt_bibliographic_info
 from consts import Dirs
 from domain.report import ProcessingReport
-from domain.text_source import TextSource
 from extractors.epub import EpubExtractor
 from extractors.pdf import PdfExtractor
-from file_utils import pick_files, precreate_folders, move_file, calculate_crc32
+from file_utils import pick_files, precreate_folders, move_file, calculate_crc32, remove_file
 from post_processor import post_process
 from type_detection import detect_type, FileType
 
@@ -65,8 +62,8 @@ def _extract_text_from_files(files_to_process):
             dir_to_move, report_method = Dirs.EXTRACTED_DOCS, lambda x: x.already_extracted(file_name)
         else:
             detected_type = detect_type(file)
-            index[crc32] = {}
-            dir_to_move, report_method = _extract_based_on_type(crc32, file, detected_type)
+            index.append(crc32)
+            dir_to_move, report_method = _extract_based_on_type(file, detected_type)
 
         move_file(file, dir_to_move.get_real_path())
         dump_index(index)
@@ -75,7 +72,7 @@ def _extract_text_from_files(files_to_process):
     return report
 
 
-def _extract_based_on_type(source_id, file, detected_type):
+def _extract_based_on_type(file, detected_type):
     file_name = os.path.basename(file)
     match detected_type:
         case FileType.FB2 | FileType.DJVU:
@@ -86,27 +83,22 @@ def _extract_based_on_type(source_id, file, detected_type):
             return Dirs.NOT_A_DOCUMENT, lambda x: x.not_a_document(file_name)
 
         case FileType.PDF:
-            PdfExtractor().extract(source_id, file)
+            PdfExtractor().extract(file)
         case FileType.EPUB:
-            EpubExtractor().extract(source_id, file)
+            EpubExtractor().extract(file)
     return Dirs.EXTRACTED_DOCS, lambda x: x.extracted_doc(file_name)
 
 
 def _process_files(files_to_process):
-    index = load_index()
-
     for file in files_to_process:
-        is_tatar, crc32 = post_process(file)
-        if is_tatar:
-            author, title, normalized_name = prompt_bibliographic_info()
-            index[crc32] = TextSource(str(author), str(title), str(normalized_name))
-            dump_index(index)
-        else:
+        is_tatar = post_process(file)
+        if not is_tatar:
             typer.echo(f"File '{file}' is not in Tatar language, moving to the folder `{Dirs.NOT_TATAR.value}`")
             move_file(file, Dirs.NOT_TATAR.get_real_path())
+        remove_file(file)
 
 
-def load_index() -> Dict[str, TextSource]:
+def load_index() -> list[str]:
     """
     Load the index file
 
@@ -116,11 +108,12 @@ def load_index() -> Dict[str, TextSource]:
         return json.load(index)
 
 
-def dump_index(index: Dict[str, TextSource]):
+def dump_index(index: list[str]):
     """
     Dump the index to the file
 
     :param index: the index to dump
     """
+    index.sort()
     with open(INDEX_FILE_NAME, 'w', encoding='utf-8') as sink:
         json.dump(index, sink, indent=4, sort_keys=True, default=lambda o: o.__dict__, ensure_ascii=False)

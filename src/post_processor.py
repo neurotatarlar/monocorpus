@@ -1,5 +1,4 @@
 import os.path
-import re
 import string
 
 import typer
@@ -39,8 +38,8 @@ def post_process(path_to_txt_file):
     - Replace non-alphanumeric chars with the valid ones, eg '‘' -> "'"
     - Check if the document is in Tatar language
 
-    :param path_to_txt_file:
-    :return:
+    :param path_to_txt_file: path to the text file to post-process
+    :return True if the document is in Tatar language, False otherwise
     """
     basename = os.path.basename(path_to_txt_file)
     typer.echo(f"Post-processing file: '{basename}'")
@@ -50,9 +49,6 @@ def post_process(path_to_txt_file):
     total_tatar_specific_chars_count = 0
     new_path = os.path.join(Dirs.ARTIFACTS.get_real_path(), basename)
     with open(path_to_txt_file, 'r', encoding="utf-8") as input, open(new_path, 'w', encoding="utf-8") as output:
-        re_result = re.search(r"(0x[A-Fa-f0-9]{8})", input.readline())
-        crc32 = re_result.group(1) if re_result else None
-
         word = []
         while ch := input.read(1):
             match ch:
@@ -80,7 +76,7 @@ def post_process(path_to_txt_file):
 
     is_tatar_text = _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count,
                                                  total_tatar_specific_chars_count)
-    return is_tatar_text, crc32
+    return is_tatar_text
 
 
 def _check_doc_in_tatar_language(total_chars_count, total_valid_chars_count, total_tatar_specific_chars_count):
