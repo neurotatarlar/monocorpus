@@ -20,13 +20,11 @@ RIGHT_COORD_KEYS = ['x1', 'bottom']  # bigger coords, bigger box
 
 
 class PdfExtractor(Extractor):
-    def extract(self, source_id, path_to_src_file):
+    def extract(self, path_to_src_file):
         full_file_name = os.path.basename(path_to_src_file)
         file_name, _ = os.path.splitext(full_file_name)
         path_to_txt_file = os.path.join(Dirs.DIRTY.get_real_path(), file_name + ".txt")
         with pdfplumber.open(path_to_src_file) as input, open(path_to_txt_file, 'w', encoding='utf-8') as output:
-            output.writelines(f"=====#{source_id}#=====Please do not delete this identification\n")
-
             mcts = self._find_the_most_popular_font(input.pages)  # most common text size
 
             for page in track(input.pages, description='Extract text with the most common font size'):
@@ -94,7 +92,7 @@ class PdfExtractor(Extractor):
             text = line['text']
             x0 = line['x0']
 
-            if len(text) <= 1:  # skip lines containing none or one character
+            if len(text) <= 1 or text.isdigit():  # skip lines containing none or one character or only digits
                 continue
 
             # test if endswith hyphen or it look-alike(e.g. тәкер-\nмән)
