@@ -1,4 +1,9 @@
-workdir/
+workdir/000_entry_point
+workdir/100_dirty
+workdir/500_not_a_document
+workdir/510_not_supported_yet
+workdir/520_not_tt_document
+workdir/910_extracted_docs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

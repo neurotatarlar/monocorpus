@@ -1,6 +1,5 @@
 import json
 import os
-from typing import Dict
 
 import typer
 
@@ -8,7 +7,7 @@ from consts import Dirs
 from domain.report import ProcessingReport
 from extractors.epub import EpubExtractor
 from extractors.pdf import PdfExtractor
-from file_utils import pick_files, precreate_folders, move_file, calculate_crc32
+from file_utils import pick_files, precreate_folders, move_file, calculate_crc32, remove_file
 from post_processor import post_process
 from type_detection import detect_type, FileType
 
@@ -93,11 +92,10 @@ def _extract_based_on_type(file, detected_type):
 def _process_files(files_to_process):
     for file in files_to_process:
         is_tatar = post_process(file)
-        if is_tatar:
-            move_file(file, Dirs.NOT_TATAR.get_real_path())
-        else:
+        if not is_tatar:
             typer.echo(f"File '{file}' is not in Tatar language, moving to the folder `{Dirs.NOT_TATAR.value}`")
             move_file(file, Dirs.NOT_TATAR.get_real_path())
+        remove_file(file)
 
 
 def load_index() -> list[str]:

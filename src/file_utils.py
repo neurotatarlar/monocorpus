@@ -58,6 +58,15 @@ def is_hidden(path_to_file):
     return False
 
 
+def remove_file(path_to_file):
+    """
+    Removes the file from the file system
+
+    :param path_to_file: Path to the file to remove
+    """
+    os.remove(path_to_file)
+
+
 def pick_files(dir_path: str, target_to_process: int):
     """
     Picks target number of files from the directory and its subdirectories

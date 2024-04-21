@@ -42,8 +42,6 @@ class Dirs(Enum):
     - ARTIFACTS: Directory where all processing artifacts(e.g. txt files with extracted text) are stored
     - COMPLETED: Directory where files that are processed successfully are moved
     """
-    WORKDIR = 'workdir'
-
     ENTRY_POINT = "workdir/000_entry_point"
 
     DIRTY = "workdir/100_dirty"
@@ -54,7 +52,6 @@ class Dirs(Enum):
 
     ARTIFACTS = 'workdir/900_artifacts'
     EXTRACTED_DOCS = 'workdir/910_extracted_docs'
-    COMPLETED = 'workdir/999_completed'
 
     def get_real_path(self):
         """

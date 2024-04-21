@@ -31,5 +31,16 @@ def process(count: int = 10):
     process_files(count)
 
 
+@app.command()
+def extract_and_process(count: int = 10):
+    """
+    Post-process extracted texts
+
+    :param count: number of files to process
+    """
+    extract_text(count)
+    process_files(count)
+
+
 if __name__ == "__main__":
     app()
