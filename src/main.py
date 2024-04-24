@@ -1,9 +1,3 @@
-# todo support DJVU, FB2 formats
-# todo support annotations like [1], currently they are just merged with the preceding word
-# todo tests for name normalization
-# todo update README 
-# todo add most popular authors
-
 import typer
 
 from core import extract_text, process_files
