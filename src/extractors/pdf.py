@@ -30,8 +30,18 @@ class PdfExtractor(Extractor):
                     output.write(formatted_text)
         return path_to_txt_file
 
-    def _extract_text_from_page(self, page: Page):
+    def _extract_text_from_page(self, page: Page, new_paragraph_margin=False):
+        """
+        Extracts text from the page and formats it.
+
+        :param page: page to extract text from
+        :param new_paragraph_margin: set True if new paragraph in the document is marked by a margin, set False otherwise
+        """
         lines = page.extract_text_lines()  # process each line separately
+
+        if not lines:
+            return None
+
         formatted_text = ''
         prev_x0 = 0
 
@@ -52,11 +62,14 @@ class PdfExtractor(Extractor):
             # example >>> Кояшны бер күрергә тилмерәбез, -\nдип, Аю тирәсендә өтәләнделәр болар.
             is_hyphen = re.match(r".*\S+[-|–|\xad]$", text)
 
-            # Test if the line is a new paragraph
-            # It should meet the following conditions:
-            # - the left margin is bigger than the minimal left margin plus the width of the average character
-            # - the left margin is bigger than the previous line's left margin plus the width of the average character
-            is_new_paragraph = x0 > (min_x0 + avg_char_width) and x0 > (prev_x0 + avg_char_width)
+            if new_paragraph_margin:
+                # Test if the line is a new paragraph
+                # It should meet the following conditions:
+                # - the left margin is bigger than the minimal left margin plus the width of the average character
+                # - the left margin is bigger than the previous line's left margin plus the width of the average character
+                is_new_paragraph = x0 > (min_x0 + avg_char_width) and x0 > (prev_x0 + avg_char_width)
+            else:
+                is_new_paragraph = re.match(r".+[!?.:] *$", formatted_text)
 
             if is_new_paragraph:
                 # then do not add space before the text but add a new line for the new paragraph
