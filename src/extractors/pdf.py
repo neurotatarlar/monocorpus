@@ -30,7 +30,7 @@ class PdfExtractor(Extractor):
                     output.write(formatted_text)
         return path_to_txt_file
 
-    def _extract_text_from_page(self, page: Page, new_paragraph_margin=False):
+    def _extract_text_from_page(self, page: Page, new_paragraph_margin=True):
         """
         Extracts text from the page and formats it.
 
@@ -69,7 +69,7 @@ class PdfExtractor(Extractor):
                 # - the left margin is bigger than the previous line's left margin plus the width of the average character
                 is_new_paragraph = x0 > (min_x0 + avg_char_width) and x0 > (prev_x0 + avg_char_width)
             else:
-                is_new_paragraph = re.match(r".+[!?.:] *$", formatted_text)
+                is_new_paragraph = re.match(r".+[!?.:;] *$", formatted_text)
 
             if is_new_paragraph:
                 # then do not add space before the text but add a new line for the new paragraph
