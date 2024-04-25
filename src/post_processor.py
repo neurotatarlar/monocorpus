@@ -344,7 +344,7 @@ def _replace_nonalphanum_chars(char):
             return '-'
         case '…':
             return '...'
-        case ' ' | ' ' | '':
+        case ' ' | ' ' | '' | '​':
             return None
         case _ if char not in VALID_NON_ALPHA_NUMERIC:
             typer.echo(
