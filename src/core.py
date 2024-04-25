@@ -95,7 +95,8 @@ def _process_files(files_to_process):
         if not is_tatar:
             typer.echo(f"File '{file}' is not in Tatar language, moving to the folder `{Dirs.NOT_TATAR.value}`")
             move_file(file, Dirs.NOT_TATAR.get_real_path())
-        remove_file(file)
+        else:
+            remove_file(file)
 
 
 def load_index() -> list[str]:
