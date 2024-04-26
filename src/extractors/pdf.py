@@ -1,6 +1,7 @@
 import os.path
 import os.path
 import re
+from collections import Counter
 
 import pdfplumber
 from consts import Dirs
@@ -24,19 +25,25 @@ class PdfExtractor(Extractor):
         file_name, _ = os.path.splitext(full_file_name)
         path_to_txt_file = os.path.join(Dirs.DIRTY.get_real_path(), file_name + ".txt")
         with pdfplumber.open(path_to_src_file) as input, open(path_to_txt_file, 'w', encoding='utf-8') as output:
+            mcts = _find_the_most_popular_font(input.pages)
+
             for page in track(input.pages, description=f"Extracting text from PDF file '{file_name}'"):
-                formatted_text = self._extract_text_from_page(page)
+                formatted_text = self._extract_text_from_page(mcts, page)
                 if formatted_text:
                     output.write(formatted_text)
         return path_to_txt_file
 
-    def _extract_text_from_page(self, page: Page, new_paragraph_margin=True):
+    def _extract_text_from_page(self, mcts: float, page: Page, page_has_paragraph_indent=True, remove_header_footer=True):
         """
         Extracts text from the page and formats it.
 
         :param page: page to extract text from
-        :param new_paragraph_margin: set True if new paragraph in the document is marked by a margin, set False otherwise
+        :param mcts: most common text size
+        :param page_has_paragraph_indent: set True if new paragraph in the document is marked by a margin, set False otherwise
         """
+        if remove_header_footer:
+            page = _crop_page(mcts, page)
+
         lines = page.extract_text_lines()  # process each line separately
 
         if not lines:
@@ -62,7 +69,7 @@ class PdfExtractor(Extractor):
             # example >>> Кояшны бер күрергә тилмерәбез, -\nдип, Аю тирәсендә өтәләнделәр болар.
             is_hyphen = re.match(r".*\S+[-|–|\xad]$", text)
 
-            if new_paragraph_margin:
+            if page_has_paragraph_indent:
                 # Test if the line is a new paragraph
                 # It should meet the following conditions:
                 # - the left margin is bigger than the minimal left margin plus the width of the average character
@@ -84,3 +91,47 @@ class PdfExtractor(Extractor):
             formatted_text += text
 
         return formatted_text
+
+def _find_the_most_popular_font(pages):
+    font_sizes = Counter()  # to find the most popular font size (apprx. core text)
+
+    pages_count = len(pages)
+    if pages_count < 10:
+        pages = pages[::]
+    elif pages_count < 50:
+        pages = pages[3:-3]
+    else:
+        pages = pages[5:-5: len(pages) // 100 + 1]
+
+    for page in track(pages, description='Determining the most common font size in text'):
+        for char in page.chars:  # count font_size of each symbol
+            font_sizes[char["size"]] += 1
+    return font_sizes.most_common(1)[0][0]  # most common text size
+
+def _crop_page(mcts: float, page: Page):
+    bbox = None  # Bounding box is a rectangle area that defines the coordinates of text blocks
+
+    # We enhance bounding box with adding coordinates of chars on the page
+    # This way we define coordinates of text blocks with the font size bigger than most common font size
+    for char in page.chars:
+        if char["size"] < mcts:  # font size is most common of bigger (title, header, etc.)
+            continue
+
+        if bbox is None:
+            bbox = {k: char[k] for k in LEFT_COORD_KEYS + RIGHT_COORD_KEYS}
+        else:
+            for key in LEFT_COORD_KEYS:
+                if char[key] < bbox[key]:  # less coords, bigger box
+                    bbox[key] = char[key]
+            for key in RIGHT_COORD_KEYS:
+                if char[key] > bbox[key]:  # bigger coords, bigger box
+                    bbox[key] = char[key]
+
+    if bbox is None:  # found 0 chars with font_size or bigger in this page
+        return page
+
+    bbox = [bbox[k] for k in LEFT_COORD_KEYS + RIGHT_COORD_KEYS]
+
+    # Crop page with bounding box. This way everything outside the box will be removed, including footers, headers,
+    # page numbers, etc.
+    return page.within_bbox(bbox, strict=True)

@@ -334,6 +334,8 @@ def _replace_nonalphanum_chars(char):
     :return: None if the char must not be in the final text or the replaced char or the original char
     """
     match char:
+        case 'ˆ':
+            return '^'
         case '`' | '‘' | '’' | '\u0301':
             return "'"
         case '»' | '«' | '“' | '”' | '„':
