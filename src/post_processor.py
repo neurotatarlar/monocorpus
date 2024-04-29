@@ -114,6 +114,7 @@ def normalize_word(word):
     # count of chars that are specific for Tatar language and were found in the word (see consts.TATAR_SPECIFIC_CHARS)
     tatar_specific_chars_in_word = 0
 
+    word = _preprocess(word)
     for ch in word:
         if ch in TATAR_CYRILLIC_ALPHABET:
             valid_tatar_chars_in_word += 1
@@ -221,9 +222,9 @@ def _replace_tatar_char_look_alikes(char, word):
             return 'һ'
         case 'H' | 'Ħ' | 'Ḥ' | 'Ḧ' | 'Ḩ' | 'Ḫ' | 'Ḣ' | 'Ḥ' | 'Ḧ' | 'Ḩ' | 'Ḫ' | 'Ḣ':
             return 'Һ'
-        case 'k' | 'ķ' | 'ĸ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ' | 'ҡ' | 'ҟ' | 'ҝ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ':
+        case 'k' | 'ķ' | 'ĸ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ' | 'ҡ' | 'ҟ' | 'ҝ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ' | 'ќ':
             return 'к'
-        case 'K' | 'Ķ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ':
+        case 'K' | 'Ķ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Ќ':
             return 'К'
         case 'ґ' | 'ғ':
             return 'г'
@@ -275,9 +276,9 @@ def _replace_ascii_look_alikes(char):
             return 'j'
         case 'Ј' | 'ʝ':
             return 'J'
-        case 'к' | 'ķ' | 'ĸ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ' | 'ҡ' | 'ҟ' | 'ҝ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ':
+        case 'к' | 'ķ' | 'ĸ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ' | 'ҡ' | 'ҟ' | 'ҝ' | 'қ' | 'ҡ' | 'ҟ' | 'ҝ' | 'ќ':
             return 'k'
-        case 'К' | 'Ķ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ':
+        case 'К' | 'Ķ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Қ' | 'Ҡ' | 'Ҟ' | 'Ҝ' | 'Ќ':
             return 'K'
         case 'ӏ' | 'ḷ':
             return 'l'
@@ -342,7 +343,7 @@ def _replace_nonalphanum_chars(char):
             return '"'
         case '×':
             return '*'
-        case '–' | '­':  # but not `—`
+        case '–' | '­' | '‐':  # but not `—`
             return '-'
         case '…':
             return '...'
@@ -354,3 +355,37 @@ def _replace_nonalphanum_chars(char):
             return None
         case _:
             return char
+
+def _preprocess(word):
+    """
+    Preprocess the word before normalization by replacing OCR artifacts
+
+    :param word:
+    :return:
+    """
+    buf = []
+    for ch in word:
+        match ch:
+            case 'њ':
+                buf.append('ү')
+            case 'Њ':
+                buf.append('Ү')
+            case 'ћ':
+                buf.append('ң')
+            case 'Ћ':
+                buf.append('Ң')
+            case 'ђ':
+                buf.append('ә')
+            case 'Ђ':
+                buf.append('Ә')
+            case 'џ':
+                buf.append('һ')
+            case 'Џ':
+                buf.append('Һ')
+            case 'љ':
+                buf.append('ө')
+            case 'Љ':
+                buf.append('Ө')
+            case _:
+                buf.append(ch)
+    return "".join(buf)
