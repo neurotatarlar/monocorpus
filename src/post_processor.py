@@ -343,7 +343,7 @@ def _replace_nonalphanum_chars(char):
             return '"'
         case '×':
             return '*'
-        case '–' | '­' | '‐':  # but not `—`
+        case '–' | '­' | '‐' | '−':  # but not `—`
             return '-'
         case '…':
             return '...'
