@@ -1,0 +1,17 @@
+name: Calculate words count in monocorpus datasets
+
+on:
+  workflow_dispatch:  # Manually triggered workflow
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+        - uses: actions/checkout@v3
+        - uses: actions/setup-python@v4
+          with:
+            python-version: '3.x'
+        - name: Install dependencies
+          run: pip install -r .github/links-health-checker/requirements.txt
+        - name: Count words in datasets
+          run: python src/main.py wc
