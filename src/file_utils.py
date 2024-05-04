@@ -2,7 +2,7 @@ import binascii
 import os
 import stat
 
-from consts import Dirs
+from processor.consts import Dirs
 
 
 def move_file(path_to_file, target_dir):
@@ -67,18 +67,18 @@ def remove_file(path_to_file):
     os.remove(path_to_file)
 
 
-def pick_files(dir_path: str, target_to_process: int):
+def pick_files(dir_path: str, count: int = 1):
     """
     Picks target number of files from the directory and its subdirectories
 
     :param dir_path: Path to the directory to pick files from
-    :param target_to_process:  Number of files to pick
+    :param count:  Number of files to pick, -1 means all files
     :return: List of paths to the picked files
     """
-    return _traverse_recursively(dir_path, target_to_process, 0, [])
+    return _traverse_recursively(dir_path, 0, [], count)
 
 
-def _traverse_recursively(dir_path: str, target_to_process: int, found_files_counter: int, files_to_process):
+def _traverse_recursively(dir_path: str, found_files_counter: int, files_to_process, count: int = 1):
     for dir_name, dirs, files in os.walk(dir_path):
 
         for f in files:
@@ -87,10 +87,10 @@ def _traverse_recursively(dir_path: str, target_to_process: int, found_files_cou
                 continue
             files_to_process.append(path_to_file)
             found_files_counter += 1
-            if found_files_counter == target_to_process:
+            if 0 < count == found_files_counter:
                 return files_to_process
 
         for d in dirs:
-            _traverse_recursively(d, found_files_counter, target_to_process, files_to_process)
+            _traverse_recursively(d, found_files_counter, files_to_process, count)
 
     return files_to_process

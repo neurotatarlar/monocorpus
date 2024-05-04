@@ -3,9 +3,9 @@ import os.path
 
 import ebooklib
 from bs4 import BeautifulSoup
-from consts import Dirs
 from ebooklib import epub
-from extractors.base import Extractor
+from processor.consts import Dirs
+from processor.extractor.base import Extractor
 from rich.progress import track
 
 

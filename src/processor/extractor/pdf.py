@@ -4,9 +4,9 @@ import re
 from collections import Counter
 
 import pdfplumber
-from consts import Dirs
-from extractors.base import Extractor
 from pdfplumber.page import Page
+from processor.consts import Dirs
+from processor.extractor.base import Extractor
 from rich.progress import track
 
 """
@@ -33,7 +33,8 @@ class PdfExtractor(Extractor):
                     output.write(formatted_text)
         return path_to_txt_file
 
-    def _extract_text_from_page(self, mcts: float, page: Page, page_has_paragraph_indent=True, remove_header_footer=True):
+    def _extract_text_from_page(self, mcts: float, page: Page, page_has_paragraph_indent=True,
+                                remove_header_footer=True):
         """
         Extracts text from the page and formats it.
 
@@ -92,6 +93,7 @@ class PdfExtractor(Extractor):
 
         return formatted_text
 
+
 def _find_the_most_popular_font(pages):
     font_sizes = Counter()  # to find the most popular font size (apprx. core text)
 
@@ -107,6 +109,7 @@ def _find_the_most_popular_font(pages):
         for char in page.chars:  # count font_size of each symbol
             font_sizes[char["size"]] += 1
     return font_sizes.most_common(1)[0][0]  # most common text size
+
 
 def _crop_page(mcts: float, page: Page):
     bbox = None  # Bounding box is a rectangle area that defines the coordinates of text blocks

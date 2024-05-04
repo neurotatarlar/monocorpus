@@ -2,8 +2,8 @@ import os.path
 import string
 
 import typer
-
-from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, TATAR_CYRILLIC_ALPHABET
+from processor.consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
+    TATAR_CYRILLIC_ALPHABET
 
 """
 Minimal threshold of valid Tatar chars(see consts.EXPECTED_CHARS) in the document to consider it as Tatar document.
@@ -355,6 +355,7 @@ def _replace_nonalphanum_chars(char):
             return None
         case _:
             return char
+
 
 def _preprocess(word):
     """

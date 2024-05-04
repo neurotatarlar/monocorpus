@@ -2,14 +2,13 @@ import json
 import os
 
 import typer
-
-from consts import Dirs
-from domain.report import ProcessingReport
-from extractors.epub import EpubExtractor
-from extractors.pdf import PdfExtractor
 from file_utils import pick_files, precreate_folders, move_file, calculate_crc32, remove_file
-from post_processor import post_process
-from type_detection import detect_type, FileType
+from processor.consts import Dirs
+from processor.extractor.epub import EpubExtractor
+from processor.extractor.pdf import PdfExtractor
+from processor.post_processor import post_process
+from processor.report import ProcessingReport
+from processor.type_detection import detect_type, FileType
 
 """
 The list of processed files is stored in the index file.
