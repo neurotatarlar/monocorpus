@@ -60,4 +60,4 @@ class Dirs(Enum):
         parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
         paths = [parent_dir, '..', self.value]
         real_path = os.path.join(*paths)
-        return real_path
+        return os.path.normpath(real_path)

@@ -4,8 +4,8 @@ import re
 from collections import Counter
 
 import pdfplumber
+from consts import Dirs
 from pdfplumber.page import Page
-from processor.consts import Dirs
 from processor.extractor.base import Extractor
 from rich.progress import track
 
