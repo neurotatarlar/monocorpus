@@ -2,7 +2,7 @@ import binascii
 import os
 import stat
 
-from processor.consts import Dirs
+from consts import Dirs
 
 
 def move_file(path_to_file, target_dir):

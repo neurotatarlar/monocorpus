@@ -2,7 +2,7 @@ import os.path
 import string
 
 import typer
-from processor.consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
+from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
     TATAR_CYRILLIC_ALPHABET
 
 """

@@ -2,8 +2,8 @@ import json
 import os
 
 import typer
+from consts import Dirs
 from file_utils import pick_files, precreate_folders, move_file, calculate_crc32, remove_file
-from processor.consts import Dirs
 from processor.extractor.epub import EpubExtractor
 from processor.extractor.pdf import PdfExtractor
 from processor.post_processor import post_process
