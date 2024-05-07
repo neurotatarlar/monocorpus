@@ -27,13 +27,16 @@ class PdfExtractor(Extractor):
         with pdfplumber.open(path_to_src_file) as input, open(path_to_txt_file, 'w', encoding='utf-8') as output:
             mcts = _find_the_most_popular_font(input.pages)
 
-            for page in track(input.pages, description=f"Extracting text from PDF file '{file_name}'"):
-                formatted_text = self._extract_text_from_page(mcts, page)
+            all_pages = input.pages
+            total_pages = len(all_pages)
+
+            for page in track(all_pages, description=f"Extracting text from PDF file '{file_name}'"):
+                formatted_text = self._extract_text_from_page(page, mcts, total_pages)
                 if formatted_text:
                     output.write(formatted_text)
         return path_to_txt_file
 
-    def _extract_text_from_page(self, mcts: float, page: Page, page_has_paragraph_indent=True,
+    def _extract_text_from_page(self, page: Page, mcts, total_pages: int, page_has_paragraph_indent=True,
                                 remove_header_footer=True):
         """
         Extracts text from the page and formats it.
@@ -49,6 +52,17 @@ class PdfExtractor(Extractor):
 
         if not lines:
             return None
+
+        if remove_header_footer and len(lines) > 2:
+            if page.page_number == 1:
+                # keep the first line of the first page
+                lines = lines[:-1]
+            elif page.page_number == total_pages:
+                # keep the last line of the last page
+                lines = lines[1:]
+            else:
+                # remove the first and the last lines of the page otherwise
+                lines = lines[1:-1]
 
         formatted_text = ''
         prev_x0 = 0
