@@ -1,7 +1,6 @@
-from typing_extensions import Annotated
-
 import typer
 from rich import print
+from typing_extensions import Annotated
 
 from consts import Dirs
 from hf_connector import push_to_huggingface_repo

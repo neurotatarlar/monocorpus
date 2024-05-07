@@ -337,7 +337,7 @@ def _replace_nonalphanum_chars(char):
     match char:
         case 'ˆ':
             return '^'
-        case '`' | '‘' | '’' | '\u0301':
+        case '`' | '‘' | '’' | '′' | '\u0301':
             return "'"
         case '»' | '«' | '“' | '”' | '„':
             return '"'
