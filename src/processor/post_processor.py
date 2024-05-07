@@ -150,7 +150,7 @@ def _tatarify(word):
         if original_ch != replaced_ch:
             typer.echo(
                 f"In word '{s_word}' replaced not tatar char '{original_ch}'({hex(ord(original_ch))}) "
-                f"with '{replaced_ch}'({hex(ord(replaced_ch)) if replaced_ch else None})"
+                f"with tatar '{replaced_ch}'({hex(ord(replaced_ch)) if replaced_ch else None})"
             )
         buf.append(replaced_ch)
     return "".join(buf)
