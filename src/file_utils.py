@@ -3,6 +3,7 @@ import os
 import stat
 
 from consts import Dirs
+from type_detection import FileType, detect_type
 
 
 def move_file(path_to_file, target_dir):
@@ -67,26 +68,35 @@ def remove_file(path_to_file):
     os.remove(path_to_file)
 
 
-def pick_files(dir_path: str, count: int = 1):
+def pick_files(dir_path: str, count: int = 1, rtype: FileType = None):
     """
     Picks target number of files from the directory and its subdirectories
 
     :param dir_path: Path to the directory to pick files from
     :param count:  Number of files to pick, -1 means all files
-    :return: List of paths to the picked files
+    :param rtype: Type of the file to pick, None means all supported types
+    :return: List of tuples with file detected type and path to the file
     """
-    return _traverse_recursively(dir_path, 0, [], count)
+    return _traverse_recursively(dir_path, 0, [], count, rtype)
 
 
-def _traverse_recursively(dir_path: str, found_files_counter: int, files_to_process, count: int = 1):
+def _traverse_recursively(
+        dir_path: str,
+        found_files_counter: int,
+        files_to_process,
+        count: int = 1,
+        rtype: FileType = None
+):
     for dir_name, dirs, files in os.walk(dir_path):
 
         for f in files:
             path_to_file = os.path.join(dir_name, f)
             if is_hidden(path_to_file):
                 continue
-            files_to_process.append(path_to_file)
-            found_files_counter += 1
+            dtype = detect_type(path_to_file)
+            if not rtype or dtype == rtype:
+                files_to_process.append((dtype, path_to_file))
+                found_files_counter += 1
             if 0 < count == found_files_counter:
                 return files_to_process
 

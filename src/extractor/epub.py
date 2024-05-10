@@ -5,12 +5,14 @@ import ebooklib
 from bs4 import BeautifulSoup
 from consts import Dirs
 from ebooklib import epub
-from processor.extractor.base import Extractor
+from extractor.parent import Extractor
 from rich.progress import track
+
+from extractor.parent import ExtractionCliArgs
 
 
 class EpubExtractor(Extractor):
-    def extract(self, path_to_src_file):
+    def extract(self, path_to_src_file, args: ExtractionCliArgs):
         """
         Extracts text from the epub file and saves it to the txt file
 

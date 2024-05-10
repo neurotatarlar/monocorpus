@@ -1,9 +1,11 @@
+import os
 import os.path
 import string
 
-import typer
-from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
-    TATAR_CYRILLIC_ALPHABET
+from rich import print
+
+from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, TATAR_CYRILLIC_ALPHABET
+from file_utils import pick_files, precreate_folders, move_file, remove_file
 
 """
 Minimal threshold of valid Tatar chars(see consts.EXPECTED_CHARS) in the document to consider it as Tatar document.
@@ -29,6 +31,33 @@ Greater or equal than this threshold the word will be considered as Tatar word
 MINIMAL_VALID_CHARS_IN_WORD_THRESHOLD = 0.5
 
 
+def process_files(count):
+    """
+    Post-process extracted texts
+
+    :param count: number of files to process
+    """
+    # preparation
+    precreate_folders()
+
+    # pick files to process
+    if files_to_process := pick_files(Dirs.DIRTY.get_real_path(), count):
+        _process_files(files_to_process)
+    else:
+        print(
+            f"No dirty texts to process, please extract some texts first and put them to the folder `{Dirs.DIRTY.value}`")
+
+
+def _process_files(files_to_process):
+    for file in files_to_process:
+        is_tatar = post_process(file)
+        if not is_tatar:
+            print(f"File '{file}' is not in Tatar language, moving to the folder `{Dirs.NOT_TATAR.value}`")
+            move_file(file, Dirs.NOT_TATAR.get_real_path())
+        else:
+            remove_file(file)
+
+
 def post_process(path_to_txt_file):
     """
     Post-processes the text file
@@ -42,7 +71,7 @@ def post_process(path_to_txt_file):
     :return True if the document is in Tatar language, False otherwise
     """
     basename = os.path.basename(path_to_txt_file)
-    typer.echo(f"Post-processing file: '{basename}'")
+    print(f"Post-processing file: '{basename}'")
 
     total_chars_count = 0
     total_valid_chars_count = 0
@@ -143,12 +172,12 @@ def normalize_word(word):
 def _tatarify(word):
     s_word = word.rstrip(string.digits)
     if word != s_word:
-        typer.echo(f"Word '{word}' contains digits at the end, they're removed")
+        print(f"Word '{word}' contains digits at the end, they're removed")
     buf = []
     for original_ch in s_word:
         replaced_ch = _replace_tatar_char_look_alikes(original_ch, s_word)
         if original_ch != replaced_ch:
-            typer.echo(
+            print(
                 f"In word '{s_word}' replaced not tatar char '{original_ch}'({hex(ord(original_ch))}) "
                 f"with tatar '{replaced_ch}'({hex(ord(replaced_ch)) if replaced_ch else None})"
             )
@@ -167,7 +196,7 @@ def _de_tatarify(word):
     for original_ch in word:
         replaced_ch = _replace_ascii_look_alikes(original_ch)
         if original_ch != replaced_ch:
-            typer.echo(
+            print(
                 f"In word '{word}' replaced non-ASCII char '{original_ch}'({hex(ord(original_ch))}) "
                 f"with '{replaced_ch}'({hex(ord(replaced_ch)) if replaced_ch else None})"
             )
@@ -234,7 +263,7 @@ def _replace_tatar_char_look_alikes(char, word):
             # just valid tatar char
             return char
         case _:
-            typer.echo(f"Unexpected char: '{char}'({hex(ord(char))}) in word {word}")
+            print(f"Unexpected char: '{char}'({hex(ord(char))}) in word {word}")
             return char
 
 
@@ -349,10 +378,10 @@ def _replace_nonalphanum_chars(char):
             return '...'
         case ' ' | ' ' | '' | '​':
             return None
-        case _ if char not in VALID_NON_ALPHA_NUMERIC:
-            typer.echo(
-                f"Unexpected char: '{char}'({hex(ord(char))}), it will be removed; if it is relevant char please add it to the list")
-            return None
+        # case _ if char not in VALID_NON_ALPHA_NUMERIC:
+        # print(
+        #     f"Unexpected char: '{char}'({hex(ord(char))}), it will be removed; if it is relevant char please add it to the list")
+        # return None
         case _:
             return char
 
@@ -390,3 +419,42 @@ def _preprocess(word):
             case _:
                 buf.append(ch)
     return "".join(buf)
+
+
+class ProcessingReport:
+    """
+    Class to store the report of the processing of the files
+    """
+
+    def __init__(self):
+        self._processed_files = 0
+        self._not_documents = []
+        self._not_supported_yet = []
+        self._extracted_docs = []
+        self._already_extracted = []
+
+    def __str__(self):
+        return (
+            "====================================================\n"
+            f"Overall report: {self._processed_files} file(s) was processed\n"
+            f"{len(self._extracted_docs)} file(s) that text was extracted from: {self._extracted_docs},\n"
+            f"{len(self._not_documents)} file(s) is not a document(s): {self._not_documents},\n"
+            f"{len(self._not_supported_yet)} file(s) has unsupported yet format: {self._not_supported_yet},\n"
+            f"{len(self._already_extracted)} file(s) was already extracted: {self._already_extracted}"
+        )
+
+    def not_a_document(self, file_name: str):
+        self._processed_files += 1
+        self._not_documents.append(file_name)
+
+    def not_supported_yet(self, file_name: str):
+        self._processed_files += 1
+        self._not_supported_yet.append(file_name)
+
+    def extracted_doc(self, file_name: str):
+        self._processed_files += 1
+        self._extracted_docs.append(file_name)
+
+    def already_extracted(self, file_name: str):
+        self._processed_files += 1
+        self._already_extracted.append(file_name)
