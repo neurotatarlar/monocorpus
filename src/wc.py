@@ -37,6 +37,6 @@ def _count_words_in_texts_from_books():
 
 
 def _count_words_in_crawled_docs():
-    snapshot = snapshot_download(repo_id=CRAWLED_DOCS_REPO_ID, allow_patterns=["*.parquet"], repo_type="dataset")
+    snapshot = snapshot_download(repo_id=CRAWLED_DOCS_REPO_ID, allow_patterns=["*clean*.parquet"], repo_type="dataset")
     df = pd.read_parquet(snapshot, columns=COLUMNS)
     return int(reduce(lambda x, y: x + y, [df[column].str.count(WORD_REGEX).sum() for column in COLUMNS]))
