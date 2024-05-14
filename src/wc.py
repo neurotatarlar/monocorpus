@@ -9,7 +9,7 @@ from huggingface_hub import snapshot_download
 
 from file_utils import pick_files
 
-CRAWLED_DOCS_REPO_ID = "neurotatarlar/tt-crawl"
+CRAWLED_DOCS_REPO_IDS = ["neurotatarlar/tt-crawl", "veryrealtatarperson/tt-azatliq-crawl"]
 BOOKS_TEXTS_REPO_ID = "neurotatarlar/tt-books-cyrillic"
 COLUMNS = ["title", "article_text"]
 WORD_REGEX = "[A-Za-zА-Яа-яӨөәҢүһҗҖҮңҺӘ]+"
@@ -37,6 +37,9 @@ def _count_words_in_texts_from_books():
 
 
 def _count_words_in_crawled_docs():
-    snapshot = snapshot_download(repo_id=CRAWLED_DOCS_REPO_ID, allow_patterns=["*clean*.parquet"], repo_type="dataset")
-    df = pd.read_parquet(snapshot, columns=COLUMNS)
-    return int(reduce(lambda x, y: x + y, [df[column].str.count(WORD_REGEX).sum() for column in COLUMNS]))
+    total_words = 0
+    for repo_id in CRAWLED_DOCS_REPO_IDS:
+        snapshot = snapshot_download(repo_id=repo_id, allow_patterns=["*clean*.parquet"], repo_type="dataset")
+        df = pd.read_parquet(snapshot, columns=COLUMNS)
+        total_words += int(reduce(lambda x, y: x + y, [df[column].str.count(WORD_REGEX).sum() for column in COLUMNS]))
+    return total_words
