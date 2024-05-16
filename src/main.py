@@ -42,16 +42,24 @@ def extract_and_process(count: int = 10):
 
 
 @app.command()
-def wc():
+def wc(tokens: bool = False):
     """
     Count words in the both crawled documents and extracted from books texts
     """
-    overall, words_in_book_texts, words_in_crawled_docs = words_counter()
+    words, tokens = words_counter(tokens)
+    words_in_book_texts, words_in_crawled_docs = words
+    tokens_in_book_texts, tokens_in_crawled_docs = tokens or (0, 0)
+    overall_words = words_in_book_texts + words_in_crawled_docs
+    overall_tokens = None if tokens == (None, None) else (tokens_in_book_texts + tokens_in_crawled_docs)
+
     print(
         '[bold]'
-        f'Overall count of words: {overall:_}, '
+        f'Overall count of words: {overall_words:_}, '
         f'words in the books: {words_in_book_texts:_}, '
-        f'words in the crawled documents: {words_in_crawled_docs:_}'
+        f'words in the crawled documents: {words_in_crawled_docs:_}, '
+        f"{f'overall count of tokens: {overall_tokens:_}, ' if overall_tokens else ''}"
+        f"{f'tokens in the books: {tokens_in_book_texts:_}, ' if tokens_in_book_texts else ''}"
+        f"{f'tokens in the crawled documents: {tokens_in_crawled_docs:_}' if tokens_in_crawled_docs else ''}"
     )
 
 
