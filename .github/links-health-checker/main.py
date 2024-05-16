@@ -5,10 +5,11 @@ This script parses README file, collects all URLs, checks their availability and
 Unavailability means status code of the response was not 200.
 """
 
-import mistletoe
-from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+
+import mistletoe
 import requests
+from bs4 import BeautifulSoup
 
 if __name__ == "__main__":
     print("Checking README's outer links are available")
