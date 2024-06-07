@@ -3,13 +3,13 @@ import os.path
 
 import ebooklib
 from bs4 import BeautifulSoup
-from consts import Dirs
 from ebooklib import epub
-from processor.extractor.base import Extractor
 from rich.progress import track
 
+from consts import Dirs
 
-class EpubExtractor(Extractor):
+
+class EpubExtractor:
     def extract(self, path_to_src_file):
         """
         Extracts text from the epub file and saves it to the txt file

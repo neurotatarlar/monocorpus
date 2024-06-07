@@ -87,7 +87,7 @@ def _traverse_recursively(dir_path: str, found_files_counter: int, files_to_proc
                 continue
             files_to_process.append(path_to_file)
             found_files_counter += 1
-            if 0 < count == found_files_counter:
+            if (0 < count) == found_files_counter:
                 return files_to_process
 
         for d in dirs:

@@ -4,8 +4,7 @@ workdir/500_not_a_document
 workdir/510_not_supported_yet
 workdir/520_not_tt_document
 workdir/910_extracted_docs
-workdi-00000_later
-workdi-00001_to_process
+0_to_process
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

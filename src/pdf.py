@@ -4,10 +4,10 @@ import re
 from collections import Counter
 
 import pdfplumber
-from consts import Dirs
 from pdfplumber.page import Page
-from processor.extractor.base import Extractor
 from rich.progress import track
+
+from consts import Dirs
 
 """
 Top left coordinates of bounding box
@@ -19,7 +19,7 @@ Bottom right coordinates of bounding box
 RIGHT_COORD_KEYS = ['x1', 'bottom']  # bigger coords, bigger box
 
 
-class PdfExtractor(Extractor):
+class PdfExtractor:
     def extract(self, path_to_src_file):
         full_file_name = os.path.basename(path_to_src_file)
         file_name, _ = os.path.splitext(full_file_name)
