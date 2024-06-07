@@ -12,6 +12,7 @@ from hf_connector import push_to_huggingface_repo
 from pdf import PdfExtractor
 from post_processor import post_process
 from report import ProcessingReport
+from tests.run_tests import RunTests
 from type_detection import detect_type, FileType
 from wc import words_counter
 
@@ -81,6 +82,14 @@ def upload_artifacts(
     """
     push_to_huggingface_repo(path, repo_id, commit_message)
     print(f"Artifacts were successfully uploaded to the repository `{repo_id}`")
+
+
+@app.command()
+def tests():
+    """
+    Run extraction tests
+    """
+    RunTests().run()
 
 
 def extract_text(count, force):
