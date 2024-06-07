@@ -5,6 +5,7 @@ workdir/510_not_supported_yet
 workdir/520_not_tt_document
 workdir/910_extracted_docs
 0_to_process
+src_old/tests/tmp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

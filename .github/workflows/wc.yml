@@ -14,4 +14,4 @@ jobs:
         - name: Install dependencies
           run: pip install -r requirements.txt
         - name: Count words in datasets
-          run: python src/main.py wc >> $GITHUB_STEP_SUMMARY
+          run: python src_old/main.py wc >> $GITHUB_STEP_SUMMARY

@@ -1,5 +1,3 @@
-import os
-import sys
 from enum import Enum
 
 """Constants for the project"""
@@ -42,22 +40,14 @@ class Dirs(Enum):
     - ARTIFACTS: Directory where all processing artifacts(e.g. txt files with extracted text) are stored
     - COMPLETED: Directory where files that are processed successfully are moved
     """
-    ENTRY_POINT = "workdir/000_entry_point"
+    ENTRY_POINT = "000_entry_point"
+    WORK_IN_PROGRESS = "001_work_in_progress"
+    PAGE_IMAGES = '100_page_images'
+    LABEL_STUDIO_TASKS = "200_label_studio_tasks"
 
-    DIRTY = "workdir/100_dirty"
+    NOT_A_DOCUMENT = "500_not_a_document"
+    NOT_SUPPORTED_FORMAT_YET = "510_not_supported_yet"
+    NOT_TATAR = "520_not_tt_document"
 
-    NOT_A_DOCUMENT = "workdir/500_not_a_document"
-    NOT_SUPPORTED_FORMAT_YET = "workdir/510_not_supported_yet"
-    NOT_TATAR = "workdir/520_not_tt_document"
-
-    ARTIFACTS = 'workdir/900_artifacts'
-    EXTRACTED_DOCS = 'workdir/910_extracted_docs'
-
-    def get_real_path(self):
-        """
-        Get the real path of the directory
-        """
-        parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-        paths = [parent_dir, '..', self.value]
-        real_path = os.path.join(*paths)
-        return os.path.normpath(real_path)
+    ARTIFACTS = '900_artifacts'
+    EXTRACTED_DOCS = '910_extracted_docs'

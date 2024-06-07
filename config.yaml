@@ -1,0 +1,4 @@
+yc:
+  bucket: <SET ME>
+  aws_access_key_id: <SET ME>
+  aws_secret_access_key: <SET ME>
