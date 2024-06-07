@@ -12,7 +12,7 @@ from hf_connector import push_to_huggingface_repo
 from pdf import PdfExtractor
 from post_processor import post_process
 from report import ProcessingReport
-from tests.run_tests import RunTests
+from tests.test_extraction import RunTests
 from type_detection import detect_type, FileType
 from wc import words_counter
 
@@ -89,7 +89,10 @@ def tests():
     """
     Run extraction tests
     """
-    RunTests().run()
+    import unittest
+    path_to_tests_dir = os.path.join(os.path.dirname(__file__), 'tests')
+    suite = unittest.TestLoader().discover(path_to_tests_dir)
+    unittest.TextTestRunner(verbosity=3).run(suite)
 
 
 def extract_text(count, force):

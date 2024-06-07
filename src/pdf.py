@@ -20,10 +20,10 @@ RIGHT_COORD_KEYS = ['x1', 'bottom']  # bigger coords, bigger box
 
 
 class PdfExtractor:
-    def extract(self, path_to_src_file):
+    def extract(self, path_to_src_file, output_path=Dirs.DIRTY.get_real_path()):
         full_file_name = os.path.basename(path_to_src_file)
         file_name, _ = os.path.splitext(full_file_name)
-        path_to_txt_file = os.path.join(Dirs.DIRTY.get_real_path(), file_name + ".txt")
+        path_to_txt_file = os.path.join(output_path, file_name + ".txt")
         with pdfplumber.open(path_to_src_file) as input, open(path_to_txt_file, 'w', encoding='utf-8') as output:
             mcts = _find_the_most_popular_font(input.pages)
 
@@ -37,7 +37,7 @@ class PdfExtractor:
         return path_to_txt_file
 
     def _extract_text_from_page(self, page: Page, mcts, total_pages: int, page_has_paragraph_indent=True,
-                                remove_header_footer=True):
+                                remove_header_footer=False):
         """
         Extracts text from the page and formats it.
 
