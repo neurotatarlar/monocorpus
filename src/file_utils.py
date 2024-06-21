@@ -67,30 +67,25 @@ def remove_file(path_to_file):
     os.remove(path_to_file)
 
 
-def pick_files(dir_path: str, count: int = 1):
+def pick_files(dir_path: str, count=1):
     """
     Picks target number of files from the directory and its subdirectories
 
     :param dir_path: Path to the directory to pick files from
-    :param count:  Number of files to pick, -1 means all files
+    :param count:  Number of files to pick, negative number or None means all files
     :return: List of paths to the picked files
     """
-    return _traverse_recursively(dir_path, 0, [], count)
-
-
-def _traverse_recursively(dir_path: str, found_files_counter: int, files_to_process, count: int = 1):
+    files_to_process = []
+    count = count if count is not None and count >= 0 else -1
     for dir_name, dirs, files in os.walk(dir_path):
 
         for f in files:
             path_to_file = os.path.join(dir_name, f)
             if is_hidden(path_to_file):
                 continue
-            files_to_process.append(path_to_file)
-            found_files_counter += 1
-            if (0 < count) == found_files_counter:
+            if count == len(files_to_process):
                 return files_to_process
-
-        for d in dirs:
-            _traverse_recursively(d, found_files_counter, files_to_process, count)
+            else:
+                files_to_process.append(path_to_file)
 
     return files_to_process

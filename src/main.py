@@ -12,7 +12,6 @@ from hf_connector import push_to_huggingface_repo
 from pdf import PdfExtractor
 from post_processor import post_process
 from report import ProcessingReport
-from tests.test_extraction import RunTests
 from type_detection import detect_type, FileType
 from wc import words_counter
 
@@ -141,10 +140,10 @@ def _extract_text_from_files(files_to_process, force):
             dir_to_move, report_method = _extract_based_on_type(file, detected_type)
         else:
             file_name = os.path.basename(file)
-            dir_to_move, report_method = Dirs.EXTRACTED_DOCS, lambda x: x.already_extracted(file_name)
+            dir_to_move, report_method = Dirs.EXTRACTED_DOCS, lambda x: x.already_extracted(file_name, crc32)
 
-        move_file(file, dir_to_move.get_real_path())
-        dump_index(index)
+        # move_file(file, dir_to_move.get_real_path())
+        # dump_index(index)
         report_method(report)
 
     return report

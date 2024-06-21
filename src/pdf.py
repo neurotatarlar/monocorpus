@@ -23,17 +23,42 @@ class PdfExtractor:
     def extract(self, path_to_src_file, output_path=Dirs.DIRTY.get_real_path()):
         full_file_name = os.path.basename(path_to_src_file)
         file_name, _ = os.path.splitext(full_file_name)
-        path_to_txt_file = os.path.join(output_path, file_name + ".txt")
-        with pdfplumber.open(path_to_src_file) as input, open(path_to_txt_file, 'w', encoding='utf-8') as output:
-            mcts = _find_the_most_popular_font(input.pages)
+        path_to_txt_file = os.path.join(output_path, file_name + ".md")
+        import pymupdf
 
-            all_pages = input.pages
-            total_pages = len(all_pages)
+        prev_span_bbox = [0, 0, 0, 0]
+        result = ''
+        with pymupdf.open(path_to_src_file) as document:
+            for page in list(document.pages())[4:5]:
+                for bidx, b in enumerate(page.get_text("dict", sort=True).get('blocks', [])):
+                    for lidx, l in enumerate(b.get('lines', [])):
+                        for s in l.get('spans', []):
+                            print(s)
+                            text = s['text']
+                            if not text:
+                                continue
+                            flags = s['flags']
+                            superscript = bool(flags & 1)
+                            italic = bool(flags & 2)
+                            monospace = bool(flags & 8)
+                            bold = bool(flags & 16)
+                            if monospace:
+                                text = f"`{text}`"
+                            asterisks_count = (1 if italic else 0) + (2 if bold else 0)
+                            text = f"{'*' * asterisks_count}{text}{'*' * asterisks_count}"
 
-            for page in track(all_pages, description=f"Extracting text from PDF file '{file_name}'"):
-                formatted_text = self._extract_text_from_page(page, mcts, total_pages)
-                if formatted_text:
-                    output.write(formatted_text)
+                            cur_span_bbox = tuple(map(lambda x: round(x), s['bbox']))
+                            print(f"{cur_span_bbox}:{s['text']}")
+                            if superscript:
+                                text = f"<sup>{text}</sup>"
+                            else:
+                                if cur_span_bbox[1] > prev_span_bbox[1] and cur_span_bbox[3] > prev_span_bbox[3]:
+                                    text = ('\n' if result else '') + text
+                                prev_span_bbox = cur_span_bbox
+                            result += text
+
+        with open(path_to_txt_file, 'w', encoding='utf-8') as output:
+            output.write(result)
         return path_to_txt_file
 
     def _extract_text_from_page(self, page: Page, mcts, total_pages: int, page_has_paragraph_indent=True,

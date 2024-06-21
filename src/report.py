@@ -32,6 +32,6 @@ class ProcessingReport:
         self._processed_files += 1
         self._extracted_docs.append(file_name)
 
-    def already_extracted(self, file_name: str):
+    def already_extracted(self, file_name: str, crc32: str):
         self._processed_files += 1
-        self._already_extracted.append(file_name)
+        self._already_extracted.append((file_name, crc32))
