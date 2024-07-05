@@ -33,10 +33,12 @@ class Dirs(Enum):
     Enum with all the directories and files that are used in the project
 
     - ENTRY_POINT: Directory where all the files begins their journey
+    - WORK_IN_PROGRESS: Directory where files are moved then they are processed
+    - PAGE_IMAGES: Directory where images of the pages are stored
+    - LABEL_STUDIO_TASKS: Directory where Label Studio tasks are stored
     - NOT_A_DOCUMENT: Directory where files that are not documents at all are moved (e.g. images, archives)
     - NOT_SUPPORTED_FORMAT_YET: Directory where files with formats that are not supported yet are moved
     - NOT_TATAR: Directory where files that are not in Tatar language are moved
-    - DIRTY: Directory where files that are not processed yet are moved
     - ARTIFACTS: Directory where all processing artifacts(e.g. txt files with extracted text) are stored
     - COMPLETED: Directory where files that are processed successfully are moved
     """
