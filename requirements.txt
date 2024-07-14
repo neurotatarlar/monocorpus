@@ -11,3 +11,4 @@ tiktoken==0.7.0
 ultralytics
 boto3
 pyyaml
+pyairtable

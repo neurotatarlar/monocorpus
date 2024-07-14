@@ -48,7 +48,7 @@ def process_page(page, la, hsd):
     body, footnotes = page_layout
     for l in body:
         bbox = l['bbox']
-        cls = l['layout'][0]['class']
+        cls = l['layouts'][0]['class']
         match cls:
             case 'text' | 'section-header' | 'title':
                 formatted_text = extract_text(page, bbox, hsd)
@@ -92,11 +92,11 @@ def order_layouts(page_layouts):
         return sorted(l, key=lambda x: (x['bbox'][1], x['bbox'][0]))
 
     def leave_most_confident_layout(l):
-        return list(map(lambda x: {'bbox': x['bbox'], 'layout': [x['layout'][0]]}, l))
+        return list(map(lambda x: {'bbox': x['bbox'], 'layout': [x['layouts'][0]]}, l))
 
     grouped_layouts = {}
     for l in page_layouts:
-        key = l['layout'][0]['class']
+        key = l['layouts'][0]['class']
         if key in grouped_layouts:
             grouped_layouts[key].append(l)
         else:
