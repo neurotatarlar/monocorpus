@@ -2,6 +2,8 @@ import hashlib
 import os
 import sys
 
+import yaml
+
 from consts import Dirs
 
 
@@ -49,3 +51,9 @@ def get_path_in_workdir(dir_name: str | Dirs, prefix: str = 'workdir'):
     paths = [parent_dir, '..', prefix, dir_name]
     path = os.path.join(*paths)
     return os.path.normpath(path)
+
+
+def read_config(config_file: str = "config.yaml"):
+    with open(get_path_in_workdir(config_file, prefix="."), 'r') as file:
+        config = yaml.safe_load(file)
+    return config

@@ -29,25 +29,12 @@ TATAR_ALPHA_NUMERIC = TATAR_CYRILLIC_ALPHABET.union(DIGITS)
 
 
 class Dirs(Enum):
-    """
-    Enum with all the directories and files that are used in the project
-
-    - ENTRY_POINT: Directory where all the files begins their journey
-    - NOT_A_DOCUMENT: Directory where files that are not documents at all are moved (e.g. images, archives)
-    - NOT_SUPPORTED_FORMAT_YET: Directory where files with formats that are not supported yet are moved
-    - NOT_TATAR: Directory where files that are not in Tatar language are moved
-    - DIRTY: Directory where files that are not processed yet are moved
-    - ARTIFACTS: Directory where all processing artifacts(e.g. txt files with extracted text) are stored
-    - COMPLETED: Directory where files that are processed successfully are moved
-    """
     ENTRY_POINT = "000_entry_point"
-    WORK_IN_PROGRESS = "001_work_in_progress"
     PAGE_IMAGES = '100_page_images'
     LABEL_STUDIO_TASKS = "200_label_studio_tasks"
-
-    NOT_A_DOCUMENT = "500_not_a_document"
-    NOT_SUPPORTED_FORMAT_YET = "510_not_supported_yet"
-    NOT_TATAR = "520_not_tt_document"
+    BOXES_PLOTS = '300_boxes_plots'
+    WAITING_FOR_EXTRACTION = '400_waiting_for_extraction'
+    ANNOTATION_RESULTS = '500_annotation_results'
 
     ARTIFACTS = '900_artifacts'
-    EXTRACTED_DOCS = '910_extracted_docs'
+    ANNOTATIONS = '910_annotations'

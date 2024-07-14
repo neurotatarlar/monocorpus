@@ -2,3 +2,12 @@ yc:
   bucket: <SET ME>
   aws_access_key_id: <SET ME>
   aws_secret_access_key: <SET ME>
+
+
+airtable:
+  api_key: <SET ME
+  base_id: <SET ME>
+  table:
+    document: <SET ME>
+    annotation: <SET ME>
+    annotation_summary: <SET ME>
