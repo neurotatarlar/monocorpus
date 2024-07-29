@@ -38,3 +38,5 @@ class Dirs(Enum):
 
     ARTIFACTS = '900_artifacts'
     ANNOTATIONS = '910_annotations'
+    DOCS_PLOT = '920_docs_plots'
+

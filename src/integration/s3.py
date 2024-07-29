@@ -56,16 +56,17 @@ def upload_files_to_s3(files: [], bucket_provider, session=create_session(), **k
     return upload_result
 
 
-def list_files(bucket: str, folder: str = "", session= create_session()):
+def list_files(bucket: str, folder: str = "", session=create_session()):
     """
     List files in the S3 bucket in the specified folder
     """
+    paginator = session.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket, Prefix=folder)
     return {
-        f['Key']: f['ETag'].strip('"')
-        for f
-        in session.list_objects(Bucket=bucket, Prefix=folder).get('Contents', [])
+        obj['Key']: obj['ETag'].strip('"')
+        for page in pages
+        for obj in page['Contents']
     }
-
 
 def download_annotations(bucket: str, keys:[], session=create_session()):
     """

@@ -15,6 +15,17 @@ def create_folders():
         real_path = get_path_in_workdir(d)
         os.makedirs(real_path, exist_ok=True)
 
+def get_path_in_workdir(dir_name: str | Dirs, prefix: str = 'workdir'):
+    """
+    Get the real path of the directory
+    """
+    if isinstance(dir_name, Dirs):
+        dir_name = dir_name.value
+    parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
+    paths = [parent_dir, '..', prefix, dir_name]
+    path = os.path.join(*paths)
+    return os.path.normpath(path)
+
 
 def pick_files(dir_path: str):
     files_to_process = []
@@ -41,19 +52,10 @@ def calculate_md5(file_path: str):
     return hash_md5.hexdigest()
 
 
-def get_path_in_workdir(dir_name: str | Dirs, prefix: str = 'workdir'):
-    """
-    Get the real path of the directory
-    """
-    if isinstance(dir_name, Dirs):
-        dir_name = dir_name.value
-    parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-    paths = [parent_dir, '..', prefix, dir_name]
-    path = os.path.join(*paths)
-    return os.path.normpath(path)
-
-
 def read_config(config_file: str = "config.yaml"):
     with open(get_path_in_workdir(config_file, prefix="."), 'r') as file:
         config = yaml.safe_load(file)
     return config
+
+
+create_folders()

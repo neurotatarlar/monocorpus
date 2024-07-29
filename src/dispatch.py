@@ -7,7 +7,7 @@ from rich import print
 from rich.progress import track
 
 from consts import Dirs
-from file_utils import pick_files, create_folders, calculate_md5, get_path_in_workdir, read_config
+from file_utils import pick_files, calculate_md5, get_path_in_workdir, read_config
 from integration.airtable import Document, AnnotationsSummary
 from layout_analysis import layout_analysis
 from integration.s3 import download_annotation_summaries, create_session
@@ -17,7 +17,7 @@ from text_extraction import extract_content
 
 def layout_analysis_entry_point(md5, force, pages_slice):
     """
-    Analyze the layout of the documents in the entry point folder
+    Analyze the page_layout of the documents in the entry point folder
     """
     # list of all local files
     files = pick_files(get_path_in_workdir(Dirs.ENTRY_POINT))
@@ -47,12 +47,12 @@ def layout_analysis_entry_point(md5, force, pages_slice):
         files = {md5: file}
 
     if not files:
-        print(f"No files for layout analysis, please put some documents to the folder `{Dirs.ENTRY_POINT}` or provide "
+        print(f"No files for page_layout analysis, please put some documents to the folder `{Dirs.ENTRY_POINT}` or provide "
               f"MD5 of the document to download")
         return
 
     for md5, file in files.items():
-        print(f"Analyzing layout of the document with MD5 `{md5}`: {file}")
+        print(f"Analyzing page_layout of the document with MD5 `{md5}`...")
         # check if the document with the same md5 already exists in the Airtable
         if doc := Document.first(formula=f"md5='{md5}'"):
             if doc.sent_for_annotation and not force:
@@ -61,7 +61,7 @@ def layout_analysis_entry_point(md5, force, pages_slice):
         else:
             doc = Document(md5=md5)
 
-        # run layout analysis
+        # run page_layout analysis
         pages_count = layout_analysis(file, md5, pages_slice)
 
         # update the document in the Airtable
@@ -70,27 +70,48 @@ def layout_analysis_entry_point(md5, force, pages_slice):
         doc.save()
 
         # move file
-        shutil.move(file, get_path_in_workdir(Dirs.WAITING_FOR_EXTRACTION))
+        shutil.move(file, os.path.join(get_path_in_workdir(Dirs.WAITING_FOR_EXTRACTION), os.path.basename(file)))
 
 
 def extract_text_entry_point(md5, force):
-    # get all documents that already annotated but the text is not extracted
-    not_extracted_docs = [
-        doc.to_record()['fields']
-        for doc
-        in Document.all(
-            formula=match({
-                Document.annotation_completed.field_name: True,
-                Document.text_extracted.field_name: False
-            }),
-            fields=[Document.md5.field_name, Document.ya_public_key.field_name]
+    if md5:
+        doc = Document.first(
+            fields=[
+                Document.md5.field_name,
+                Document.ya_public_key.field_name,
+                Document.text_extracted.field_name,
+                Document.sent_for_annotation.field_name,
+            ],
+            formula=f"md5='{md5}'"
         )
-    ]
-    not_extracted_docs = {doc['md5']: doc['ya_public_key'] for doc in not_extracted_docs if doc}
+        if not doc:
+            print(f"Document with MD5 `{md5}` not found in the Airtable")
+            return
+        if not doc.sent_for_annotation:
+            print(f"Document with MD5 `{md5}` not sent for annotation yet, inference and annotate it first")
+            return
+        if doc.text_extracted and not force:
+            print(f"Text for the document with MD5 `{md5}` already extracted. Skipping...")
+            return
+        docs_to_process = {doc.md5: doc.ya_public_key}
+    else:
+        # get all documents that already annotated but the text is not extracted
+        docs_to_process = [
+            doc.to_record()['fields']
+            for doc
+            in Document.all(
+                formula=match({
+                    Document.annotation_completed.field_name: True,
+                    Document.text_extracted.field_name: False
+                }),
+                fields=[Document.md5.field_name, Document.ya_public_key.field_name]
+            )
+        ]
+        docs_to_process = {doc['md5']: doc['ya_public_key'] for doc in docs_to_process if doc}
 
-    if not not_extracted_docs:
-        print("All documents are already processed, it is time to do some annotation")
-        return
+        if not docs_to_process:
+            print("All documents are already processed, it is time to do some annotation")
+            return
 
     # get all annotation summaries for the documents to get link for the results
     anno_sums = [
@@ -101,7 +122,7 @@ def extract_text_entry_point(md5, force):
             formula=OR(
                 *[
                     match({AnnotationsSummary.doc_md5.field_name: doc_md5})
-                    for doc_md5 in not_extracted_docs
+                    for doc_md5 in docs_to_process
                 ]
             )
         )
@@ -128,6 +149,6 @@ def extract_text_entry_point(md5, force):
             print(f"Document with MD5 `{md5}` not found in the local folder, downloading it from Yandex.Disk")
             # download document from Yandex.Disk
             path_to_doc = os.path.join(dir_with_docs, f"{md5}.pdf")
-            download_file_from_yandex_disk(not_extracted_docs[md5], path_to_doc)
+            download_file_from_yandex_disk(docs_to_process[md5], path_to_doc)
 
         extract_content(md5, path_to_doc, path_to_annot_res)

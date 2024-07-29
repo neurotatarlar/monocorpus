@@ -67,7 +67,7 @@ def inference(
         ] = "::"
 ):
     """
-    Run PDF Document Layout Analysis. This will create images of every page, run layout analysis prediction and
+    Run PDF Document Layout Analysis. This will create images of every page, run page_layout analysis prediction and
     send the tasks to the labeling service
     """
     layout_analysis_entry_point(md5, force, pages_slice)
@@ -85,8 +85,21 @@ def sync():
 
 @app.command()
 def extract(
-        md5: Annotated[Optional[str], typer.Option(callback=md5_validator)] = None,
-        force: bool = False,
+        md5: Annotated[
+            Optional[str],
+            typer.Option(
+                "--md5", "-m",
+                callback=md5_validator,
+                help="MD5 hash of the document. If not provided, all local documents will be processed."
+            )
+        ] = None,
+        force: Annotated[
+            bool,
+            typer.Option(
+                "--force", "-f",
+                help="Force the processing even if the document is already sent for annotation"
+            )
+        ] = False,
 ):
     """
     Extract text from the annotated documents
