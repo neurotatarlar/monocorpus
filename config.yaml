@@ -1,13 +1,24 @@
 yc:
-  bucket: <SET ME>
-  aws_access_key_id: <SET ME>
-  aws_secret_access_key: <SET ME>
-
+  bucket:
+    images: label-studio-import-images
+    tasks: label-studio-import-tasks-2
+    title_tasks: label-studio-import-title-tasks
+    annotations_summary: annotations-summary
+    annotations: label-studio-export-annotations
+  aws_access_key_id:
+  aws_secret_access_key:
 
 airtable:
-  api_key: <SET ME
-  base_id: <SET ME>
+  api_key:
+  base_id: appyygYGhPHwIQPO2
   table:
-    document: <SET ME>
-    annotation: <SET ME>
-    annotation_summary: <SET ME>
+    document: tblmCi8f63d4YxEWF
+    annotation: tblh7voGOS8sMFXrB
+    annotation_summary: tblAnRBk2GTYW7AnV
+
+yandex_disk:
+  download_url: https://cloud-api.yandex.net/v1/disk/public/resources/download
+  # https://yandex.com/dev/direct/doc/start/token.html
+  token: <SET ME>
+
+

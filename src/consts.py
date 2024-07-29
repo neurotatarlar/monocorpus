@@ -30,6 +30,7 @@ TATAR_ALPHA_NUMERIC = TATAR_CYRILLIC_ALPHABET.union(DIGITS)
 
 class Dirs(Enum):
     ENTRY_POINT = "000_entry_point"
+    BOOKS_CACHE = "010_books_cache"
     PAGE_IMAGES = '100_page_images'
     LABEL_STUDIO_TASKS = "200_label_studio_tasks"
     BOXES_PLOTS = '300_boxes_plots'
@@ -38,3 +39,5 @@ class Dirs(Enum):
 
     ARTIFACTS = '900_artifacts'
     ANNOTATIONS = '910_annotations'
+    DOCS_PLOT = '920_docs_plots'
+

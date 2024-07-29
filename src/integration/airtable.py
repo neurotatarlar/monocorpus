@@ -15,7 +15,7 @@ class Annotation(Model):
 
     class Meta:
         base_id = config['airtable']['base_id']
-        table_name = config['airtable']['table']['annotations']
+        table_name = config['airtable']['table']['annotation']
         api_key = config['airtable']['api_key']
 
 
@@ -52,10 +52,13 @@ class AnnotationsSummary(Model):
     completeness = F.PercentField("completeness")
     result_link = F.UrlField("result_link")
     missing_pages = F.TextField("missing_pages")
+    has_tables = F.CheckboxField("has_tables")
+    has_images = F.CheckboxField("has_images")
+    has_formulas = F.CheckboxField("has_formulas")
 
     class Meta:
         base_id = config['airtable']['base_id']
-        table_name = config['airtable']['table']['annotations_summary']
+        table_name = config['airtable']['table']['annotation_summary']
         api_key = config['airtable']['api_key']
 
     def get_or_create(doc_md5):

@@ -1,30 +1,27 @@
 import json
 import os
-import random
-import string
+import re
 from collections import Counter
-from itertools import groupby
-from math import sqrt
 from enum import Enum
+from itertools import groupby
 
 from pymupdf import pymupdf, Matrix, TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
     TEXT_CID_FOR_UNKNOWN_UNICODE
 
-import re
 from consts import Dirs
 from file_utils import get_path_in_workdir
+from post_processor import post_process
 
+# todo post processing
 # todo bold inside the word
 # todo Horizontal Rule Best Practices instead of asterisks
 # todo Starting Unordered List Items With Numbers
 # todo download books by md5
 # todo remove glyphen
-# todo check if regions overlap
 # todo define reading order
 # todo sort layouts, including knowledge of page structure
 # todo whitespace after the punctuations
 # todo headers
-# todo proper headers
 # todo neytralize asterisks and special characters of Markdown
 # todo first block can be a continuation of the previous block
 # todo one table over 2 pages_slice
@@ -47,13 +44,13 @@ from file_utils import get_path_in_workdir
 # support for emails and urls
 
 TEXT_EXTRACTION_FLAGS = (
-    TEXT_PRESERVE_LIGATURES
-    &
-    ~TEXT_PRESERVE_IMAGES
-    &
-    TEXT_PRESERVE_WHITESPACE
-    &
-    TEXT_CID_FOR_UNKNOWN_UNICODE
+        TEXT_PRESERVE_LIGATURES
+        &
+        ~TEXT_PRESERVE_IMAGES
+        &
+        TEXT_PRESERVE_WHITESPACE
+        &
+        TEXT_CID_FOR_UNKNOWN_UNICODE
 )
 
 
@@ -71,7 +68,10 @@ class PageArchetype:
         for k, g in groupby(layouts, key=lambda x: x['class']):
             if k in ['page-header', 'page-footer']:
                 self.omitted_layouts += list(g)
-            groups[k] = list(g)
+            elif k in groups:
+                groups[k] += list(g)
+            else:
+                groups[k] = list(g)
 
         footnote = groups.pop('footnote', [])
         main_body = sorted([item for sublist in groups.values() for item in sublist], key=lambda l: (l['y'], l['x']))
@@ -130,12 +130,14 @@ class MarkdownFormatter:
     def _header_for_size(self, size):
         return self.headers.get(round(size)) or 0
 
-    def _format_span(self, span, is_last_span = False):
+    def _format_span(self, span, is_last_span=False):
         text = span.get('text')
         if not text:
             return None
         elif text.isspace():
             return text
+
+        # text = self._escape_markdown(text)
 
         # check if the last character is a soft hyphen
         is_hyphen = text.endswith('­')
@@ -156,6 +158,7 @@ class MarkdownFormatter:
 
         header_multiplier = self._header_for_size(size)
 
+        formatting = "{}"
         # monospace should be the first, otherwise all formatting elements will be inside the monospace block
         if self.monospace_in_progress and not monospace:
             # there is a monospace block in progress but the current span is not monospace, so we need to close the
@@ -163,7 +166,7 @@ class MarkdownFormatter:
             self._close_monospace()
         elif not self.monospace_in_progress and monospace:
             self.monospace_in_progress = True
-            text = f"`{text}"
+            formatting = f"`{formatting}"
 
         if self.italic_in_progress and not italic:
             # there is an italic block in progress but the current span is not italic, so we need to close the
@@ -171,7 +174,7 @@ class MarkdownFormatter:
             self._close_italic()
         elif not self.italic_in_progress and italic:
             self.italic_in_progress = True
-            text = f"*{text}"
+            formatting = f"*{formatting}"
 
         if self.bold_in_progress and not bold:
             # there is a bold block in progress but the current span is not bold, so we need to close the bold block
@@ -179,7 +182,7 @@ class MarkdownFormatter:
         elif not self.bold_in_progress and bold and not header_multiplier:
             # making a header bold does not make sense, because headers are already bold
             self.bold_in_progress = True
-            text = f"**{text}"
+            formatting = f"**{formatting}"
 
         # superscript should be before header
         if self.superscript_in_progress and not superscript:
@@ -188,7 +191,7 @@ class MarkdownFormatter:
             self._close_superscript()
         elif not self.superscript_in_progress and superscript:
             self.superscript_in_progress = True
-            text = f"<sup>{text}"
+            formatting = f"<sup>{formatting}"
 
         # header should be the last
         if self.header_in_progress and not header_multiplier:
@@ -197,9 +200,13 @@ class MarkdownFormatter:
             self._close_header()
         elif not self.header_in_progress and header_multiplier:
             self.header_in_progress = True
-            text = f"{'#' * header_multiplier} {text}"
+            formatting = f"{'#' * header_multiplier} {formatting}"
 
-        return text
+        post_processed_text = post_process(text, escape_markdown=not monospace)
+
+        formatting = formatting.format(post_processed_text)
+
+        return formatting
 
     def extract_text(self, bbox, ctxt, keep_line_breaks=False):
         page = ctxt['page']
@@ -245,10 +252,9 @@ class MarkdownFormatter:
 
         if self.spans:
             self._close_existing_formatting()
-            text_block = re.sub(r' +', r' ', ''.join(self.spans).strip())
+            text_block = _post_process(''.join(self.spans))
             self.sections.append((_SectionType.TEXT, text_block))
             self.spans = []
-
 
     def _close_header(self):
         self.header_in_progress = False
@@ -297,24 +303,6 @@ class MarkdownFormatter:
         self.sections.append((_SectionType.IMAGE, f"![image{self.image_counter}](./{file_name})"))
 
     def flush(self, output_file):
-        # text blocks, tables, images, formulas
-        # for text blocks:
-        #  - two line breaks after previous text line
-        #  - one line break after the formulas, tables, images
-        # for tables two new lines after text, another table, image, but one line after formulas
-        # for formulas, images one new line before the section
-
-        """
-          Extract text from the specified bounding box on the page
-
-          If block is the first, then it can be a continuation of the previous block
-          To check it, we need to check:
-          - there is any previous text block. If not, then it is a new block
-          - if the last text block on the previous page ends with a hyphen, then it is a continuation
-          - if the new block starts with long dash, then it is a new block
-          - if the new block not starts with a long dash and consists of one line, then it is a continuation
-          - if the new block has more than one line, and first line has indent, then it is a new block
-          """
         for ty, section in self.sections:
             prev = self.prev_section_type
             match ty:
@@ -355,7 +343,8 @@ def extract_content(md5, path_to_doc, path_to_la):
         f = MarkdownFormatter(doc)
         for page in doc.pages():
             if not (page_layouts := annotations.get(str(page.number))):
-                raise Exception(f"Annotations for the page `{page.number}` not found")
+                print(f"Page {page.number} has no layout annotations")
+                continue
 
             context['page'] = page
             width = page.rect.width / 100
@@ -366,11 +355,11 @@ def extract_content(md5, path_to_doc, path_to_la):
 
                 match anno['class']:
                     case 'picture':
-                        f.extract_picture(bbox, context)
+                        print("Skipping picture extraction")
                     case 'table':
-                        raise NotImplementedError("Table extraction is not implemented yet")
+                        print("Skipping table extraction")
                     case 'formula':
-                        raise NotImplementedError("Formula extraction is not implemented yet")
+                        print("Skipping formula extraction")
                     case 'poetry':
                         f.extract_text(bbox, context, keep_line_breaks=True)
                         print("Text has poetry, check it!")
@@ -381,17 +370,17 @@ def extract_content(md5, path_to_doc, path_to_la):
                         f.extract_text(bbox, context)
 
                 # draw bounding boxes on page for visual control
-                page.draw_rect(bbox, color=(0, 1, 0), width=0.5)
+                page.draw_rect(bbox, color=(0, 1, 0), width=1)
 
             # flush the page to the file
             f.flush(result_md)
             # draw omitted layouts
             for omitted in pa.omitted_layouts:
                 bbox = _calculate_bbox(omitted, width, height)
-                page.draw_rect(bbox, color=(1, 0, 0), width=0.5)
+                page.draw_rect(bbox, color=(1, 0, 0), width=1)
 
         # save the document with bounding boxes
-        path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), f"{md5}.pdf")
+        path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.DOCS_PLOT), f"{md5}.pdf")
         with open(path_to_plotted_doc, 'wb') as f:
             doc.save(f)
 

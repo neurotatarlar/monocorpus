@@ -103,7 +103,7 @@ def calculate_completeness():
 
     # Get all documents that were sent for annotation but the annotation is not completed
     not_completed_docs = Document.all(
-        fields=['md5', 'pages_count'],
+        fields=[Document.md5.field_name, Document.pages_count.field_name],
         formula=match({
             Document.sent_for_annotation.field_name: True,
             Document.annotation_completed.field_name: False
@@ -115,31 +115,38 @@ def calculate_completeness():
     # annotation summaries to update in the Airtable
     anno_summaries_to_update = []
 
+    has_tables = False
+    has_images = False
+    has_formulas = False
+
     for doc in not_completed_docs:
-        # key is page_no, value is the annotations for the page
-        grouped = {}
         # Get all annotations for the document
         related_annotations = Annotation.all(
-            fields=['doc_md5', 'page_no', 'last_changed', 'results'],
+            fields=[
+                Annotation.doc_md5.field_name,
+                Annotation.page_no.field_name,
+                Annotation.last_changed.field_name,
+                Annotation.results.field_name
+            ],
             formula=f"{Annotation.doc_md5.field_name}='{doc.md5}'"
         )
 
+        # key is page_no, value is the annotations for the page
+        grouped = {}
         # Group the annotations by page_no and get the latest annotation for every page
-        for a in map(lambda x: x.to_record().get('fields'), related_annotations):
-            page_no = a['page_no']
-            last_changed = a['last_changed']
-
-            if page_no not in grouped:
-                grouped[page_no] = a
+        for a in related_annotations:
+            if a.page_no not in grouped:
+                grouped[a.page_no] = a
             else:
-                print(f"Found duplicate annotation for page {page_no} in document {doc.md5}")
-                cur_value_update_time = grouped[page_no]['last_changed']
-                if not cur_value_update_time or cur_value_update_time < last_changed:
-                    grouped[page_no] = a
+                print(f"Found duplicate annotation for page {a.page_no} in document {doc.md5}")
+                cur_value_update_time = grouped[a.page_no].last_changed
+                if not cur_value_update_time or cur_value_update_time < a.last_changed:
+                    grouped[a.page_no] = a
 
         completeness = len(grouped) / doc.pages_count
         anno_sum = AnnotationsSummary.get_or_create(doc_md5=doc.md5)
         anno_sum.completeness = completeness
+
         session = create_session()
 
         if completeness == 1.0:
@@ -148,7 +155,7 @@ def calculate_completeness():
             anno_sum.missing_pages = None
             docs_to_update.append(doc)
             result = {
-                page_no: json.loads(annotation['results'])
+                page_no: json.loads(annotation.results)
                 for (page_no, annotation)
                 in grouped.items()
             }
@@ -164,10 +171,22 @@ def calculate_completeness():
                 session=session
             )
             anno_sum.result_link = upload_results[output_file]
+
+            classes = set(layout['class'] for page_layouts in result.values() for layout in page_layouts)
+            # Check if the document has tables, images or formulas
+            if 'table' in classes:
+                has_tables = True
+            elif 'picture' in classes:
+                has_images = True
+            elif 'formula' in classes:
+                has_formulas = True
         else:
             missing_pages = [str(p) for p in range(1, doc.pages_count + 1) if p not in grouped]
             anno_sum.missing_pages = f"{len(missing_pages)}: {missing_pages.__str__()}"
 
+        anno_sum.has_tables = has_tables
+        anno_sum.has_images = has_images
+        anno_sum.has_formulas = has_formulas
         anno_summaries_to_update.append(anno_sum)
 
     # Update the documents and the annotation summaries in the Airtable
