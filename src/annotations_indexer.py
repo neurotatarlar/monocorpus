@@ -2,194 +2,141 @@ import json
 import os.path
 from datetime import datetime
 
+from rich import print
 from rich.progress import track
 
-from integration.airtable import Annotation, Document, AnnotationsSummary
-from integration.s3 import list_files, create_session, download_annotations
-from file_utils import read_config
-from pyairtable.formulas import match
-from integration.s3 import upload_files_to_s3
-from file_utils import get_path_in_workdir
 from consts import Dirs
+from file_utils import read_config, get_path_in_workdir
+from integration.gsheets import find_by_md5_non_complete
+from integration.gsheets import upsert_many_in_parallel
+from integration.s3 import list_files, create_session, download_in_parallel, download_annotation
+from integration.s3 import upload_files_to_s3
+import portion as P
 
 
-def sync_annotations():
+def sync():
+    downloaded_annotations = _download_annotations()
+    transformed = _transform_annotations(downloaded_annotations)
+    _calculate_completeness(transformed)
+    print("Sync completed successfully")
+
+
+def _download_annotations():
     config = read_config()
     session = create_session(config)
     bucket = config['yc']['bucket']['annotations']
-
-    print("Getting the list of annotations from the Airtable...")
-    checked_annot = {
-        str(a['anno_id']): a['anno_md5']
-        for a
-        in
-        map(lambda a: a.to_record().get('fields'), Annotation.all(fields=['anno_id', 'anno_md5']))
-        if a
-    }
-
-    # Get the list of files in the S3 bucket
+    print("Getting the list of annotations from the S3 bucket...")
     remote_annot = list_files(bucket, session=session)
+    print(f"Found {len(remote_annot)} annotations in the S3 bucket")
+    downloaded_annotations = []
+    download_folder = get_path_in_workdir(Dirs.ANNOTATIONS)
 
-    # Find the files that are in the S3 bucket but not in the Airtable or has different md5
-    diff = set(remote_annot.items()) - set(checked_annot.items())
+    for res in download_in_parallel(remote_annot, download_annotation, bucket, download_folder, session):
+        downloaded_annotations.append(res)
 
-    if not diff:
-        print("No new annotations found in the S3 bucket")
-        return
+    return downloaded_annotations
 
-    print(f"Found {len(diff)} files in the S3 bucket that are not in the Airtable")
-    # Download the annotations locally
-    downloaded_files = download_annotations(bucket, diff, session=session)
 
-    annotations_to_save = []
-    docs_cache = {}
-    for f, md5 in track(downloaded_files, description="Processing downloaded annotations..."):
-        with open(f, 'r') as file:
-            a = json.load(file)
-            anno_id = a['id']
-            data = a['task']['data']
-            doc_md5 = data['hash']
-
-            if md5 not in docs_cache:
-                docs_cache[doc_md5] = Document.first(formula=f"md5='{doc_md5}'")
-
-            # Check if the annotation with the same id is already in the Airtable, maybe the annotation was updated
-            # in the object storage
-            known_md5 = checked_annot.get(str(anno_id))
-            if not known_md5:
-                anno = Annotation(anno_id=anno_id)
-            elif known_md5 != md5:
-                print(f"MD5 mismatch for annotation `{anno_id}`. Known: {known_md5}, new: {md5}, updating...")
-                anno = Annotation.first(formula=f"anno_id={anno_id}")
-            else:
-                # If we are here it means function to find the difference between the airtable and s3 is not working,
-                # because here if id and md5 are same
-                # Just skipping it...
-                print(f"Annotation `{anno_id}` already in the Airtable")
+def _transform_annotations(downloaded_annotations):
+    transformed_annotations = {}
+    for path_to_f in track(downloaded_annotations[:], description="Processing downloaded annotations..."):
+        with open(path_to_f, 'r') as file:
+            anno = json.load(file)
+            data = anno['task']['data']
+            if not (doc_md5 := data.get('hash')):
+                print(f"Document `{path_to_f}` has no md5 hash, skipping it...")
                 continue
-
-            anno.page_no = data['page_no']
-            anno.image_link = data['image']
-            anno.anno_md5 = md5
-            anno.doc_md5 = doc_md5
-            anno.last_changed = datetime.strptime(a['task']['updated_at'], "%Y-%m-%dT%H:%M:%S.%fZ")
-            anno.results = json.dumps([
-                {
-                    "original_width": r['original_width'],
-                    "original_height": r['original_height'],
-                    "x": r['value']['x'],
-                    "y": r['value']['y'],
-                    "width": r['value']['width'],
-                    "height": r['value']['height'],
-                    'class': r['value']['rectanglelabels'][0],
-                }
-                for r
-                in a['result']
-            ])
-            annotations_to_save.append(anno)
-
-    print(f"Saving {len(annotations_to_save)} annotations to the Airtable")
-    Annotation.batch_save(annotations_to_save)
-    for d in docs_cache.values():
-        d.sent_for_annotation = True
-    Document.batch_save([d for d in docs_cache.values()])
-    print("Syncing is done!")
-
-
-def calculate_completeness():
-    """
-    Calculate the completeness of the annotations for every document sent for annotation
-    """
-
-    # Get all documents that were sent for annotation but the annotation is not completed
-    not_completed_docs = Document.all(
-        fields=[Document.md5.field_name, Document.pages_count.field_name],
-        formula=match({
-            Document.sent_for_annotation.field_name: True,
-            Document.annotation_completed.field_name: False
-        })
-    )
-
-    # docs to update in the Airtable
-    docs_to_update = []
-    # annotation summaries to update in the Airtable
-    anno_summaries_to_update = []
-
-    has_tables = False
-    has_images = False
-    has_formulas = False
-
-    for doc in not_completed_docs:
-        # Get all annotations for the document
-        related_annotations = Annotation.all(
-            fields=[
-                Annotation.doc_md5.field_name,
-                Annotation.page_no.field_name,
-                Annotation.last_changed.field_name,
-                Annotation.results.field_name
-            ],
-            formula=f"{Annotation.doc_md5.field_name}='{doc.md5}'"
-        )
-
-        # key is page_no, value is the annotations for the page
-        grouped = {}
-        # Group the annotations by page_no and get the latest annotation for every page
-        for a in related_annotations:
-            if a.page_no not in grouped:
-                grouped[a.page_no] = a
-            else:
-                print(f"Found duplicate annotation for page {a.page_no} in document {doc.md5}")
-                cur_value_update_time = grouped[a.page_no].last_changed
-                if not cur_value_update_time or cur_value_update_time < a.last_changed:
-                    grouped[a.page_no] = a
-
-        completeness = len(grouped) / doc.pages_count
-        anno_sum = AnnotationsSummary.get_or_create(doc_md5=doc.md5)
-        anno_sum.completeness = completeness
-
-        session = create_session()
-
-        if completeness == 1.0:
-            # If the annotation is completed, mark the document as completed
-            doc.annotation_completed = True
-            anno_sum.missing_pages = None
-            docs_to_update.append(doc)
-            result = {
-                page_no: json.loads(annotation.results)
-                for (page_no, annotation)
-                in grouped.items()
+            res = {
+                'anno_id': anno['id'],
+                'image_link': data['image'],
+                'last_changed': datetime.strptime(anno['task']['updated_at'], "%Y-%m-%dT%H:%M:%S.%fZ").strftime('%s'),
+                'results': [
+                    {
+                        "original_width": r['original_width'],
+                        "original_height": r['original_height'],
+                        "x": r['value']['x'],
+                        "y": r['value']['y'],
+                        "width": r['value']['width'],
+                        "height": r['value']['height'],
+                        'class': r['value']['rectanglelabels'][0],
+                    }
+                    for r
+                    in anno['result']
+                    if r.get('value') and r['value']['rectanglelabels'] not in ['caption']
+                ]
             }
-            # save file locally
-            output_file = os.path.join(get_path_in_workdir(Dirs.ANNOTATION_RESULTS), f"{doc.md5}.json")
-            with open(output_file, 'w') as file:
-                json.dump(result, file, indent=4, sort_keys=True)
+            _append_annotation(transformed_annotations, doc_md5, data['page_no'], res)
+    return transformed_annotations
 
-            # upload the file to the S3 bucket
-            upload_results = upload_files_to_s3(
-                [output_file],
-                bucket_provider=lambda c: c['yc']['bucket']['annotations_summary'],
-                session=session
-            )
-            anno_sum.result_link = upload_results[output_file]
 
-            classes = set(layout['class'] for page_layouts in result.values() for layout in page_layouts)
-            # Check if the document has tables, images or formulas
-            if 'table' in classes:
-                has_tables = True
-            elif 'picture' in classes:
-                has_images = True
-            elif 'formula' in classes:
-                has_formulas = True
-        else:
-            missing_pages = [str(p) for p in range(1, doc.pages_count + 1) if p not in grouped]
-            anno_sum.missing_pages = f"{len(missing_pages)}: {missing_pages.__str__()}"
+def _append_annotation(accumulator, doc_hash, page_no, res):
+    if doc_hash not in accumulator:
+        accumulator[doc_hash] = {}
+    if page_no not in accumulator[doc_hash]:
+        accumulator[doc_hash][page_no] = res
+    elif accumulator[doc_hash][page_no]['last_changed'] < res['last_changed']:
+        accumulator[doc_hash][page_no] = res
 
-        anno_sum.has_tables = has_tables
-        anno_sum.has_images = has_images
-        anno_sum.has_formulas = has_formulas
-        anno_summaries_to_update.append(anno_sum)
 
-    # Update the documents and the annotation summaries in the Airtable
-    Document.batch_save(docs_to_update)
-    AnnotationsSummary.batch_save(anno_summaries_to_update)
-    print("Completeness calculation is done!")
+def _calculate_completeness(transformed):
+    all_md5s = list(transformed.keys())
+    print(f"Requesting documents from the remote datastore...")
+    docs = {doc.md5: doc for doc in find_by_md5_non_complete(all_md5s)}
+    if not docs:
+        print("Incomplete documents not found, returning...")
+        return
+    else:
+        print(f"Found {len(docs)} not completed documents in the remote datastore")
+
+    # list of docs that were changed and need to be updated in remote datastore
+    changed_docs = []
+    # list of completed annotations to be saved in the object storage
+    cas = {}
+    for doc_hash, pages in track(transformed.items(), description="Calculating completeness..."):
+        if not (doc := docs.get(doc_hash)):
+            continue
+
+        completeness = round(len(pages) / doc.pages_count, 2)
+        completed = completeness == 1.0
+
+        if not completed:
+            missing_pages = _missing_pages(pages.keys(), doc.pages_count)
+            print(f"Document {doc_hash}({doc.ya_public_url}) is not completed: {completeness}, missing pages: {missing_pages}")
+
+        if completeness == doc.completeness and not completed:
+            # here we can skip the document if the completeness is the same and the document is not completed
+            # this is done to avoid unnecessary updates in the remote datastore
+            continue
+
+        if completed:
+            doc.annotation_completed = True
+            cas[doc_hash] = pages
+
+        doc.sent_for_annotation = True
+        doc.completeness = completeness
+        changed_docs.append(doc)
+
+    # upload completed annotations to the object storage
+    _upload_annotation_summaries(cas)
+
+    # update the remote datastore
+    for _ in upsert_many_in_parallel(changed_docs):
+        pass
+
+def _missing_pages(pages, pages_count):
+    i = P.empty()
+    for page_no in pages:
+        i |= P.closed(page_no, page_no + 1)
+
+    return P.open(0, pages_count) - i
+
+
+def _upload_annotation_summaries(cas):
+    paths = []
+    for doc_hash, pages in cas.items():
+        output_file = os.path.join(get_path_in_workdir(Dirs.ANNOTATION_RESULTS), f"{doc_hash}.json")
+        with open(output_file, 'w') as f:
+            json.dump(pages, f, indent=4, ensure_ascii=False, sort_keys=True)
+        paths.append(output_file)
+
+    upload_files_to_s3(paths, lambda c: c['yc']['bucket']['annotations_summary'],)

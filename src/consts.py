@@ -34,7 +34,6 @@ class Dirs(Enum):
     PAGE_IMAGES = '100_page_images'
     LABEL_STUDIO_TASKS = "200_label_studio_tasks"
     BOXES_PLOTS = '300_boxes_plots'
-    WAITING_FOR_EXTRACTION = '400_waiting_for_extraction'
     ANNOTATION_RESULTS = '500_annotation_results'
 
     ARTIFACTS = '900_artifacts'

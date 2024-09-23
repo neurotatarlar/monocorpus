@@ -1,5 +1,6 @@
 import os.path
 
+import typer
 import yaml
 from boto3 import Session
 from file_utils import calculate_md5, get_path_in_workdir, read_config
@@ -8,6 +9,10 @@ import multiprocessing
 from urllib.parse import urlparse
 
 from consts import Dirs
+from file_utils import read_config
+from concurrent.futures import ThreadPoolExecutor
+from concurrent import futures
+
 
 CONFIG_FILE = "config.yaml"
 
@@ -68,24 +73,39 @@ def list_files(bucket: str, folder: str = "", session=create_session()):
         for obj in page['Contents']
     }
 
-def download_annotations(bucket: str, keys:[], session=create_session()):
-    """
-    Download annotations from the S3 bucket
-    """
-    downloaded_annotations = []
-    download_folder = get_path_in_workdir(Dirs.ANNOTATIONS)
 
-    for key, r_md5 in track(keys, description=f"Downloading annotations from the `{bucket}`..."):
-        output_file = os.path.join(download_folder, key)
-        if not (os.path.exists(output_file) and r_md5 == calculate_md5(output_file)):
-            session.download_file(
-                bucket,
-                key,
-                output_file
-            )
-        downloaded_annotations.append((output_file, r_md5))
+def download_in_parallel(key_to_md5, func, bucket, download_folder, session = create_session()):
+    """
+    Download files in parallel
+    :param key_to_md5: dictionary with keys and expected md5 hashes
+    :param func: function to download the file
+    :param bucket: S3 bucket
+    :param download_folder: local folder to download the files to
+    :param session: boto3 session
+    :return: generator of downloaded files with path_to_file as key and expected md5 as value
+    """
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_key = {executor.submit(func, bucket=bucket, key=key, expected_md5=md5, download_folder=download_folder, session=session): key for key, md5 in key_to_md5.items()}
 
-    return downloaded_annotations
+        for future in track(futures.as_completed(future_to_key), description="Downloading files...", total=len(future_to_key)):
+            key = future_to_key[future]
+            if exception := future.exception():
+                executor.shutdown(wait=True, cancel_futures=True)
+                print(f"Failed to download {key}: {exception}")
+                raise typer.Abort()
+
+            yield future.result()
+
+
+def download_annotation(bucket, key, expected_md5, download_folder, session):
+    output_file = os.path.join(download_folder, key)
+    if not (os.path.exists(output_file) and expected_md5 == calculate_md5(output_file)):
+        session.download_file(
+            bucket,
+            key,
+            output_file
+        )
+    return output_file
 
 
 def download_annotation_summaries(bucket: str, keys, session=create_session()):

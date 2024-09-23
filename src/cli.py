@@ -5,7 +5,6 @@ from typing import Optional
 import typer
 from typing_extensions import Annotated
 
-from annotations_indexer import sync_annotations, calculate_completeness
 from dispatch import layout_analysis_entry_point, extract_text_entry_point
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
@@ -78,8 +77,8 @@ def sync():
     Download new and changed annotations from the object storage and update the database
     and calculate the completeness of the annotations
     """
-    sync_annotations()
-    calculate_completeness()
+    import annotations_indexer
+    annotations_indexer.sync()
 
 
 @app.command()
