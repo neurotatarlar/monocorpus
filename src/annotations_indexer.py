@@ -94,6 +94,8 @@ def _calculate_completeness(transformed):
     cas = {}
     for doc_hash, pages in track(transformed.items(), description="Calculating completeness..."):
         if not (doc := docs.get(doc_hash)):
+            # here we can skip the document if it is not found in the remote datastore
+            # it means that the document was already marked as completed
             continue
 
         completeness = round(len(pages) / doc.pages_count, 2)

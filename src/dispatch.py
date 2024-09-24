@@ -120,5 +120,5 @@ def extract_text_entry_point(md5, force):
     downloaded_annotations = download_annotation_summaries(bucket, keys, session=session)
 
     for doc in docs_to_process:
-        path_to_doc = _retrieve_files(doc.md5, doc.ya_public_key)
-        extract_content(doc.md5, path_to_doc, downloaded_annotations[doc.md5])
+        for md5, path in _retrieve_files(doc.md5, doc.ya_public_key).items():
+            extract_content(md5, path, downloaded_annotations[doc.md5])
