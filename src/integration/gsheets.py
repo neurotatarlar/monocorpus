@@ -28,6 +28,14 @@ def find_by_md5_non_complete(md5s, batch_size=500):
             results.extend(s.select(stmt))
     return results
 
+def find_all_annotations_completed_and_not_extracted():
+    with Session() as s:
+        stmt = select(Document).where(
+            Document.annotation_completed.is_(True)
+            &
+            Document.text_extracted.isnot(True)
+        )
+        return s.select(stmt)
 
 def upsert(doc):
     with Session() as s:

@@ -110,18 +110,18 @@ def download_annotation(bucket, key, expected_md5, download_folder, session):
 
 def download_annotation_summaries(bucket: str, keys, session=create_session()):
     """
-    Download annotation results from the S3 bucket
+    Download annotation results from the S3 bucket if not already downloaded
     """
     downloaded_files = {}
     download_folder = get_path_in_workdir(Dirs.ANNOTATION_RESULTS)
-    for md5, link in track(keys.items(), description=f"Downloading annotation results from the `{bucket}`..."):
-        output_file = os.path.join(download_folder, f"{md5}.json")
-        res = urlparse(link)
+    for md5 in track(keys, description=f"Downloading annotation results from the `{bucket}`..."):
+        file_name = f"{md5}.json"
+        output_file = os.path.join(download_folder, file_name)
         if not os.path.exists(output_file):
-            print(f"Downloading {link} to {output_file}")
+            print(f"Downloading {file_name} to {output_file}")
             session.download_file(
-                res.netloc,
-                res.path.lstrip("/"),
+                bucket,
+                file_name,
                 output_file
             )
         downloaded_files[md5] = output_file

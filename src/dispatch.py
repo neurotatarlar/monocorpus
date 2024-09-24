@@ -12,10 +12,10 @@ from file_utils import pick_files, calculate_md5, get_path_in_workdir, read_conf
 from layout_analysis import layout_analysis
 from integration.s3 import download_annotation_summaries, create_session
 from integration.yandex_disk import download_file_from_yandex_disk
-from integration.gsheets import find_by_md5, upsert
+from integration.gsheets import find_by_md5, upsert, find_all_annotations_completed_and_not_extracted
 from text_extraction import extract_content
 
-def _retrieve_files(md5=None):
+def _retrieve_files(md5=None, ya_public_key=None):
     """
     Retrieve files to process.
 
@@ -39,13 +39,15 @@ def _retrieve_files(md5=None):
         if md5 in files:
             return {md5: files[md5]}
 
-        doc = find_by_md5(md5)
-        if not doc:
-            print(f"Document with the MD5 `{md5}` not found, please provide correct MD5")
-            raise typer.Abort()
+        if not ya_public_key:
+            doc = find_by_md5(md5)
+            if not doc:
+                print(f"Document with the MD5 `{md5}` not found, please provide correct MD5")
+                raise typer.Abort()
+            ya_public_key = doc.ya_public_key
 
         # download from Yandex.Disk
-        return { md5: download_file_from_yandex_disk(doc.ya_public_key, file) }
+        return { md5: download_file_from_yandex_disk(ya_public_key, file) }
     else:
         return _get_files_in_entry_point()
 
@@ -90,74 +92,33 @@ def layout_analysis_entry_point(md5, force, pages_slice):
             shutil.move(file, final_path)
 
 def extract_text_entry_point(md5, force):
-    pass
-    # if md5:
-    #     doc = find_by_md5(md5)
-    #     if not doc:
-    #         print(f"Document with MD5 `{md5}` not found in the Airtable")
-    #         return
-    #     if not doc.sent_for_annotation:
-    #         print(f"Document with MD5 `{md5}` not sent for annotation yet, inference and annotate it first")
-    #         return
-    #     if doc.text_extracted and not force:
-    #         print(f"Text for the document with MD5 `{md5}` already extracted. Skipping...")
-    #         return
-    #     docs_to_process = {doc.md5: doc.ya_public_key}
-    # else:
-    #     # get all documents that already annotated but the text is not extracted
-    #     docs_to_process = [
-    #         doc.to_record()['fields']
-    #         for doc
-    #         in Document.all(
-    #             formula=match({
-    #                 Document.annotation_completed.field_name: True,
-    #                 Document.text_extracted.field_name: False
-    #             }),
-    #             fields=[Document.md5.field_name, Document.ya_public_key.field_name]
-    #         )
-    #     ]
-    #     docs_to_process = {doc['md5']: doc['ya_public_key'] for doc in docs_to_process if doc}
-    #
-    #     if not docs_to_process:
-    #         print("All documents are already processed, it is time to do some annotation")
-    #         return
-    #
-    # # get all annotation summaries for the documents to get link for the results
-    # anno_sums = [
-    #     a.to_record()['fields']
-    #     for a
-    #     in AnnotationsSummary.all(
-    #         fields=[AnnotationsSummary.doc_md5.field_name, AnnotationsSummary.result_link.field_name],
-    #         formula=OR(
-    #             *[
-    #                 match({AnnotationsSummary.doc_md5.field_name: doc_md5})
-    #                 for doc_md5 in docs_to_process
-    #             ]
-    #         )
-    #     )
-    # ]
-    # anno_sums = {a['doc_md5']: a['result_link'] for a in anno_sums if a}
-    #
-    # # download annotation summaries from the S3
-    # config = read_config()
-    # session = create_session(config)
-    # bucket = config['yc']['bucket']['annotations_summary']
-    # # key is MD5 of the document, value is the path to the downloaded file with summary results
-    # downloaded_annotations = download_annotation_summaries(bucket, anno_sums, session=session)
-    #
-    # # place to store the documents that are waiting for extraction
-    # dir_with_docs = get_path_in_workdir(Dirs.WAITING_FOR_EXTRACTION)
-    #
-    # # Get MD5 of the local documents waiting for extraction
-    # # key is MD5 of the document, value is the path to the source document
-    # local_md5s = {calculate_md5(file): file for file in pick_files(dir_with_docs)}
-    #
-    # for md5, path_to_annot_res in track(downloaded_annotations.items(), "Extracting text from the documents..."):
-    #     # if document is not in the local folder, then download it from Yandex.Disk
-    #     if not (path_to_doc := local_md5s.get(md5)):
-    #         print(f"Document with MD5 `{md5}` not found in the local folder, downloading it from Yandex.Disk")
-    #         # download document from Yandex.Disk
-    #         path_to_doc = os.path.join(dir_with_docs, f"{md5}.pdf")
-    #         download_file_from_yandex_disk(docs_to_process[md5], path_to_doc)
-    #
-    #     extract_content(md5, path_to_doc, path_to_annot_res)
+    if md5:
+        doc = find_by_md5(md5)
+        if not doc:
+            print(f"Document with MD5 `{md5}` not found in the remote datastore")
+            return
+        if not doc.annotation_completed:
+            print(f"Document with MD5 `{md5}` not annotated yet, annotate it first")
+            return
+        if doc.text_extracted and not force:
+            print(f"Text for the document with MD5 `{md5}` already extracted. Skipping...")
+            return
+        docs_to_process = [doc]
+    else:
+        # get all documents that already annotated but the text is not extracted
+        docs_to_process = find_all_annotations_completed_and_not_extracted()
+
+        if not docs_to_process:
+            print("All documents are already processed, it is time to do some annotation")
+            return
+
+    # download annotation summaries from the S3
+    config = read_config()
+    session = create_session(config)
+    bucket = config['yc']['bucket']['annotations_summary']
+    keys = [doc.md5 for doc in docs_to_process]
+    downloaded_annotations = download_annotation_summaries(bucket, keys, session=session)
+
+    for doc in docs_to_process:
+        path_to_doc = _retrieve_files(doc.md5, doc.ya_public_key)
+        extract_content(doc.md5, path_to_doc, downloaded_annotations[doc.md5])

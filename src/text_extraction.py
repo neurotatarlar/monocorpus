@@ -5,6 +5,7 @@ from collections import Counter
 from enum import Enum
 from itertools import groupby
 
+from numpy.core.defchararray import rindex
 from pymupdf import pymupdf, Matrix, TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
     TEXT_CID_FOR_UNKNOWN_UNICODE
 
@@ -329,60 +330,61 @@ class MarkdownFormatter:
 
 
 def extract_content(md5, path_to_doc, path_to_la):
-    """
-    Extract text from the files in the entry point folder
-    """
     print(f"Extracting text from the document with md5 `{md5}`...")
-    result_md = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), f"{md5}.md")
-    with open(path_to_la, 'rb') as f:
-        annotations = json.load(f)
-
-    context = {'md5': md5}
-
-    with pymupdf.open(path_to_doc) as doc, open(result_md, 'w') as result_md:
-        f = MarkdownFormatter(doc)
-        for page in doc.pages():
-            if not (page_layouts := annotations.get(str(page.number))):
-                print(f"Page {page.number} has no layout annotations")
-                continue
-
-            context['page'] = page
-            width = page.rect.width / 100
-            height = page.rect.height / 100
-            pa = PageArchetype(page_layouts)
-            for idx, anno in enumerate(pa):
-                bbox = _calculate_bbox(anno, width, height)
-
-                match anno['class']:
-                    case 'picture':
-                        print("Skipping picture extraction")
-                    case 'table':
-                        print("Skipping table extraction")
-                    case 'formula':
-                        print("Skipping formula extraction")
-                    case 'poetry':
-                        f.extract_text(bbox, context, keep_line_breaks=True)
-                        print("Text has poetry, check it!")
-                    case 'page-header' | 'page-footer':
-                        # we must not be here because we already filtered out these classes
-                        continue
-                    case _:
-                        f.extract_text(bbox, context)
-
-                # draw bounding boxes on page for visual control
-                page.draw_rect(bbox, color=(0, 1, 0), width=1)
-
-            # flush the page to the file
-            f.flush(result_md)
-            # draw omitted layouts
-            for omitted in pa.omitted_layouts:
-                bbox = _calculate_bbox(omitted, width, height)
-                page.draw_rect(bbox, color=(1, 0, 0), width=1)
-
-        # save the document with bounding boxes
-        path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.DOCS_PLOT), f"{md5}.pdf")
-        with open(path_to_plotted_doc, 'wb') as f:
-            doc.save(f)
+    # """
+    # Extract text from the files in the entry point folder
+    # """
+    # print(f"Extracting text from the document with md5 `{md5}`...")
+    # result_md = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), f"{md5}.md")
+    # with open(path_to_la, 'rb') as f:
+    #     annotations = json.load(f)
+    #
+    # context = {'md5': md5}
+    #
+    # with pymupdf.open(path_to_doc) as doc, open(result_md, 'w') as result_md:
+    #     f = MarkdownFormatter(doc)
+    #     for page in doc.pages():
+    #         if not (page_layouts := annotations.get(str(page.number))):
+    #             print(f"Page {page.number} has no layout annotations")
+    #             continue
+    #
+    #         context['page'] = page
+    #         width = page.rect.width / 100
+    #         height = page.rect.height / 100
+    #         pa = PageArchetype(page_layouts)
+    #         for idx, anno in enumerate(pa):
+    #             bbox = _calculate_bbox(anno, width, height)
+    #
+    #             match anno['class']:
+    #                 case 'picture':
+    #                     print("Skipping picture extraction")
+    #                 case 'table':
+    #                     print("Skipping table extraction")
+    #                 case 'formula':
+    #                     print("Skipping formula extraction")
+    #                 case 'poetry':
+    #                     f.extract_text(bbox, context, keep_line_breaks=True)
+    #                     print("Text has poetry, check it!")
+    #                 case 'page-header' | 'page-footer':
+    #                     # we must not be here because we already filtered out these classes
+    #                     continue
+    #                 case _:
+    #                     f.extract_text(bbox, context)
+    #
+    #             # draw bounding boxes on page for visual control
+    #             page.draw_rect(bbox, color=(0, 1, 0), width=1)
+    #
+    #         # flush the page to the file
+    #         f.flush(result_md)
+    #         # draw omitted layouts
+    #         for omitted in pa.omitted_layouts:
+    #             bbox = _calculate_bbox(omitted, width, height)
+    #             page.draw_rect(bbox, color=(1, 0, 0), width=1)
+    #
+    #     # save the document with bounding boxes
+    #     path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.DOCS_PLOT), f"{md5}.pdf")
+    #     with open(path_to_plotted_doc, 'wb') as f:
+    #         doc.save(f)
 
 
 def _calculate_bbox(s, p_width, p_height):
