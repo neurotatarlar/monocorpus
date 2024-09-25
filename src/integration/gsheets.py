@@ -1,15 +1,18 @@
+from concurrent import futures
+from concurrent.futures import ThreadPoolExecutor
+
 import typer
 from monocorpus_models import Document, Session
 from rich.progress import track
 from sqlalchemy import select
-from concurrent.futures import ThreadPoolExecutor
-from concurrent import futures
+
 
 def find_by_md5(md5):
     with Session() as s:
         stmt = select(Document).where(Document.md5.is_(md5)).limit(1)
         res = s.select(stmt)
         return res[0] if res else None
+
 
 def find_by_md5_non_complete(md5s, batch_size=500):
     def chunks(l, n):
@@ -28,6 +31,7 @@ def find_by_md5_non_complete(md5s, batch_size=500):
             results.extend(s.select(stmt))
     return results
 
+
 def find_all_annotations_completed_and_not_extracted():
     with Session() as s:
         stmt = select(Document).where(
@@ -37,9 +41,11 @@ def find_all_annotations_completed_and_not_extracted():
         )
         return s.select(stmt)
 
+
 def upsert(doc):
     with Session() as s:
         s.upsert(doc)
+
 
 def upsert_many_in_parallel(docs):
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -52,4 +58,3 @@ def upsert_many_in_parallel(docs):
                 raise typer.Abort()
 
             yield future.result()
-

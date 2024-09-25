@@ -1,19 +1,18 @@
-import json
 import os
 import shutil
 
 import typer
 from monocorpus_models import Document
 from rich import print
-from rich.progress import track
 
 from consts import Dirs
 from file_utils import pick_files, calculate_md5, get_path_in_workdir, read_config
-from layout_analysis import layout_analysis
+from integration.gsheets import find_by_md5, upsert, find_all_annotations_completed_and_not_extracted
 from integration.s3 import download_annotation_summaries, create_session
 from integration.yandex_disk import download_file_from_yandex_disk
-from integration.gsheets import find_by_md5, upsert, find_all_annotations_completed_and_not_extracted
+from layout_analysis import layout_analysis
 from text_extraction import extract_content
+
 
 def _retrieve_files(md5=None, ya_public_key=None):
     """
@@ -27,7 +26,6 @@ def _retrieve_files(md5=None, ya_public_key=None):
     :param md5: MD5 hash of the document
     :return: dict with key as MD5 of the document and value as the path to the document
     """
-
     if md5:
         # check in the books local folder
         file = os.path.join(get_path_in_workdir(Dirs.BOOKS_CACHE), f"{md5}.pdf")
@@ -47,9 +45,10 @@ def _retrieve_files(md5=None, ya_public_key=None):
             ya_public_key = doc.ya_public_key
 
         # download from Yandex.Disk
-        return { md5: download_file_from_yandex_disk(ya_public_key, file) }
+        return {md5: download_file_from_yandex_disk(ya_public_key, file)}
     else:
         return _get_files_in_entry_point()
+
 
 def _get_files_in_entry_point():
     """
@@ -61,35 +60,45 @@ def _get_files_in_entry_point():
     # key is MD5 of the document, value is the path to the source document
     return {calculate_md5(file): file for file in files}
 
+
 def layout_analysis_entry_point(md5, force, pages_slice):
     """
     Analyze the page_layout of the documents in the entry point folder
     """
     if not (files := _retrieve_files(md5)):
-        print(f"No files for page_layout analysis, please put some documents to the folder `{get_path_in_workdir(Dirs.ENTRY_POINT)}` or provide "
-              f"MD5 of the document to download")
+        print(
+            f"No files for page_layout analysis, please put some documents to the folder `{get_path_in_workdir(Dirs.ENTRY_POINT)}` or provide "
+            f"MD5 of the document to download")
         raise typer.Abort()
 
     for md5, file in files.items():
         print(f"Analyzing page_layout of the document with MD5 `{md5}`...")
         # check if the document with the same md5 already exists in the remote datastore
-        if (doc := find_by_md5(md5)) and doc.sent_for_annotation and not force:
-            print(f"Document with md5 `{md5}` already sent for annotation. Skipping...")
-        else:
+        if not (doc := find_by_md5(md5)):
+            print(f"Document with MD5 `{md5}` not found in the remote datastore, new document will be created...")
             doc = Document(md5=md5)
 
-            # run page_layout analysis
-            pages_count = layout_analysis(file, md5, pages_slice)
+        if doc.sent_for_annotation and not force:
+            print(f"Document with md5 `{md5}` already sent for annotation. Skipping...")
+            continue
 
-            # update the document in the remote datastore
-            doc.sent_for_annotation = True
-            doc.pages_count = pages_count
-            upsert(doc)
+        # run page_layout analysis
+        pages_count = layout_analysis(file, md5, pages_slice)
+
+        # upsert the document
+        doc.sent_for_annotation = True
+        doc.pages_count = pages_count
+        if not doc.names:
+            doc.names = os.path.basename(file)
+        if not doc.mime_type:
+            doc.mime_type = "application/pdf"
+        upsert(doc)
 
         # move file to the cache folder
         final_path = os.path.join(get_path_in_workdir(Dirs.BOOKS_CACHE), f"{md5}.pdf")
         if final_path != file:
             shutil.move(file, final_path)
+
 
 def extract_text_entry_point(md5, force):
     if md5:
@@ -120,5 +129,5 @@ def extract_text_entry_point(md5, force):
     downloaded_annotations = download_annotation_summaries(bucket, keys, session=session)
 
     for doc in docs_to_process:
-        for md5, path in _retrieve_files(doc.md5, doc.ya_public_key).items():
-            extract_content(md5, path, downloaded_annotations[doc.md5])
+        for _, path in _retrieve_files(doc.md5, doc.ya_public_key).items():
+            extract_content(doc, path, downloaded_annotations[doc.md5])

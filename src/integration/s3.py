@@ -1,18 +1,13 @@
 import os.path
+from concurrent import futures
+from concurrent.futures import ThreadPoolExecutor
 
 import typer
-import yaml
 from boto3 import Session
-from file_utils import calculate_md5, get_path_in_workdir, read_config
-from rich.progress import track
-import multiprocessing
-from urllib.parse import urlparse
-
 from consts import Dirs
+from file_utils import calculate_md5, get_path_in_workdir
 from file_utils import read_config
-from concurrent.futures import ThreadPoolExecutor
-from concurrent import futures
-
+from rich.progress import track
 
 CONFIG_FILE = "config.yaml"
 
@@ -74,7 +69,7 @@ def list_files(bucket: str, folder: str = "", session=create_session()):
     }
 
 
-def download_in_parallel(key_to_md5, func, bucket, download_folder, session = create_session()):
+def download_in_parallel(key_to_md5, func, bucket, download_folder, session=create_session()):
     """
     Download files in parallel
     :param key_to_md5: dictionary with keys and expected md5 hashes
@@ -85,9 +80,12 @@ def download_in_parallel(key_to_md5, func, bucket, download_folder, session = cr
     :return: generator of downloaded files with path_to_file as key and expected md5 as value
     """
     with ThreadPoolExecutor(max_workers=8) as executor:
-        future_to_key = {executor.submit(func, bucket=bucket, key=key, expected_md5=md5, download_folder=download_folder, session=session): key for key, md5 in key_to_md5.items()}
+        future_to_key = {
+            executor.submit(func, bucket=bucket, key=key, expected_md5=md5, download_folder=download_folder,
+                            session=session): key for key, md5 in key_to_md5.items()}
 
-        for future in track(futures.as_completed(future_to_key), description="Downloading files...", total=len(future_to_key)):
+        for future in track(futures.as_completed(future_to_key), description="Downloading files...",
+                            total=len(future_to_key)):
             key = future_to_key[future]
             if exception := future.exception():
                 executor.shutdown(wait=True, cancel_futures=True)
@@ -127,6 +125,3 @@ def download_annotation_summaries(bucket: str, keys, session=create_session()):
         downloaded_files[md5] = output_file
 
     return downloaded_files
-
-
-

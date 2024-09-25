@@ -1,10 +1,9 @@
 import os.path
 import re
-import string
 
 import typer
-from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_ALPHA_NUMERIC, VALID_NON_ALPHA_NUMERIC, \
-    TATAR_CYRILLIC_ALPHABET
+
+from consts import TATAR_SPECIFIC_CHARS, Dirs, TATAR_CYRILLIC_ALPHABET
 
 """
 Minimal threshold of valid Tatar chars(see consts.EXPECTED_CHARS) in the document to consider it as Tatar document.
@@ -234,6 +233,7 @@ def _replace_tatar_char_look_alikes(char, word):
         case _:
             return char
 
+
 def _replace_ascii_look_alikes(char):
     """
     Replacing non-ASCII look-alike chars with the ASCII chars
@@ -330,6 +330,7 @@ def _replace_nonalphanum_chars(word):
     :param char: char to replace
     :return: None if the char must not be in the final text or the replaced char or the original char
     """
+
     def replace(ch):
         match ch:
             case 'ˆ':
@@ -353,7 +354,6 @@ def _replace_nonalphanum_chars(word):
             buf.append(replaced_ch)
 
     return "".join(buf)
-
 
 
 def _preprocess(word):

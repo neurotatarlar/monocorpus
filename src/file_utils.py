@@ -15,6 +15,7 @@ def create_folders():
         real_path = get_path_in_workdir(d)
         os.makedirs(real_path, exist_ok=True)
 
+
 def get_path_in_workdir(dir_name: str | Dirs, prefix: str = 'workdir'):
     """
     Get the real path of the directory

@@ -2,6 +2,7 @@ import json
 import os.path
 from datetime import datetime
 
+import portion as P
 from rich import print
 from rich.progress import track
 
@@ -11,7 +12,6 @@ from integration.gsheets import find_by_md5_non_complete
 from integration.gsheets import upsert_many_in_parallel
 from integration.s3 import list_files, create_session, download_in_parallel, download_annotation
 from integration.s3 import upload_files_to_s3
-import portion as P
 
 
 def sync():
@@ -103,7 +103,8 @@ def _calculate_completeness(transformed):
 
         if not completed:
             missing_pages = _missing_pages(pages.keys(), doc.pages_count)
-            print(f"Document {doc_hash}({doc.ya_public_url}) is not completed: {completeness}, missing pages: {missing_pages}")
+            url = doc.ya_public_url or "url not found"
+            print(f"Document {doc_hash}({url}) is not completed: {completeness}, missing pages: {missing_pages}")
 
         if completeness == doc.completeness and not completed:
             # here we can skip the document if the completeness is the same and the document is not completed
@@ -125,6 +126,7 @@ def _calculate_completeness(transformed):
     for _ in upsert_many_in_parallel(changed_docs):
         pass
 
+
 def _missing_pages(pages, pages_count):
     i = P.empty()
     for page_no in pages:
@@ -141,4 +143,4 @@ def _upload_annotation_summaries(cas):
             json.dump(pages, f, indent=4, ensure_ascii=False, sort_keys=True)
         paths.append(output_file)
 
-    upload_files_to_s3(paths, lambda c: c['yc']['bucket']['annotations_summary'],)
+    upload_files_to_s3(paths, lambda c: c['yc']['bucket']['annotations_summary'], )

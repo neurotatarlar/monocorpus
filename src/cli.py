@@ -10,6 +10,7 @@ from dispatch import layout_analysis_entry_point, extract_text_entry_point
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
 
+
 def md5_validator(value: str):
     if value:
         if len(value) != 32:
@@ -70,6 +71,7 @@ def predict(
     send the tasks to the labeling service
     """
     layout_analysis_entry_point(md5, force, pages_slice)
+
 
 @app.command()
 def sync():

@@ -5,6 +5,7 @@ from rich.progress import track
 
 CHUNK_SIZE = 256
 
+
 def download_file_from_yandex_disk(public_key: str, output_file: str):
     """
     Download file from the Yandex Disk
@@ -12,7 +13,7 @@ def download_file_from_yandex_disk(public_key: str, output_file: str):
     config = read_config()
     resp = requests.get(
         url=config['yandex_disk']['download_url'],
-        headers = {'Authorization': config['yandex_disk']['token']},
+        headers={'Authorization': config['yandex_disk']['token']},
         params={
             "public_key": public_key,
         },

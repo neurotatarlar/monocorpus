@@ -118,6 +118,7 @@ def _inference(pages_details, md5: str):
 
     return pages_details
 
+
 def _export_predictions(pages_details, md5: str):
     tasks = {
         page_no: {
@@ -277,6 +278,7 @@ def _semantic_transform(page_layout, page_no, path_to_file):
     Post-process the page_layout analysis results based on knowledge how books typically look like.
     """
     sorted_layout = sorted(page_layout["layouts"], key=lambda x: (x["bbox"][1], x["bbox"][0]))
+
     def middle(b):
         return (b[1] + b[3]) / 2
 
@@ -331,7 +333,8 @@ def _semantic_transform(page_layout, page_no, path_to_file):
             # replace all `list-item` with `text` because there are a lot of errors on this class
             # if this is a `text` and it is the first one, and it is in the first 1/6 of the page, then check if it
             # starts or ends with number less than 1000
-            elif this_class in ['text', 'section-header'] and idx == 0 and middle(l["bbox"]) < page_layout['height'] / 6:
+            elif this_class in ['text', 'section-header'] and idx == 0 and middle(l["bbox"]) < page_layout[
+                'height'] / 6:
                 page = doc[page_no]
                 bbox = calculate_bbox(page, l["bbox"])
                 if first_span_text := safely_get_span_text(page, bbox, 0):
