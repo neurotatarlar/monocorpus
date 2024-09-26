@@ -356,7 +356,7 @@ def _semantic_transform(page_layout, page_no, path_to_file):
 
             l["class"] = this_class
 
-        # Try to detect footnotes. For this we read all layout elements from the bottom to the top and if the first
+        # Try to detect labeled_footnotes. For this we read all layout elements from the bottom to the top and if the first
         # span is a superscript and number, then we consider it as a footnote
         attempts = 1
         for l in reversed(sorted_layout):

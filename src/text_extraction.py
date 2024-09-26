@@ -9,11 +9,12 @@ from itertools import groupby
 import typer
 from numpy.core.defchararray import rindex
 from pymupdf import pymupdf
+from pymupdf.table import extract_text
 
 from consts import Dirs
 from file_utils import get_path_in_workdir
 from post_processor import post_process
-from extraction.markdown_formatter import MarkdownFormatter, _SectionType
+from extraction.markdown_formatter import MarkdownFormatter, TEXT_EXTRACTION_FLAGS, _SectionType
 from extraction.heuristic_archetype import HeuristicArchetype
 
 # todo post processing
@@ -39,7 +40,7 @@ from extraction.heuristic_archetype import HeuristicArchetype
 #  check annotations from other
 #
 # special case for poetry
-# sort footnotes as well
+# sort labeled_footnotes as well
 # tables can have captions too
 # save copy of datasets
 #  check not all labels are present
@@ -62,8 +63,7 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
         annotations = json.load(f)
 
     with pymupdf.open(path_to_doc) as doc, open(extracted_content, 'w') as r:
-        f = MarkdownFormatter(doc)
-        footnotes = {}
+        f = MarkdownFormatter(doc, r)
         for page in doc.pages(start=pages_slice.start, stop=pages_slice.stop, step=pages_slice.step):
             if not (page_layouts := annotations.get(str(page.number))):
                 print(f"Page {page.number} has no layout annotations")
@@ -71,13 +71,11 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
 
             width = page.rect.width / 100
             height = page.rect.height / 100
-            context = {'page': page}
-
             a = HeuristicArchetype(page_layouts['results'])
-            footnotes[page.number] = a.footnote
+            f.labeled_footnotes[page.number] = a.footnote
+            f.page = page
             for idx, anno in enumerate(a):
                 bbox = _calculate_bbox(anno, width, height)
-
                 match anno['class']:
                     case 'picture':
                         print("Skipping picture extraction")
@@ -89,10 +87,11 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
                         print("Skipping formula extraction")
                         pass
                     case 'poetry':
-                        f.extract_text(bbox, context, keep_line_breaks=True)
+                        f.extract_text(bbox, keep_line_breaks=True)
                     case 'text' | 'title' | 'section-header' | 'list-item':
-                        f.extract_text(bbox, context)
+                        f.extract_text(bbox)
                     case 'footnote':
+                        # will be processed later after all pages are processed
                         pass
                     case _:
                         print(f"Unexpected class: {anno['class']}")
@@ -100,21 +99,68 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
                 # draw bounding boxes on page for visual control
                 page.draw_rect(bbox, color=(0, 1, 0), width=1)
 
-            # flush the page to the file
-            f.flush(r)
             # draw omitted layouts
             for omitted in a.omitted_layouts:
                 bbox = _calculate_bbox(omitted, width, height)
                 page.draw_rect(bbox, color=(1, 0, 0), width=1)
 
-        for c in range(f.footnotes_counter):
-            f.sections.append((_SectionType.TEXT, f"[^{c + 1}]: footnote {c + 1}"))
-        f.flush(r)
+            # flush the page to the file
+            f.flush()
 
         # save the document with bounding boxes
         path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.DOCS_PLOT), f"{md5}.pdf")
-        with open(path_to_plotted_doc, 'wb') as f:
-            doc.save(f)
+        with open(path_to_plotted_doc, 'wb') as plotted_doc:
+            doc.save(plotted_doc)
+
+        process_footnotes(f)
+
+
+def process_footnotes(f):
+    """
+    Flush the footnotes to the output file
+    """
+    if not f.labeled_footnotes:
+        print("No footnotes was labeled, skipping footnotes extraction")
+        return
+
+    for page in f.doc.pages():
+        page_number = page.number
+        # labeled footnotes for the current page
+        lfp = f.labeled_footnotes.get(page_number)
+        # detected superscripts for the current page
+        dsp = f.found_superscripts.get(page_number)
+        if not(lfp and dsp):
+            # no footnotes on the page
+            continue
+        elif lfp and not dsp:
+            print(f"Page {page_number} has labeled footnotes but no detected superscripts")
+            raise typer.Abort()
+        elif not lfp and dsp:
+            print(f"Page {page_number} has detected superscripts but no labeled footnotes")
+            raise typer.Abort()
+        elif len(lfp) != len(dsp):
+            print(f"Page {page_number} has different number of labeled footnotes and detected superscripts")
+
+        width = page.rect.width / 100
+        height = page.rect.height / 100
+        lfp = sorted(lfp, key=lambda x: x['y'])
+        dsp = sorted(dsp.items(), key=lambda x: x[0])
+        for labeled_footnote, (counter, superscript_text) in zip(lfp, dsp):
+            bbox = _calculate_bbox(labeled_footnote, width, height)
+            dirty_text = page.get_text("text", clip=bbox, flags=TEXT_EXTRACTION_FLAGS).lstrip()
+
+            dirty_text = re.sub(r'\n+', r'', dirty_text)
+            dirty_text = re.sub(r'\s+', r' ', dirty_text)
+            pattern = "^" + re.escape(superscript_text) + r"\D+"
+            if re.match(pattern, dirty_text):
+                # remove superscript from the text
+                dirty_text = dirty_text[len(superscript_text):].strip()
+
+                f.sections.append((_SectionType.TEXT, f"[^{counter}]: {dirty_text}"))
+            else:
+                print(f"page:{page_number} footnote:{counter} superscript:`{superscript_text}` not found in the text: {dirty_text}")
+
+    f.flush()
 
 
 def _calculate_bbox(s, p_width, p_height):

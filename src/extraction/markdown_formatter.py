@@ -4,6 +4,7 @@ from collections import Counter
 import re
 from enum import Enum
 
+import typer
 from pymupdf import pymupdf, Matrix, TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
     TEXT_CID_FOR_UNKNOWN_UNICODE
 
@@ -31,22 +32,33 @@ class _SectionType(Enum):
 
 class MarkdownFormatter:
 
-    def __init__(self, doc):
+    def __init__(self, doc, output_file):
+        self.doc = doc
+        self.output_file = output_file
+        # keep the map of the font sizes to the header levels, the key is the font size, the value is the header level
         self.headers = {}
         # accumulates the various sections of the current page, including texts, images, tables, formulas, etc.
         self.sections = []
-        # accumulates the text chunks of the current text block
+        # accumulates the text chunks of the current text block, they will be joined and added as a section
         self.spans = []
         self.image_counter = 0
-        self._determine_header_level(doc)
         self.monospace_in_progress = False
         self.italic_in_progress = False
         self.header_in_progress = False
         self.superscript_in_progress = False
         self.bold_in_progress = False
         self.prev_section_type = None
-        # self.footnotes_accumulator = []
+        # labeled_footnotes in the document, key is the page number, value is the list of labeled footnotes
+        self.labeled_footnotes = {}
+        # detected superscripts in the document, key is the page number, value is dict with key as the footnote number in
+        # the whole document and value in the text of the superscript
+        self.found_superscripts = {}
+        # counter of labeled_footnotes in the document
         self.footnotes_counter = 0
+        self.page = None
+
+        self._determine_header_level(doc)
+
 
     def _determine_header_level(self, doc):
         # key is the font size, value is the count of the characters with this font size
@@ -82,7 +94,6 @@ class MarkdownFormatter:
 
     def _format_span(self, span, is_last_span=False):
         text = span.get('text')
-        print(f">>>>> `{text}`")
         # if no text, then return None
         if not text:
             return None
@@ -145,6 +156,13 @@ class MarkdownFormatter:
         elif not self.superscript_in_progress and superscript:
             self.superscript_in_progress = True
             self.footnotes_counter += 1
+
+            if self.page.number not in self.found_superscripts:
+                self.found_superscripts[self.page.number] = {}
+            # todo sup text can be anything
+            sup_text = text.rstrip(string.punctuation)
+            self.found_superscripts[self.page.number][self.footnotes_counter] = sup_text
+
             formatting = f"[^{self.footnotes_counter}"
 
         # header should be the last
@@ -162,9 +180,8 @@ class MarkdownFormatter:
 
         return formatting
 
-    def extract_text(self, bbox, ctxt, keep_line_breaks=False):
-        page = ctxt['page']
-        blocks = page.get_text("dict", clip=bbox, flags=TEXT_EXTRACTION_FLAGS)['blocks']
+    def extract_text(self, bbox, keep_line_breaks=False):
+        blocks = self.page.get_text("dict", clip=bbox, flags=TEXT_EXTRACTION_FLAGS)['blocks']
         b_len = len(blocks) - 1
         for b_idx, b in enumerate(blocks):
             lines = b.get('lines', [])
@@ -189,6 +206,7 @@ class MarkdownFormatter:
             text_block = re.sub(r'(</br>)+', r'</br>', text_block)
             self.sections.append((_SectionType.TEXT, text_block))
             self.spans = []
+            return text_block
 
     def _close_header(self):
         self.header_in_progress = False
@@ -236,7 +254,7 @@ class MarkdownFormatter:
         page.get_pixmap(clip=bbox, matrix=Matrix(1, 1), dpi=100).save(path_to_image, "png")
         self.sections.append((_SectionType.IMAGE, f"![image{self.image_counter}](./{file_name})"))
 
-    def flush(self, output_file):
+    def flush(self):
         """
         Flush the sections to the output file
         This method is responsible for proper separation of the sections with new lines
@@ -261,6 +279,6 @@ class MarkdownFormatter:
                     section = f"\n{section}"
                 case _SectionType.TEXT if prev in (_SectionType.FORMULA, _SectionType.TABLE):
                     section = f"\n{section}"
-            output_file.write(section)
+            self.output_file.write(section)
             self.prev_section_type = ty
         self.sections = []
