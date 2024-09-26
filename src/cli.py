@@ -97,11 +97,19 @@ def extract(
             bool,
             typer.Option(
                 "--force", "-f",
-                help="Force the processing even if the document is already sent for annotation"
+                help="Force the processing even if the text is already extracted from the document"
             )
         ] = False,
+        pages_slice: Annotated[
+            Optional[str],
+            typer.Option(
+                "--slice", "-s",
+                parser=slice_parser,
+                help="Slice of the pages to process. Format: `start:stop:step`. If not provided, all pages will be processed."
+            )
+        ] = "::"
 ):
     """
     Extract text from the annotated documents
     """
-    extract_text_entry_point(md5, force)
+    extract_text_entry_point(md5, force, pages_slice)

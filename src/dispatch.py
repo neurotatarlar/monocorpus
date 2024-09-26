@@ -100,7 +100,7 @@ def layout_analysis_entry_point(md5, force, pages_slice):
             shutil.move(file, final_path)
 
 
-def extract_text_entry_point(md5, force):
+def extract_text_entry_point(md5, force, pages_slice):
     if md5:
         doc = find_by_md5(md5)
         if not doc:
@@ -130,4 +130,4 @@ def extract_text_entry_point(md5, force):
 
     for doc in docs_to_process:
         for _, path in _retrieve_files(doc.md5, doc.ya_public_key).items():
-            extract_content(doc, path, downloaded_annotations[doc.md5])
+            extract_content(doc, path, downloaded_annotations[doc.md5], pages_slice)
