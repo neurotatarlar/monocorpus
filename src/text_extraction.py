@@ -21,7 +21,6 @@ from extraction.heuristic_archetype import HeuristicArchetype
 # todo bold inside the word
 # todo Horizontal Rule Best Practices instead of asterisks
 # todo Starting Unordered List Items With Numbers
-# todo download books by md5
 # todo remove glyphen
 # todo define reading order
 # todo sort layouts, including knowledge of page structure
@@ -76,6 +75,7 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
             f.page = page
             for idx, anno in enumerate(a):
                 bbox = _calculate_bbox(anno, width, height)
+                f.block = (idx, bbox)
                 match anno['class']:
                     case 'picture':
                         print("Skipping picture extraction")
@@ -87,9 +87,9 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
                         print("Skipping formula extraction")
                         pass
                     case 'poetry':
-                        f.extract_text(bbox, keep_line_breaks=True)
+                        f.extract_text(keep_line_breaks=True)
                     case 'text' | 'title' | 'section-header' | 'list-item':
-                        f.extract_text(bbox)
+                        f.extract_text()
                     case 'footnote':
                         # will be processed later after all pages are processed
                         pass
@@ -155,8 +155,7 @@ def process_footnotes(f):
             if re.match(pattern, dirty_text):
                 # remove superscript from the text
                 dirty_text = dirty_text[len(superscript_text):].strip()
-
-                f.sections.append((_SectionType.TEXT, f"[^{counter}]: {dirty_text}"))
+                f.sections.append((None, _SectionType.FOOTNOTE, f"[^{counter}]: {dirty_text}"))
             else:
                 print(f"page:{page_number} footnote:{counter} superscript:`{superscript_text}` not found in the text: {dirty_text}")
 

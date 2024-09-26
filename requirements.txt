@@ -5,3 +5,4 @@ boto3
 pyyaml
 git+https://github.com/tans1q/monocorpus-models
 portion
+spacy

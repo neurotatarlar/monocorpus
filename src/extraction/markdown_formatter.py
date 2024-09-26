@@ -11,6 +11,8 @@ from pymupdf import pymupdf, Matrix, TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAG
 from consts import Dirs
 from file_utils import get_path_in_workdir
 
+from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
+
 non_formatting_chars = string.punctuation + string.whitespace + '–'
 
 # see https://pymupdf.readthedocs.io/en/latest/vars.html#text-extraction-flags
@@ -29,6 +31,7 @@ class _SectionType(Enum):
     IMAGE = 2
     TABLE = 3
     FORMULA = 4
+    FOOTNOTE = 5
 
 class MarkdownFormatter:
 
@@ -47,7 +50,7 @@ class MarkdownFormatter:
         self.header_in_progress = False
         self.superscript_in_progress = False
         self.bold_in_progress = False
-        self.prev_section_type = None
+        self.prev_section = None
         # labeled_footnotes in the document, key is the page number, value is the list of labeled footnotes
         self.labeled_footnotes = {}
         # detected superscripts in the document, key is the page number, value is dict with key as the footnote number in
@@ -56,6 +59,8 @@ class MarkdownFormatter:
         # counter of labeled_footnotes in the document
         self.footnotes_counter = 0
         self.page = None
+        # the bounding box and index of the current block
+        self.block = None
 
         self._determine_header_level(doc)
 
@@ -180,7 +185,8 @@ class MarkdownFormatter:
 
         return formatting
 
-    def extract_text(self, bbox, keep_line_breaks=False):
+    def extract_text(self, keep_line_breaks=False):
+        idx, bbox = self.block
         blocks = self.page.get_text("dict", clip=bbox, flags=TEXT_EXTRACTION_FLAGS)['blocks']
         b_len = len(blocks) - 1
         for b_idx, b in enumerate(blocks):
@@ -204,7 +210,7 @@ class MarkdownFormatter:
             text_block = re.sub(r'\n+', r'', ''.join(self.spans).strip())
             text_block = re.sub(r'\s+', r' ', text_block)
             text_block = re.sub(r'(</br>)+', r'</br>', text_block)
-            self.sections.append((_SectionType.TEXT, text_block))
+            self.sections.append((idx, _SectionType.TEXT, text_block))
             self.spans = []
             return text_block
 
@@ -246,39 +252,43 @@ class MarkdownFormatter:
         self._close_superscript()
         self._close_header()
 
-    def extract_picture(self, bbox, ctxt):
-        page = ctxt['page']
-        self.image_counter += 1
-        file_name = f"{ctxt['md5']}-{self.image_counter}.png"
-        path_to_image = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), file_name)
-        page.get_pixmap(clip=bbox, matrix=Matrix(1, 1), dpi=100).save(path_to_image, "png")
-        self.sections.append((_SectionType.IMAGE, f"![image{self.image_counter}](./{file_name})"))
 
     def flush(self):
         """
         Flush the sections to the output file
         This method is responsible for proper separation of the sections with new lines
         """
-        for ty, section in self.sections:
-            prev = self.prev_section_type
-            match ty:
+        for section in self.sections:
+            this_idx, this_ty, this_section = section
+            prev_idx, prev_ty, prev_section = self.prev_section or (None, None, None)
+            match this_ty:
                 # two new lines before the section
-                case _SectionType.IMAGE if prev in (_SectionType.TEXT, _SectionType.IMAGE):
-                    section = f"\n\n{section}"
-                case _SectionType.TABLE if prev in (_SectionType.TEXT, _SectionType.TABLE, _SectionType.IMAGE):
-                    section = f"\n\n{section}"
-                case _SectionType.TEXT if prev == _SectionType.IMAGE:
-                    section = f"\n\n{section}"
-                case _SectionType.TEXT if prev == _SectionType.TEXT:
-                    section = f"\n\n{section}"
+                case _SectionType.IMAGE if prev_ty in (_SectionType.TEXT, _SectionType.IMAGE):
+                    this_section = f"\n\n{this_section}"
+                case _SectionType.TABLE if prev_ty in (_SectionType.TEXT, _SectionType.TABLE, _SectionType.IMAGE):
+                    this_section = f"\n\n{this_section}"
+                case _SectionType.TEXT if prev_ty == _SectionType.IMAGE:
+                    this_section = f"\n\n{this_section}"
+                case _SectionType.TEXT if prev_ty == _SectionType.TEXT:
+                    if this_idx == 0 and prev_section and check_paragraphs_are_the_same(prev_section, this_section):
+                        this_section = f" {this_section}"
+                    else:
+                        this_section = f"\n\n{this_section}"
+                case _SectionType.FOOTNOTE:
+                    this_section = f"\n\n{this_section}"
 
                 # one new line before the section
                 case _SectionType.FORMULA | _SectionType.IMAGE:
-                    section = f"\n{section}"
-                case _SectionType.TABLE if prev == _SectionType.FORMULA:
-                    section = f"\n{section}"
-                case _SectionType.TEXT if prev in (_SectionType.FORMULA, _SectionType.TABLE):
-                    section = f"\n{section}"
-            self.output_file.write(section)
-            self.prev_section_type = ty
+                    this_section = f"\n{this_section}"
+                case _SectionType.TABLE if prev_ty == _SectionType.FORMULA:
+                    this_section = f"\n{this_section}"
+                case _SectionType.TEXT:
+                    this_section = f"\n{this_section}"
+
+                case _:
+                    print(f"Unexpected section type: {this_ty}")
+                    raise typer.Abort()
+
+            self.output_file.write(this_section)
+            self.prev_section = section
         self.sections = []
