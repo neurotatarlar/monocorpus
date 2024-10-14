@@ -40,7 +40,7 @@ def _retrieve_files(md5=None, ya_public_key=None):
         if not ya_public_key:
             doc = find_by_md5(md5)
             if not doc:
-                print(f"Document with the MD5 `{md5}` not found, please provide correct MD5")
+                print(f"Document with the MD5 {md5} not found, please provide correct MD5")
                 raise typer.Abort()
             ya_public_key = doc.ya_public_key
 
@@ -67,19 +67,19 @@ def layout_analysis_entry_point(md5, force, pages_slice):
     """
     if not (files := _retrieve_files(md5)):
         print(
-            f"No files for page_layout analysis, please put some documents to the folder `{get_path_in_workdir(Dirs.ENTRY_POINT)}` or provide "
+            f"No files for page_layout analysis, please put some documents to the folder {get_path_in_workdir(Dirs.ENTRY_POINT)} or provide "
             f"MD5 of the document to download")
         raise typer.Abort()
 
     for md5, file in files.items():
-        print(f"Analyzing page_layout of the document with MD5 `{md5}`...")
+        print(f"Analyzing page_layout of the document with MD5 {md5}...")
         # check if the document with the same md5 already exists in the remote datastore
         if not (doc := find_by_md5(md5)):
-            print(f"Document with MD5 `{md5}` not found in the remote datastore, new document will be created...")
+            print(f"Document with MD5 {md5} not found in the remote datastore, new document will be created...")
             doc = Document(md5=md5)
 
         if doc.sent_for_annotation and not force:
-            print(f"Document with md5 `{md5}` already sent for annotation. Skipping...")
+            print(f"Document with md5 {md5} already sent for annotation. Skipping...")
             continue
 
         # run page_layout analysis
@@ -104,13 +104,13 @@ def extract_text_entry_point(md5, force, pages_slice):
     if md5:
         doc = find_by_md5(md5)
         if not doc:
-            print(f"Document with MD5 `{md5}` not found in the remote datastore")
+            print(f"Document with MD5 {md5} not found in the remote datastore")
             return
         if not doc.annotation_completed:
-            print(f"Document with MD5 `{md5}` not annotated yet, annotate it first")
+            print(f"Document with MD5 {md5} not annotated yet, annotate it first")
             return
         if doc.text_extracted and not force:
-            print(f"Text for the document with MD5 `{md5}` already extracted. Skipping...")
+            print(f"Text for the document with MD5 {md5} already extracted. Skipping...")
             return
         docs_to_process = [doc]
     else:

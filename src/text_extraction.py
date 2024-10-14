@@ -1,22 +1,16 @@
 import json
 import os
 import re
-import string
-from collections import Counter
-from enum import Enum
-from itertools import groupby
 
 import typer
-from numpy.core.defchararray import rindex
 from pymupdf import pymupdf
-from pymupdf.table import extract_text
 
 from consts import Dirs
-from file_utils import get_path_in_workdir
-from post_processor import post_process
-from extraction.markdown_formatter import MarkdownFormatter, TEXT_EXTRACTION_FLAGS, _SectionType
 from extraction.heuristic_archetype import HeuristicArchetype
+from extraction.markdown_formatter import MarkdownFormatter, TEXT_EXTRACTION_FLAGS, _SectionType
+from file_utils import get_path_in_workdir
 
+# todo case there first block starts with a title letter
 # todo post processing
 # todo bold inside the word
 # todo Horizontal Rule Best Practices instead of asterisks
@@ -50,6 +44,7 @@ from extraction.heuristic_archetype import HeuristicArchetype
 # ** А.Х.Садекова, ** филология
 
 pymupdf.TOOLS.set_small_glyph_heights(True)
+
 
 def extract_content(doc, path_to_doc, path_to_la, pages_slice):
     """
@@ -129,7 +124,7 @@ def process_footnotes(f):
         lfp = f.labeled_footnotes.get(page_number)
         # detected superscripts for the current page
         dsp = f.found_superscripts.get(page_number)
-        if not(lfp and dsp):
+        if not (lfp and dsp):
             # no footnotes on the page
             continue
         elif lfp and not dsp:
@@ -157,7 +152,8 @@ def process_footnotes(f):
                 dirty_text = dirty_text[len(superscript_text):].strip()
                 f.sections.append((None, _SectionType.FOOTNOTE, f"[^{counter}]: {dirty_text}"))
             else:
-                print(f"page:{page_number} footnote:{counter} superscript:`{superscript_text}` not found in the text: {dirty_text}")
+                print(
+                    f"page:{page_number} footnote:{counter} superscript:`{superscript_text}` not found in the text: {dirty_text}")
 
     f.flush()
 

@@ -1,17 +1,22 @@
-import os
 import string
 from collections import Counter
 import re
 from enum import Enum
 
 import typer
-from pymupdf import pymupdf, Matrix, TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
+from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
     TEXT_CID_FOR_UNKNOWN_UNICODE
 
-from consts import Dirs
-from file_utils import get_path_in_workdir
-
 from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
+import re
+import string
+from collections import Counter
+from enum import Enum
+
+import typer
+from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
+from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
+    TEXT_CID_FOR_UNKNOWN_UNICODE
 
 non_formatting_chars = string.punctuation + string.whitespace + '–'
 
@@ -26,12 +31,14 @@ TEXT_EXTRACTION_FLAGS = (
         TEXT_CID_FOR_UNKNOWN_UNICODE
 )
 
+
 class _SectionType(Enum):
     TEXT = 1
     IMAGE = 2
     TABLE = 3
     FORMULA = 4
     FOOTNOTE = 5
+
 
 class MarkdownFormatter:
 
@@ -63,7 +70,6 @@ class MarkdownFormatter:
         self.block = None
 
         self._determine_header_level(doc)
-
 
     def _determine_header_level(self, doc):
         # key is the font size, value is the count of the characters with this font size
@@ -251,7 +257,6 @@ class MarkdownFormatter:
         self._close_bold()
         self._close_superscript()
         self._close_header()
-
 
     def flush(self):
         """

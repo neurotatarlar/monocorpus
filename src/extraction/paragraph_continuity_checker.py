@@ -3,6 +3,7 @@ from spacy.lang.tt import Tatar
 nlp = Tatar()
 nlp.add_pipe('sentencizer')
 
+
 def check_paragraphs_are_the_same(prev, new):
     """
     Check if two paragraphs are the same

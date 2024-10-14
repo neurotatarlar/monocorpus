@@ -5,16 +5,8 @@ yc:
     title_tasks: label-studio-import-title-tasks
     annotations_summary: annotations-summary
     annotations: label-studio-export-annotations
-  aws_access_key_id:
-  aws_secret_access_key:
-
-airtable:
-  api_key:
-  base_id: appyygYGhPHwIQPO2
-  table:
-    document: tblmCi8f63d4YxEWF
-    annotation: tblh7voGOS8sMFXrB
-    annotation_summary: tblAnRBk2GTYW7AnV
+  aws_access_key_id: <SET ME>
+  aws_secret_access_key: <SET ME>
 
 yandex_disk:
   download_url: https://cloud-api.yandex.net/v1/disk/public/resources/download
