@@ -61,7 +61,7 @@ def _get_files_in_entry_point():
     return {calculate_md5(file): file for file in files}
 
 
-def layout_analysis_entry_point(md5, force, pages_slice):
+def layout_analysis_entry_point(md5, force: bool, pages_slice):
     """
     Analyze the page_layout of the documents in the entry point folder
     """

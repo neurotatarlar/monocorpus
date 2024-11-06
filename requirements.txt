@@ -3,6 +3,7 @@ huggingface_hub
 ultralytics
 boto3
 pyyaml
-git+https://github.com/tans1q/monocorpus-models
+git+https://github.com/tagay1n/monocorpus-models
 portion
 spacy
+pymupdf

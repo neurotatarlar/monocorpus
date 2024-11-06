@@ -1,13 +1,3 @@
-import string
-from collections import Counter
-import re
-from enum import Enum
-
-import typer
-from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
-    TEXT_CID_FOR_UNKNOWN_UNICODE
-
-from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
 import re
 import string
 from collections import Counter
@@ -26,7 +16,7 @@ TEXT_EXTRACTION_FLAGS = (
         &
         ~TEXT_PRESERVE_IMAGES
         &
-        TEXT_PRESERVE_WHITESPACE
+        ~TEXT_PRESERVE_WHITESPACE
         &
         TEXT_CID_FOR_UNKNOWN_UNICODE
 )
@@ -103,7 +93,7 @@ class MarkdownFormatter:
     def _header_for_size(self, size):
         return self.headers.get(round(size)) or 0
 
-    def _format_span(self, span, is_last_span=False):
+    def _format_span(self, span):
         text = span.get('text')
         # if no text, then return None
         if not text:
@@ -112,16 +102,10 @@ class MarkdownFormatter:
         # we close superscript to not add the punctuation to the superscript sign in case superscript is the prev span
         elif text.isspace() or all(c in non_formatting_chars for c in text):
             self._close_superscript()
-            return text
+            return None
 
-        # check if the last character is a soft hyphen
-        is_hyphen = text.endswith('­')
-        # if it is the last span in line and not a hyphen, then add a space
-        if is_last_span and not is_hyphen:
-            text += " "
-        elif is_hyphen:
-            # remove soft hyphens that are used to split words over lines
-            text = text.rstrip('­')
+        if not (text.endswith('­') or text.endswith(' ')):
+            text += ' '
 
         flags = span['flags']
         size = span['size']
@@ -199,11 +183,8 @@ class MarkdownFormatter:
             lines = b.get('lines', [])
             l_len = len(lines) - 1
             for l_idx, li in enumerate(lines):
-                spans = li.get('spans', [])
-                spans_len = len(spans) - 1
                 for s_idx, s in enumerate(li.get('spans', [])):
-                    is_last_span = s_idx == spans_len
-                    if formatted_span := self._format_span(s, is_last_span):
+                    if formatted_span := self._format_span(s):
                         self.spans.append(formatted_span)
 
                 if keep_line_breaks and self.spans and not (b_idx == b_len and l_idx == l_len):
@@ -213,9 +194,11 @@ class MarkdownFormatter:
 
         if self.spans:
             self._close_existing_formatting()
-            text_block = re.sub(r'\n+', r'', ''.join(self.spans).strip())
+            text_block = ''.join(self.spans).strip()
+            text_block = re.sub(r'\n+', r'', text_block)
             text_block = re.sub(r'\s+', r' ', text_block)
             text_block = re.sub(r'(</br>)+', r'</br>', text_block)
+            text_block = re.sub(r'­', r'', text_block)
             self.sections.append((idx, _SectionType.TEXT, text_block))
             self.spans = []
             return text_block
@@ -227,19 +210,19 @@ class MarkdownFormatter:
         if self.monospace_in_progress:
             self.monospace_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}`"
+                self.spans[-1] = f"{self.spans[-1].rstrip()}` "
 
     def _close_italic(self):
         if self.italic_in_progress:
             self.italic_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}*"
+                self.spans[-1] = f"{self.spans[-1].rstrip()}* "
 
     def _close_bold(self):
         if self.bold_in_progress:
             self.bold_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}**"
+                self.spans[-1] = f"{self.spans[-1].rstrip()}** "
 
     def _close_superscript(self):
         if self.superscript_in_progress:
@@ -266,34 +249,38 @@ class MarkdownFormatter:
         for section in self.sections:
             this_idx, this_ty, this_section = section
             prev_idx, prev_ty, prev_section = self.prev_section or (None, None, None)
-            match this_ty:
-                # two new lines before the section
-                case _SectionType.IMAGE if prev_ty in (_SectionType.TEXT, _SectionType.IMAGE):
-                    this_section = f"\n\n{this_section}"
-                case _SectionType.TABLE if prev_ty in (_SectionType.TEXT, _SectionType.TABLE, _SectionType.IMAGE):
-                    this_section = f"\n\n{this_section}"
-                case _SectionType.TEXT if prev_ty == _SectionType.IMAGE:
-                    this_section = f"\n\n{this_section}"
-                case _SectionType.TEXT if prev_ty == _SectionType.TEXT:
-                    if this_idx == 0 and prev_section and check_paragraphs_are_the_same(prev_section, this_section):
-                        this_section = f" {this_section}"
-                    else:
+
+            if prev_section:
+                match this_ty:
+                    # two new lines before the section
+                    case _SectionType.IMAGE if prev_ty in (_SectionType.TEXT, _SectionType.IMAGE):
                         this_section = f"\n\n{this_section}"
-                case _SectionType.FOOTNOTE:
-                    this_section = f"\n\n{this_section}"
+                    case _SectionType.TABLE if prev_ty in (_SectionType.TEXT, _SectionType.TABLE, _SectionType.IMAGE):
+                        this_section = f"\n\n{this_section}"
+                    case _SectionType.TEXT if prev_ty == _SectionType.IMAGE:
+                        this_section = f"\n\n{this_section}"
+                    case _SectionType.TEXT if prev_ty == _SectionType.TEXT:
+                        if this_idx == 0 and this_section[0] != '#' and check_paragraphs_are_the_same(prev_section,
+                                                                                                      this_section):
+                            this_section = f" {this_section}"
+                        else:
+                            this_section = f"\n\n{this_section}"
+                    case _SectionType.FOOTNOTE:
+                        this_section = f"\n\n{this_section}"
 
-                # one new line before the section
-                case _SectionType.FORMULA | _SectionType.IMAGE:
-                    this_section = f"\n{this_section}"
-                case _SectionType.TABLE if prev_ty == _SectionType.FORMULA:
-                    this_section = f"\n{this_section}"
-                case _SectionType.TEXT:
-                    this_section = f"\n{this_section}"
+                    # one new line before the section
+                    case _SectionType.FORMULA | _SectionType.IMAGE:
+                        this_section = f"\n{this_section}"
+                    case _SectionType.TABLE if prev_ty == _SectionType.FORMULA:
+                        this_section = f"\n{this_section}"
+                    case _SectionType.TEXT:
+                        this_section = f"\n{this_section}"
 
-                case _:
-                    print(f"Unexpected section type: {this_ty}")
-                    raise typer.Abort()
+                    case _:
+                        print(f"Unexpected section type: {this_ty}")
+                        raise typer.Abort()
 
             self.output_file.write(this_section)
             self.prev_section = section
+
         self.sections = []

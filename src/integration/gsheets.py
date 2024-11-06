@@ -8,10 +8,9 @@ from sqlalchemy import select
 
 
 def find_by_md5(md5):
-    with Session() as s:
-        stmt = select(Document).where(Document.md5.is_(md5)).limit(1)
-        res = s.select(stmt)
-        return res[0] if res else None
+    stmt = select(Document).where(Document.md5.is_(md5)).limit(1)
+    res = Session().select(stmt)
+    return res[0] if res else None
 
 
 def find_by_md5_non_complete(md5s, batch_size=500):
@@ -20,31 +19,29 @@ def find_by_md5_non_complete(md5s, batch_size=500):
             yield l[i:i + n]
 
     results = []
-    with Session() as s:
-        chunks = list(chunks(md5s, batch_size))
-        for ch in chunks:
-            stmt = select(Document).where(
-                Document.md5.in_(ch)
-                &
-                Document.annotation_completed.isnot(True)
-            )
-            results.extend(s.select(stmt))
+    chunks = list(chunks(md5s, batch_size))
+    s = Session()
+    for ch in chunks:
+        stmt = select(Document).where(
+            Document.md5.in_(ch)
+            &
+            Document.annotation_completed.isnot(True)
+        )
+        results.extend(s.select(stmt))
     return results
 
 
 def find_all_annotations_completed_and_not_extracted():
-    with Session() as s:
-        stmt = select(Document).where(
-            Document.annotation_completed.is_(True)
-            &
-            Document.text_extracted.isnot(True)
-        )
-        return s.select(stmt)
+    stmt = select(Document).where(
+        Document.annotation_completed.is_(True)
+        &
+        Document.text_extracted.isnot(True)
+    )
+    return Session().select(stmt)
 
 
 def upsert(doc):
-    with Session() as s:
-        s.upsert(doc)
+    Session().upsert(doc)
 
 
 def upsert_many_in_parallel(docs):

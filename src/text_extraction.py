@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import string
 
 import typer
 from pymupdf import pymupdf
@@ -29,6 +30,7 @@ from file_utils import get_path_in_workdir
 # todo if no text was deteceted, then do OCR
 # todo update instruction
 # todo line wraps
+# annotations can be not only numbers
 # toto update screenshots for title
 #  check annotations from other
 #
@@ -86,7 +88,7 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
                     case 'text' | 'title' | 'section-header' | 'list-item':
                         f.extract_text()
                     case 'footnote':
-                        # will be processed later after all pages are processed
+                        # processed not here but later after all pages
                         pass
                     case _:
                         print(f"Unexpected class: {anno['class']}")
@@ -146,14 +148,15 @@ def process_footnotes(f):
 
             dirty_text = re.sub(r'\n+', r'', dirty_text)
             dirty_text = re.sub(r'\s+', r' ', dirty_text)
-            pattern = "^" + re.escape(superscript_text) + r"\D+"
-            if re.match(pattern, dirty_text):
+            dirty_text = re.sub(r'­', r'', dirty_text)
+            superscript_text = superscript_text.rstrip().rstrip(string.punctuation)
+            if dirty_text.startswith(superscript_text):
                 # remove superscript from the text
                 dirty_text = dirty_text[len(superscript_text):].strip()
                 f.sections.append((None, _SectionType.FOOTNOTE, f"[^{counter}]: {dirty_text}"))
             else:
                 print(
-                    f"page:{page_number} footnote:{counter} superscript:`{superscript_text}` not found in the text: {dirty_text}")
+                    f"page:{page_number} footnote:{counter} superscript:`{superscript_text}` not found in the text: `{dirty_text}`")
 
     f.flush()
 

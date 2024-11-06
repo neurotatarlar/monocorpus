@@ -5,12 +5,15 @@ yc:
     title_tasks: label-studio-import-title-tasks
     annotations_summary: annotations-summary
     annotations: label-studio-export-annotations
-  aws_access_key_id: <SET ME>
-  aws_secret_access_key: <SET ME>
+  # https://yandex.cloud/en-ru/docs/iam/operations/sa/create-access-key
+  aws_access_key_id:
+  aws_secret_access_key:
 
 yandex_disk:
   download_url: https://cloud-api.yandex.net/v1/disk/public/resources/download
   # https://yandex.com/dev/direct/doc/start/token.html
-  token: <SET ME>
+  # https://oauth.yandex.com/authorize?response_type=token&client_id=
+  token:
+
 
 
