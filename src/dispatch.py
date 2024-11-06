@@ -131,3 +131,5 @@ def extract_text_entry_point(md5, force, pages_slice):
     for doc in docs_to_process:
         for _, path in _retrieve_files(doc.md5, doc.ya_public_key).items():
             extract_content(doc, path, downloaded_annotations[doc.md5], pages_slice)
+            doc.text_extracted = True
+            upsert(doc)

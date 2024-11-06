@@ -1,4 +1,3 @@
-import re
 import string
 from collections import Counter
 from enum import Enum
@@ -7,6 +6,8 @@ import typer
 from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
 from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
     TEXT_CID_FOR_UNKNOWN_UNICODE
+
+from text_processor import post_process, pre_process
 
 non_formatting_chars = string.punctuation + string.whitespace + '–'
 
@@ -104,6 +105,8 @@ class MarkdownFormatter:
             self._close_superscript()
             return None
 
+        text = pre_process(text)
+
         if not (text.endswith('­') or text.endswith(' ')):
             text += ' '
 
@@ -169,8 +172,6 @@ class MarkdownFormatter:
             self.header_in_progress = True
             formatting = f"{'#' * header_multiplier} {formatting}"
 
-        # post_processed_text = post_process(text, escape_markdown=not monospace)
-
         formatting = formatting.format(text)
 
         return formatting
@@ -194,11 +195,7 @@ class MarkdownFormatter:
 
         if self.spans:
             self._close_existing_formatting()
-            text_block = ''.join(self.spans).strip()
-            text_block = re.sub(r'\n+', r'', text_block)
-            text_block = re.sub(r'\s+', r' ', text_block)
-            text_block = re.sub(r'(</br>)+', r'</br>', text_block)
-            text_block = re.sub(r'­', r'', text_block)
+            text_block = post_process(''.join(self.spans).strip())
             self.sections.append((idx, _SectionType.TEXT, text_block))
             self.spans = []
             return text_block

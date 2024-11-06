@@ -1,3 +1,4 @@
+import string
 from enum import Enum
 
 """Constants for the project"""
@@ -23,9 +24,8 @@ VALID_NON_ALPHA_NUMERIC = {' ', '/', '\\', '"', "'", '@', '#', '$', '%', '^', '&
                            '_', '+', '=', '{', '}', '[', ']', ';', ':', '<', ',', '>', '.', '?', '!', '№',
                            '|', '\t', '\n', '~', '©', '™', '§', '°', '€', '£', '¥', '₽', '₴', '₸', '₺', '₿'}
 
-DIGITS = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
 
-TATAR_ALPHA_NUMERIC = TATAR_CYRILLIC_ALPHABET.union(DIGITS)
+VALID_CHARS = TATAR_CYRILLIC_ALPHABET.union(string.digits).union(VALID_NON_ALPHA_NUMERIC)
 
 
 class Dirs(Enum):

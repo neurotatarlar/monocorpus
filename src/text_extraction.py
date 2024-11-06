@@ -10,6 +10,7 @@ from consts import Dirs
 from extraction.heuristic_archetype import HeuristicArchetype
 from extraction.markdown_formatter import MarkdownFormatter, TEXT_EXTRACTION_FLAGS, _SectionType
 from file_utils import get_path_in_workdir
+from text_processor import post_process
 
 # todo case there first block starts with a title letter
 # todo post processing
@@ -30,6 +31,7 @@ from file_utils import get_path_in_workdir
 # todo if no text was deteceted, then do OCR
 # todo update instruction
 # todo line wraps
+# todo some books starts with giant first char what breaks all formatting
 # annotations can be not only numbers
 # toto update screenshots for title
 #  check annotations from other
@@ -145,10 +147,7 @@ def process_footnotes(f):
         for labeled_footnote, (counter, superscript_text) in zip(lfp, dsp):
             bbox = _calculate_bbox(labeled_footnote, width, height)
             dirty_text = page.get_text("text", clip=bbox, flags=TEXT_EXTRACTION_FLAGS).lstrip()
-
-            dirty_text = re.sub(r'\n+', r'', dirty_text)
-            dirty_text = re.sub(r'\s+', r' ', dirty_text)
-            dirty_text = re.sub(r'­', r'', dirty_text)
+            dirty_text = post_process(dirty_text)
             superscript_text = superscript_text.rstrip().rstrip(string.punctuation)
             if dirty_text.startswith(superscript_text):
                 # remove superscript from the text
