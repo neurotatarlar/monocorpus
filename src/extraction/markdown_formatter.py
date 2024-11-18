@@ -17,7 +17,7 @@ TEXT_EXTRACTION_FLAGS = (
         &
         ~TEXT_PRESERVE_IMAGES
         &
-        ~TEXT_PRESERVE_WHITESPACE
+        TEXT_PRESERVE_WHITESPACE
         &
         TEXT_CID_FOR_UNKNOWN_UNICODE
 )
@@ -103,7 +103,7 @@ class MarkdownFormatter:
         # we close superscript to not add the punctuation to the superscript sign in case superscript is the prev span
         elif text.isspace() or all(c in non_formatting_chars for c in text):
             self._close_superscript()
-            return None
+            return text.lstrip()
 
         text = pre_process(text)
 
@@ -128,7 +128,7 @@ class MarkdownFormatter:
             self._close_monospace()
         elif not self.monospace_in_progress and monospace:
             self.monospace_in_progress = True
-            formatting = f"`{formatting}"
+            formatting = f"`{formatting.lstrip()}"
 
         if self.italic_in_progress and not italic:
             # there is an italic block in progress but the current span is not italic, so we need to close the
@@ -136,7 +136,7 @@ class MarkdownFormatter:
             self._close_italic()
         elif not self.italic_in_progress and italic:
             self.italic_in_progress = True
-            formatting = f"*{formatting}"
+            formatting = f"*{formatting.lstrip()}"
 
         if self.bold_in_progress and not bold:
             # there is a bold block in progress but the current span is not bold, so we need to close the bold block
@@ -144,7 +144,7 @@ class MarkdownFormatter:
         elif not self.bold_in_progress and bold and not header_multiplier:
             # making a header bold does not make sense, because headers are already bold
             self.bold_in_progress = True
-            formatting = f"**{formatting}"
+            formatting = f"**{formatting.lstrip()}"
 
         # superscript should be before header
         if self.superscript_in_progress and not superscript:
@@ -155,9 +155,9 @@ class MarkdownFormatter:
             self.superscript_in_progress = True
             self.footnotes_counter += 1
 
+            # collect detected superscripts in dictionary { page number: { footnotes_counter: footnote text } }
             if self.page.number not in self.found_superscripts:
                 self.found_superscripts[self.page.number] = {}
-            # todo sup text can be anything
             sup_text = text.rstrip(string.punctuation)
             self.found_superscripts[self.page.number][self.footnotes_counter] = sup_text
 
@@ -170,11 +170,9 @@ class MarkdownFormatter:
             self._close_header()
         elif not self.header_in_progress and header_multiplier:
             self.header_in_progress = True
-            formatting = f"{'#' * header_multiplier} {formatting}"
+            formatting = f"{'#' * header_multiplier} {formatting.lstrip()}"
 
-        formatting = formatting.format(text)
-
-        return formatting
+        return formatting.format(text)
 
     def extract_text(self, keep_line_breaks=False):
         idx, bbox = self.block
@@ -190,7 +188,8 @@ class MarkdownFormatter:
 
                 if keep_line_breaks and self.spans and not (b_idx == b_len and l_idx == l_len):
                     # if it is not the last block, then add a line break
-                    self.spans[-1] = self.spans[-1].strip()
+                    self._close_existing_formatting()
+                    self.spans[-1] = self.spans[-1].rstrip()
                     self.spans.append("</br>")
 
         if self.spans:

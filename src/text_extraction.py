@@ -32,6 +32,9 @@ from text_processor import post_process
 # todo update instruction
 # todo line wraps
 # todo some books starts with giant first char what breaks all formatting
+# todo footnotes problem
+# todo fix * intendation
+# todo fix *—*
 # annotations can be not only numbers
 # toto update screenshots for title
 #  check annotations from other
@@ -54,15 +57,16 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
     """
     Extract text from the files in the entry point folder
     """
-    md5 = doc.md5
-    print(f"Extracting text from the document with md5 `{md5}`...")
-    extracted_content = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), f"{md5}.md")
-    with open(path_to_la, 'rb') as f:
-        annotations = json.load(f)
+    print(f"Extracting text from the document with md5 `{doc.md5}`...")
+    parent_folder = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), doc.md5)
+    os.makedirs(parent_folder, exist_ok=True)
+    output_file = os.path.join(parent_folder, "content.md")
+    with open(path_to_la, 'rb') as anno_f:
+        annotations = json.load(anno_f)
 
-    with pymupdf.open(path_to_doc) as doc, open(extracted_content, 'w') as r:
-        f = MarkdownFormatter(doc, r)
-        for page in doc.pages(start=pages_slice.start, stop=pages_slice.stop, step=pages_slice.step):
+    with pymupdf.open(path_to_doc) as pdf_doc, open(output_file, 'w') as r:
+        f = MarkdownFormatter(pdf_doc, r)
+        for page in pdf_doc.pages(start=pages_slice.start, stop=pages_slice.stop, step=pages_slice.step):
             if not (page_layouts := annotations.get(str(page.number))):
                 print(f"Page {page.number} has no layout annotations")
                 continue
@@ -72,6 +76,7 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
             a = HeuristicArchetype(page_layouts['results'])
             f.labeled_footnotes[page.number] = a.footnote
             f.page = page
+
             for idx, anno in enumerate(a):
                 bbox = _calculate_bbox(anno, width, height)
                 f.block = (idx, bbox)
@@ -92,6 +97,9 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
                     case 'footnote':
                         # processed not here but later after all pages
                         pass
+                    case 'caption':
+                        print("Skipping caption extraction")
+                        pass
                     case _:
                         print(f"Unexpected class: {anno['class']}")
                         raise typer.Abort()
@@ -106,10 +114,10 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
             # flush the page to the file
             f.flush()
 
-        # save the document with bounding boxes
-        path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.DOCS_PLOT), f"{md5}.pdf")
+        # save the document with bounding boxes for visula control
+        path_to_plotted_doc = os.path.join(get_path_in_workdir(Dirs.DOCS_PLOT), f"{doc.md5}.pdf")
         with open(path_to_plotted_doc, 'wb') as plotted_doc:
-            doc.save(plotted_doc)
+            pdf_doc.save(plotted_doc)
 
         process_footnotes(f)
 
@@ -148,7 +156,7 @@ def process_footnotes(f):
             bbox = _calculate_bbox(labeled_footnote, width, height)
             dirty_text = page.get_text("text", clip=bbox, flags=TEXT_EXTRACTION_FLAGS).lstrip()
             dirty_text = post_process(dirty_text)
-            superscript_text = superscript_text.rstrip().rstrip(string.punctuation)
+            superscript_text = superscript_text.strip().rstrip(string.punctuation)
             if dirty_text.startswith(superscript_text):
                 # remove superscript from the text
                 dirty_text = dirty_text[len(superscript_text):].strip()

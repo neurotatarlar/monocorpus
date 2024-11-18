@@ -42,12 +42,17 @@ def post_process(text_block):
     # remove single whitespace before the punctuations
     text_block = re.sub(r'\s([?.!")\]}][\s|$)])', r'\1', text_block)
     # remove single whitespace after the open brackets
-    text_block = re.sub(r'([(\[{])\s', r'\1', text_block)
+    text_block = re.sub(r'([(\[{§])\s', r'\1', text_block)
     # replace look-alike chars with the chars of Tatar alphabet
-    text_block = _replace_look_alikes(text_block)
-    text_block = _replace_nonalphanum_chars(text_block)
+    # text_block = _replace_look_alikes(text_block)
+    # text_block = _replace_nonalphanum_chars(text_block)
+
     # escape unordered markdown list markers
     text_block = re.sub(r'^\s*[-*+-]\s', r'\-', text_block)
+
+    # stupid workaround to handle anomaly big first characters of the title pages what breaks formatting
+    # if len(text_block) > 100:
+    #     text_block = re.sub(r'^#+ (.) (.+)', r'\1\2', text_block)
 
     return text_block
 
@@ -112,8 +117,8 @@ def _tatarify(word):
         replaced_ch = _replace_tatar_char_look_alikes(original_ch)
         if original_ch != replaced_ch:
             typer.echo(
-                f"In word '{word}' replaced not tatar char '{original_ch}'({hex(ord(original_ch))}) "
-                f"with tatar '{replaced_ch}'({hex(ord(replaced_ch)) if replaced_ch else None})"
+                f"In word '{word}' replaced not tatar char '{original_ch}'({original_ch.encode('unicode_escape')}) "
+                f"with tatar '{replaced_ch}'({replaced_ch.encode('unicode_escape') if replaced_ch else None})"
             )
         buf.append(replaced_ch)
     return "".join(buf)

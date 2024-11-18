@@ -29,13 +29,13 @@ VALID_CHARS = TATAR_CYRILLIC_ALPHABET.union(string.digits).union(VALID_NON_ALPHA
 
 
 class Dirs(Enum):
-    ENTRY_POINT = "000_entry_point"
-    BOOKS_CACHE = "010_books_cache"
-    PAGE_IMAGES = '100_page_images'
-    LABEL_STUDIO_TASKS = "200_label_studio_tasks"
-    BOXES_PLOTS = '300_boxes_plots'
-    ANNOTATION_RESULTS = '500_annotation_results'
+    ENTRY_POINT = "0_entry_point"
+    BOOKS_CACHE = "misc/books"
+    PAGE_IMAGES = 'misc/page_images'
+    LABEL_STUDIO_TASKS = "misc/label-studio-tasks"
+    BOXES_PLOTS = 'misc/boxes-plots'
+    ANNOTATION_RESULTS = 'misc/annotation-results'
 
-    ARTIFACTS = '900_artifacts'
-    ANNOTATIONS = '910_annotations'
-    DOCS_PLOT = '920_docs_plots'
+    ARTIFACTS = 'results'
+    ANNOTATIONS = 'misc/annotations'
+    DOCS_PLOT = 'misc/docs_plots'
