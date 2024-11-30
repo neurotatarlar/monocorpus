@@ -9,6 +9,7 @@ from ultralytics import YOLO
 from consts import Dirs
 from file_utils import get_path_in_workdir
 from integration.s3 import upload_files_to_s3
+from intersections import _process_intersections
 
 REPO_ID = 'hantian/yolo-doclaynet'
 MODEL_NAME = 'yolov10b'
@@ -16,7 +17,7 @@ MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 DPI = 100
 
 
-def layout_analysis(path_to_file: str, md5: str, pages_slice):
+def layout_analysis(path_to_file: str, md5: str, prelabel=None):
     """
     Analyze the page_layout of the document
 
@@ -24,9 +25,9 @@ def layout_analysis(path_to_file: str, md5: str, pages_slice):
     Then, it analyzes the page_layout of the pages_slice and uploads the images and the page_layout analysis to S3.
     """
     # Make images of the book pages_slice
-    pages_details, pages_count = _make_images_of_pages(path_to_file, md5, pages_slice)
+    pages_details, pages_count = _make_images_of_pages(path_to_file, md5, prelabel)
     # Analyze the page_layout of the pages_slice
-    pages_details = _create_layout_analysis(pages_details, md5, path_to_file)
+    pages_details = _create_layout_analysis(pages_details, md5, path_to_file, prelabel)
     # Upload the images to S3
     remote_files = upload_files_to_s3(
         [f['path_to_image'] for f in pages_details.values()],
@@ -60,13 +61,15 @@ def layout_analysis(path_to_file: str, md5: str, pages_slice):
     return pages_count
 
 
-def _make_images_of_pages(path_to_file: str, md5: str, pages=None):
+def _make_images_of_pages(path_to_file: str, md5: str, prelabel):
     output_dir = os.path.join(get_path_in_workdir(Dirs.PAGE_IMAGES), md5)
     os.makedirs(output_dir, exist_ok=True)
     results = {}
     with pymupdf.open(path_to_file) as doc:
         pages_count = doc.page_count
-        for page in track(doc[pages], description=f"Extracting images of the pages_slice from `{md5}`..."):
+        # pages_list = sorted([num for s in pages_slices for num in range(s.start, s.stop, s.step or 1)])
+        for page_no in track(sorted(prelabel.keys()), description=f"Extracting images of the pages_slice from `{md5}`..."):
+            page = doc[page_no]
             path_to_image = os.path.join(output_dir, f"{page.number}.png")
             if os.path.exists(path_to_image):
                 pix = pymupdf.Pixmap(path_to_image)
@@ -81,13 +84,13 @@ def _make_images_of_pages(path_to_file: str, md5: str, pages=None):
     return results, pages_count
 
 
-def _create_layout_analysis(pages_details, md5: str, path_to_file: str):
-    pages_details = _inference(pages_details, md5)
+def _create_layout_analysis(pages_details, md5: str, path_to_file: str, prelabel):
+    pages_details = _inference(pages_details, md5, prelabel)
     pages_details = _post_process_layouts(pages_details, path_to_file)
     return pages_details
 
 
-def _inference(pages_details, md5: str):
+def _inference(pages_details, md5: str, prelabel = None):
     # Create a directory for the plots
     plots_dir = os.path.join(get_path_in_workdir(Dirs.BOXES_PLOTS), md5)
     os.makedirs(plots_dir, exist_ok=True)
@@ -95,26 +98,45 @@ def _inference(pages_details, md5: str):
     model = YOLO(hf_hub_download(repo_id=REPO_ID, filename=MODEL_CHECKPOINT))
 
     for page_no, details in track(pages_details.items(), description=f"Analyzing layouts of the `{md5}`..."):
-        pred = model.predict(details["path_to_image"], verbose=False, imgsz=1024)
-        results = pred[0].cpu()
-        boxes = results.boxes.xyxy.numpy()
-        confs = results.boxes.conf.numpy()
-        classes = results.boxes.cls.numpy()
+        if page_no in prelabel and (page_pre := prelabel[page_no]):
+            page_layouts = [
+                {
+                    "bbox": [
+                        res['x'] * res['original_width'] / 100,
+                        res['y'] * res['original_height'] / 100,
+                        (res['x'] + res["width"]) * res['original_width'] / 100,
+                        (res['y'] + res['height']) * res['original_height'] / 100,
+                    ],
+                    "conf": "0.99",
+                    "class": res['class'],
+                    "id": f"{page_no}::{idx}::revisited"
+                }
+                for idx, res
+                in enumerate(page_pre['results'])
+            ]
+        else:
+            print("You should not be here")
+            exit(0)
+            pred = model.predict(details["path_to_image"], verbose=False, imgsz=1024)
+            results = pred[0].cpu()
+            boxes = results.boxes.xyxy.numpy()
+            confs = results.boxes.conf.numpy()
+            classes = results.boxes.cls.numpy()
 
-        page_layouts = [
-            {
-                "bbox": x[0].tolist(),
-                "class": results.names[int(x[2])].lower(),
-                "conf": str(round(x[1], 2)),
-                "id": f"{page_no}::{idx}"
-            }
-            for (idx, x)
-            in enumerate(zip(boxes, confs, classes))
-        ]
+            page_layouts = [
+                {
+                    "bbox": x[0].tolist(),
+                    "class": results.names[int(x[2])].lower(),
+                    "conf": str(round(x[1], 2)),
+                    "id": f"{page_no}::{idx}"
+                }
+                for (idx, x)
+                in enumerate(zip(boxes, confs, classes))
+            ]
+            # Save the plot
+            results.save(os.path.join(plots_dir, f"{page_no}.png"))
+
         details["layouts"] = page_layouts
-
-        # Save the plot
-        results.save(os.path.join(plots_dir, f"{page_no}.png"))
 
     return pages_details
 
@@ -173,104 +195,10 @@ def _export_predictions(pages_details, md5: str):
 
 def _post_process_layouts(pages_details, path_to_file):
     for page_no, details in pages_details.items():
-        details["layouts"] = _iou(details)
+        details["layouts"] = _process_intersections(details)
         _semantic_transform(details, page_no, path_to_file)
     return pages_details
 
-
-def _iou(page_layout, threshold=0.8):
-    """
-    Post-process the page_layout analysis results.
-    It aimed to mitigate the problem of overlapping bounding boxes.
-
-    threshold: float (default=0.8) - the threshold for the intersection over union (IoU) to consider two bounding boxes
-    as the same region.
-    """
-
-    def intersection_area(box1, box2):
-        """Calculate the intersection area of two bounding boxes."""
-        x1 = max(box1[0], box2[0])
-        y1 = max(box1[1], box2[1])
-        x2 = min(box1[2], box2[2])
-        y2 = min(box1[3], box2[3])
-        return calculate_area((x1, y1, x2, y2))
-
-    def calculate_area(box):
-        """Calculate the area of a bounding box."""
-        x1, y1, x2, y2 = box
-        return max(0, x2 - x1) * max(0, y2 - y1)
-
-    def merge_regions(a, b):
-        """Merge two bounding boxes."""
-        chosen_region, _ = a if pick_first(a, b) else b
-        a_bbox, b_bbox = a[0]['bbox'], b[0]['bbox']
-        chosen_region['bbox'] = (
-            min(a_bbox[0], b_bbox[0]),
-            min(a_bbox[1], b_bbox[1]),
-            max(a_bbox[2], b_bbox[2]),
-            max(a_bbox[3], b_bbox[3])
-        )
-        return chosen_region
-
-    def pick_first(first, second):
-        _l1, _area1 = first
-        _l2, _area2 = second
-
-        # choose the one with higher confidence
-        if _l1['conf'] > _l2['conf']:
-            return True
-        elif _l1['conf'] < _l2['conf']:
-            return False
-        # below if confidences are equal
-        # then choose the one with the smaller area
-        elif _area1 < _area2:
-            return True
-        elif _area1 > _area2:
-            return False
-        # below if confidence and areas are equal (but still can be various classes)
-        # then choose the first one
-        else:
-            return True
-
-    layouts = list(map(lambda x: (x, calculate_area(x['bbox'])), page_layout['layouts']))
-    changed = True
-    while changed:
-        changed = False
-        new_layouts = []
-
-        while layouts:
-            this_region, this_area = layouts.pop(0)
-            merged = False
-
-            for idx, (other_region, other_area) in enumerate(layouts):
-                inter_area = intersection_area(this_region['bbox'], other_region['bbox'])
-                ratio_inter_to_box1 = inter_area / this_area
-                ratio_inter_to_box2 = inter_area / other_area
-
-                if ratio_inter_to_box1 > threshold and ratio_inter_to_box2 > threshold:
-                    # merge the two regions, because their intersection area is big to consider them as one region
-                    merged_region = merge_regions((this_region, this_area), (other_region, other_area))
-                    merged_area = calculate_area(merged_region['bbox'])
-                    new_layouts.append((merged_region, merged_area))
-                    layouts.pop(idx)
-                    changed = True
-                    merged = True
-                    break
-                elif ratio_inter_to_box2 > threshold or ratio_inter_to_box1 > threshold:
-                    # one region is almost full inside the other region, so discard one of them
-                    if pick_first((this_region, this_area), (other_region, other_area)):
-                        _ = layouts.pop(idx)
-                    else:
-                        merged = True
-                    changed = True
-                    break
-
-            if not merged:
-                new_layouts.append((this_region, this_area))
-
-        layouts = new_layouts[:]
-
-    return [x[0] for x in layouts]
 
 
 def _semantic_transform(page_layout, page_no, path_to_file):

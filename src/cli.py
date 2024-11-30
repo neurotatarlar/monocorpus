@@ -71,6 +71,7 @@ def inference(
     Run PDF Document Layout Analysis. This will create images of every page, run page_layout analysis prediction and
     send the tasks to the labeling service
     """
+    pages_slice = {num: {} for s in pages_slice for num in range(s.start, s.stop, s.step or 1)}
     layout_analysis_entry_point(md5, force, pages_slice)
 
 

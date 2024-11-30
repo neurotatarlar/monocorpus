@@ -7,15 +7,19 @@ from rich import print
 from rich.progress import track
 
 from consts import Dirs
+from dispatch import layout_analysis_entry_point
 from file_utils import read_config, get_path_in_workdir
 from integration.gsheets import find_by_md5_non_complete
 from integration.gsheets import upsert_many_in_parallel
-from integration.s3 import list_files, create_session, download_in_parallel, download_annotation
+from integration.s3 import list_files, create_session, download_in_parallel, download_annotation, remove_objects
 from integration.s3 import upload_files_to_s3
+from intersections import compute_intersection_area
 
 
 def sync():
+    # download all annotations from the bucket
     downloaded_annotations = _download_annotations()
+    # transform annotations to dictionary and reduce annotations of the same page by keeping only the last one per page
     transformed = _transform_annotations(downloaded_annotations)
     _calculate_completeness(transformed)
     print("Sync completed successfully")
@@ -66,7 +70,18 @@ def _transform_annotations(downloaded_annotations):
                 ]
             }
             _append_annotation(transformed_annotations, doc_md5, data['page_no'], res)
-    return transformed_annotations
+
+    valid_annotations, intersected = find_intersections(transformed_annotations)
+    if intersected:
+        print(f"Found {len(intersected)} docs with intersections")
+    valid_annotations, anomalies = find_semantic_anomalies(valid_annotations)
+    if anomalies:
+        print(f"Found {len(anomalies)} docs with semantic anomalies")
+
+    for md5, prelabel in {**intersected, **anomalies}.items():
+        layout_analysis_entry_point(md5=md5, force=True, prelabel=prelabel)
+
+    return valid_annotations
 
 
 def _append_annotation(accumulator, doc_hash, page_no, res):
@@ -144,3 +159,74 @@ def _upload_annotation_summaries(cas):
         paths.append(output_file)
 
     upload_files_to_s3(paths, lambda c: c['yc']['bucket']['annotations_summary'], )
+
+
+def find_intersections(transformed_annotations):
+    def _page_has_intersections(_coords):
+        _n = len(_coords)
+        for i in range(_n):
+            for j in range(i + 1, _n):  # Avoid duplicate pairs and self-comparison
+                if (ia := compute_intersection_area(coords[i], coords[j])) > 0:
+                    return ia, coords[i], coords[j]
+        return None
+
+    valid_annotations = {}
+    invalid_annotations = {}
+    for md5, doc in transformed_annotations.items():
+        prelabel = {}
+        for page_no, page in doc.items():
+            coords = []
+            results = page['results']
+            for annotation in results:
+                x_min = annotation['x']
+                y_min = annotation['y']
+                x_max = x_min + annotation['width']
+                y_max = y_min + annotation['height']
+                coords.append([x_min, y_min, x_max, y_max])
+
+            if _page_has_intersections(coords):
+                prelabel[page_no] = page
+            else:
+                valid_annotations[md5] = doc
+
+        if prelabel:
+            invalid_annotations[md5] = prelabel
+
+    return valid_annotations, invalid_annotations
+
+def find_semantic_anomalies(annotations):
+    valid_annotations = {}
+    anomalies = {}
+    for md5, doc in annotations.items():
+        prelabel = {}
+        for page_no, page in doc.items():
+            prev_class_ = None
+            sorted_layout = sorted(page["results"], key=lambda x: (x["y"], x["x"]))
+            for r in sorted_layout:
+                class_ = r['class']
+                if class_ == 'title' and page_no > 4:
+                    print(f"Found incorrect title on a page {page_no}")
+                    prelabel[page_no] = page
+                    break
+                elif class_ == 'page-header' and prev_class_ and prev_class_ != 'page-header':
+                    print(f"Found incorrect header on a page {page_no}")
+                    prelabel[page_no] = page
+                    break
+                else:
+                    prev_class_ = class_
+            prev_class_ = None
+            for r in reversed(sorted_layout):
+                class_ = r['class']
+                if class_ == 'page-footer' and prev_class_ and prev_class_ != 'page-footer':
+                    print(f"Found incorrect footer on a page {page_no}")
+                    prelabel[page_no] = page
+                    break
+                else:
+                    prev_class_ = class_
+
+
+        if prelabel:
+            anomalies[md5] = prelabel
+
+    return valid_annotations, anomalies
+

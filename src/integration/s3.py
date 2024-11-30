@@ -125,3 +125,9 @@ def download_annotation_summaries(bucket: str, keys, session=create_session()):
         downloaded_files[md5] = output_file
 
     return downloaded_files
+
+
+def remove_objects(bucket, keys: [], session=create_session()):
+    for key in track(keys, f"Removing files in bucket {bucket}..."):
+        res = session.delete_object(Bucket=bucket, Key=key)
+        # print(f"key: {key}, res: {res}")

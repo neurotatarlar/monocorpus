@@ -61,7 +61,7 @@ def _get_files_in_entry_point():
     return {calculate_md5(file): file for file in files}
 
 
-def layout_analysis_entry_point(md5, force: bool, pages_slice):
+def layout_analysis_entry_point(md5, force: bool, prelabel=None):
     """
     Analyze the page_layout of the documents in the entry point folder
     """
@@ -83,7 +83,7 @@ def layout_analysis_entry_point(md5, force: bool, pages_slice):
             continue
 
         # run page_layout analysis
-        pages_count = layout_analysis(file, md5, pages_slice)
+        pages_count = layout_analysis(file, md5, prelabel)
 
         # upsert the document
         doc.sent_for_annotation = True
