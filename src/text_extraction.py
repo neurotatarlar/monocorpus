@@ -12,10 +12,8 @@ from extraction.markdown_formatter import MarkdownFormatter, TEXT_EXTRACTION_FLA
 from file_utils import get_path_in_workdir
 from text_processor import post_process
 
-# todo case there first block starts with a title letter
-# todo post processing
+# todo multilayer list items
 # todo bold inside the word
-# todo Horizontal Rule Best Practices instead of asterisks
 # todo Starting Unordered List Items With Numbers
 # todo remove glyphen
 # todo define reading order
@@ -31,24 +29,15 @@ from text_processor import post_process
 # todo if no text was deteceted, then do OCR
 # todo update instruction
 # todo line wraps
-# todo some books starts with giant first char what breaks all formatting
 # todo footnotes problem
 # todo fix * intendation
 # todo fix *—*
 # annotations can be not only numbers
-# toto update screenshots for title
-#  check annotations from other
-#
-# special case for poetry
 # sort labeled_footnotes as well
-# tables can have captions too
 # save copy of datasets
-#  check not all labels are present
 # support for emails and urls
 
 # . URL: http://www. erzan.ru.
-# multiple breaks
-# ** А.Х.Садекова, ** филология
 
 pymupdf.TOOLS.set_small_glyph_heights(True)
 

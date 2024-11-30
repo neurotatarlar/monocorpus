@@ -67,7 +67,6 @@ def _make_images_of_pages(path_to_file: str, md5: str, prelabel):
     results = {}
     with pymupdf.open(path_to_file) as doc:
         pages_count = doc.page_count
-        # pages_list = sorted([num for s in pages_slices for num in range(s.start, s.stop, s.step or 1)])
         for page_no in track(sorted(prelabel.keys()), description=f"Extracting images of the pages_slice from `{md5}`..."):
             page = doc[page_no]
             path_to_image = os.path.join(output_dir, f"{page.number}.png")
@@ -115,8 +114,6 @@ def _inference(pages_details, md5: str, prelabel = None):
                 in enumerate(page_pre['results'])
             ]
         else:
-            print("You should not be here")
-            exit(0)
             pred = model.predict(details["path_to_image"], verbose=False, imgsz=1024)
             results = pred[0].cpu()
             boxes = results.boxes.xyxy.numpy()

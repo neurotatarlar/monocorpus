@@ -35,26 +35,23 @@ def post_process(text_block):
     text_block = re.sub(r'­', r'', text_block)
     # remove extra spaces
     text_block = re.sub(r'\s+', r' ', text_block)
-    # remove extra line brakes
-    text_block = re.sub(r'\n+', r'', text_block)
-    # remove extra break tags
-    text_block = re.sub(r'(</br>)+', r'</br>', text_block)
+    # remove poetry line end
+    text_block = re.sub(r'(<#PLE#>)+', '  \n', text_block)
     # remove single whitespace before the punctuations
     text_block = re.sub(r'\s([?.!")\]}][\s|$)])', r'\1', text_block)
     # remove single whitespace after the open brackets
     text_block = re.sub(r'([(\[{§])\s', r'\1', text_block)
+    # workaround for enormously big characters at the beginning of the paragraph what detected as a header
+    text_block = re.sub(r'^#+\s(.)\s(.*)', r'\1\2', text_block)
+
     # replace look-alike chars with the chars of Tatar alphabet
     # text_block = _replace_look_alikes(text_block)
     # text_block = _replace_nonalphanum_chars(text_block)
 
     # escape unordered markdown list markers
-    text_block = re.sub(r'^\s*[-*+-]\s', r'\-', text_block)
+    text_block = re.sub(r'^(\s)?([-*+-])(\s)', r'\1\\\2\3', text_block)
 
-    # stupid workaround to handle anomaly big first characters of the title pages what breaks formatting
-    # if len(text_block) > 100:
-    #     text_block = re.sub(r'^#+ (.) (.+)', r'\1\2', text_block)
-
-    return text_block
+    return text_block.strip()
 
 
 def pre_process(text):

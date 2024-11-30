@@ -1,5 +1,7 @@
-from spacy.lang.tt import Tatar
 import re
+from re import match
+
+from spacy.lang.tt import Tatar
 
 nlp = Tatar()
 nlp.add_pipe('sentencizer')
@@ -11,8 +13,9 @@ def check_paragraphs_are_the_same(prev, new):
     return: True if paragraphs are the same, False otherwise
     """
     # Another workaround. Allows not accidentally merge paragraph with a header
-    if re.match('^#+ ', prev):
-        return False
+    if (m := re.match(r'^[*#]+\s?(.)', new)) and (first_char := m.group(1)):
+        if first_char.isdigit() or first_char.isupper():
+            return False
 
     nlp_prev = nlp(prev)
     nlp_new = nlp(new)

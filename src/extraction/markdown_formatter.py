@@ -6,7 +6,6 @@ import typer
 from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
 from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
     TEXT_CID_FOR_UNKNOWN_UNICODE
-
 from text_processor import post_process, pre_process
 
 non_formatting_chars = string.punctuation + string.whitespace + '–'
@@ -29,6 +28,7 @@ class _SectionType(Enum):
     TABLE = 3
     FORMULA = 4
     FOOTNOTE = 5
+    POETRY = 6
 
 
 class MarkdownFormatter:
@@ -160,7 +160,6 @@ class MarkdownFormatter:
                 self.found_superscripts[self.page.number] = {}
             sup_text = text.rstrip(string.punctuation)
             self.found_superscripts[self.page.number][self.footnotes_counter] = sup_text
-
             formatting = f"[^{self.footnotes_counter}"
 
         # header should be the last
@@ -177,25 +176,21 @@ class MarkdownFormatter:
     def extract_text(self, keep_line_breaks=False):
         idx, bbox = self.block
         blocks = self.page.get_text("dict", clip=bbox, flags=TEXT_EXTRACTION_FLAGS)['blocks']
-        b_len = len(blocks) - 1
-        for b_idx, b in enumerate(blocks):
+        for b in blocks:
             lines = b.get('lines', [])
-            l_len = len(lines) - 1
-            for l_idx, li in enumerate(lines):
-                for s_idx, s in enumerate(li.get('spans', [])):
+            for li in lines:
+                for s in li.get('spans', []):
                     if formatted_span := self._format_span(s):
                         self.spans.append(formatted_span)
 
-                if keep_line_breaks and self.spans and not (b_idx == b_len and l_idx == l_len):
-                    # if it is not the last block, then add a line break
+                if keep_line_breaks and self.spans:
                     self._close_existing_formatting()
-                    self.spans[-1] = self.spans[-1].rstrip()
-                    self.spans.append("</br>")
+                    self.spans[-1] = f"{self.spans[-1].rstrip()}<#PLE#>"
 
         if self.spans:
             self._close_existing_formatting()
             text_block = post_process(''.join(self.spans).strip())
-            self.sections.append((idx, _SectionType.TEXT, text_block))
+            self.sections.append((idx, _SectionType.POETRY if keep_line_breaks else _SectionType.TEXT , text_block))
             self.spans = []
             return text_block
 
@@ -224,7 +219,8 @@ class MarkdownFormatter:
         if self.superscript_in_progress:
             self.superscript_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}]"
+                self.spans[-2] = self.spans[-2].rstrip()
+                self.spans[-1] = f"{self.spans[-1].rstrip()}] "
 
     def _close_existing_formatting(self):
         """
@@ -249,22 +245,22 @@ class MarkdownFormatter:
             if prev_section:
                 match this_ty:
                     # two new lines before the section
-                    case _SectionType.IMAGE if prev_ty in (_SectionType.TEXT, _SectionType.IMAGE):
+                    case _SectionType.IMAGE if prev_ty in (_SectionType.TEXT, _SectionType.IMAGE, _SectionType.POETRY):
                         this_section = f"\n\n{this_section}"
-                    case _SectionType.TABLE if prev_ty in (_SectionType.TEXT, _SectionType.TABLE, _SectionType.IMAGE):
+                    case _SectionType.TABLE if prev_ty in (_SectionType.TEXT, _SectionType.TABLE, _SectionType.IMAGE, _SectionType.POETRY):
                         this_section = f"\n\n{this_section}"
-                    case _SectionType.TEXT if prev_ty == _SectionType.IMAGE:
+                    case _SectionType.TEXT if prev_ty in (_SectionType.IMAGE, _SectionType.POETRY):
                         this_section = f"\n\n{this_section}"
                     case _SectionType.TEXT if prev_ty == _SectionType.TEXT:
-                        if this_idx == 0 and this_section[0] != '#' and check_paragraphs_are_the_same(prev_section,
-                                                                                                      this_section):
+                        if this_idx == 0 and check_paragraphs_are_the_same(prev_section, this_section):
                             this_section = f" {this_section}"
-                        else:
-                            this_section = f"\n\n{this_section}"
+                        else: this_section = f"\n\n{this_section}"
                     case _SectionType.FOOTNOTE:
                         this_section = f"\n\n{this_section}"
+                    case _SectionType.POETRY:
+                        this_section = f"\n\n{this_section}"
 
-                    # one new line before the section
+                # one new line before the section
                     case _SectionType.FORMULA | _SectionType.IMAGE:
                         this_section = f"\n{this_section}"
                     case _SectionType.TABLE if prev_ty == _SectionType.FORMULA:

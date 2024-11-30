@@ -74,12 +74,14 @@ def _transform_annotations(downloaded_annotations):
     valid_annotations, intersected = find_intersections(transformed_annotations)
     if intersected:
         print(f"Found {len(intersected)} docs with intersections")
+        for md5, prelabel in intersected.items():
+            layout_analysis_entry_point(md5=md5, force=True, prelabel=prelabel)
+
     valid_annotations, anomalies = find_semantic_anomalies(valid_annotations)
     if anomalies:
         print(f"Found {len(anomalies)} docs with semantic anomalies")
-
-    for md5, prelabel in {**intersected, **anomalies}.items():
-        layout_analysis_entry_point(md5=md5, force=True, prelabel=prelabel)
+        for md5, prelabel in anomalies.items():
+            layout_analysis_entry_point(md5=md5, force=True, prelabel={k: {} for k, v in prelabel.items()})
 
     return valid_annotations
 
