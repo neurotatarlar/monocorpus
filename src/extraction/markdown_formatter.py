@@ -5,8 +5,9 @@ from enum import Enum
 import typer
 from extraction.paragraph_continuity_checker import check_paragraphs_are_the_same
 from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_IMAGES, TEXT_PRESERVE_WHITESPACE, \
-    TEXT_CID_FOR_UNKNOWN_UNICODE
+    TEXT_CID_FOR_UNKNOWN_UNICODE, TEXT_INHIBIT_SPACES
 from text_processor import post_process, pre_process
+from string import whitespace
 
 non_formatting_chars = string.punctuation + string.whitespace + '–'
 
@@ -17,6 +18,8 @@ TEXT_EXTRACTION_FLAGS = (
         ~TEXT_PRESERVE_IMAGES
         &
         TEXT_PRESERVE_WHITESPACE
+        &
+        ~TEXT_INHIBIT_SPACES
         &
         TEXT_CID_FOR_UNKNOWN_UNICODE
 )
@@ -103,12 +106,12 @@ class MarkdownFormatter:
         # we close superscript to not add the punctuation to the superscript sign in case superscript is the prev span
         elif text.isspace() or all(c in non_formatting_chars for c in text):
             self._close_superscript()
-            return text.lstrip()
+            return text.lstrip(whitespace)
 
         text = pre_process(text)
 
-        if not (text.endswith('­') or text.endswith(' ')):
-            text += ' '
+        # if not (text.endswith('­') or text.endswith(' ')):
+        #     text += ' '
 
         flags = span['flags']
         size = span['size']
@@ -128,7 +131,7 @@ class MarkdownFormatter:
             self._close_monospace()
         elif not self.monospace_in_progress and monospace:
             self.monospace_in_progress = True
-            formatting = f"`{formatting.lstrip()}"
+            formatting = f"`{formatting}"
 
         if self.italic_in_progress and not italic:
             # there is an italic block in progress but the current span is not italic, so we need to close the
@@ -136,7 +139,7 @@ class MarkdownFormatter:
             self._close_italic()
         elif not self.italic_in_progress and italic:
             self.italic_in_progress = True
-            formatting = f"*{formatting.lstrip()}"
+            formatting = f"*{formatting}"
 
         if self.bold_in_progress and not bold:
             # there is a bold block in progress but the current span is not bold, so we need to close the bold block
@@ -144,7 +147,7 @@ class MarkdownFormatter:
         elif not self.bold_in_progress and bold and not header_multiplier:
             # making a header bold does not make sense, because headers are already bold
             self.bold_in_progress = True
-            formatting = f"**{formatting.lstrip()}"
+            formatting = f"**{formatting}"
 
         # superscript should be before header
         if self.superscript_in_progress and not superscript:
@@ -169,27 +172,30 @@ class MarkdownFormatter:
             self._close_header()
         elif not self.header_in_progress and header_multiplier:
             self.header_in_progress = True
-            formatting = f"{'#' * header_multiplier} {formatting.lstrip()}"
+            formatting = f"{'#' * header_multiplier} {formatting}"
 
-        return formatting.format(text)
+        return formatting.format(text.lstrip(whitespace).rstrip("\n\r\v\f"))
 
     def extract_text(self, keep_line_breaks=False):
         idx, bbox = self.block
         blocks = self.page.get_text("dict", clip=bbox, flags=TEXT_EXTRACTION_FLAGS)['blocks']
-        for b in blocks:
+        b_len = len(blocks) - 1
+        for b_idx, b in enumerate(blocks):
             lines = b.get('lines', [])
-            for li in lines:
-                for s in li.get('spans', []):
+            l_len = len(lines) - 1
+            for l_idx, li in enumerate(lines):
+                for s_idx, s in enumerate(li.get('spans', [])):
                     if formatted_span := self._format_span(s):
                         self.spans.append(formatted_span)
 
                 if keep_line_breaks and self.spans:
-                    self._close_existing_formatting()
-                    self.spans[-1] = f"{self.spans[-1].rstrip()}<#PLE#>"
+                    # self._close_existing_formatting()
+                    self.spans[-1] = self.spans[-1].rstrip(whitespace)
+                    self.spans.append("<#PLE#>")
 
         if self.spans:
             self._close_existing_formatting()
-            text_block = post_process(''.join(self.spans).strip())
+            text_block = post_process(''.join(self.spans).strip(whitespace))
             self.sections.append((idx, _SectionType.POETRY if keep_line_breaks else _SectionType.TEXT , text_block))
             self.spans = []
             return text_block
@@ -201,26 +207,30 @@ class MarkdownFormatter:
         if self.monospace_in_progress:
             self.monospace_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}` "
+                idx = -2 if self.spans[-1] == '<#PLE#>' else -1
+                self.spans[idx] = f"{self.spans[idx].rstrip()}` "
 
     def _close_italic(self):
         if self.italic_in_progress:
             self.italic_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}* "
+                idx = -2 if self.spans[-1] == '<#PLE#>' else -1
+                self.spans[idx] = f"{self.spans[idx].rstrip()}* "
 
     def _close_bold(self):
         if self.bold_in_progress:
             self.bold_in_progress = False
             if self.spans:
-                self.spans[-1] = f"{self.spans[-1].rstrip()}** "
+                idx = -2 if self.spans[-1] == '<#PLE#>' else -1
+                self.spans[idx] = f"{self.spans[idx].rstrip()}** "
 
     def _close_superscript(self):
         if self.superscript_in_progress:
             self.superscript_in_progress = False
             if self.spans:
-                self.spans[-2] = self.spans[-2].rstrip()
-                self.spans[-1] = f"{self.spans[-1].rstrip()}] "
+                idx = -2 if self.spans[-1] == '<#PLE#>' else -1
+                self.spans[idx-1] = self.spans[idx-1].rstrip(whitespace)
+                self.spans[idx] = f"{self.spans[idx].rstrip(whitespace)}] "
 
     def _close_existing_formatting(self):
         """

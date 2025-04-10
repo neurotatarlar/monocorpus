@@ -114,3 +114,10 @@ def extract(
     Extract text from the annotated documents
     """
     extract_text_entry_point(md5, force, pages_slice)
+
+# @app.command()
+# def hf():
+#     """
+#     Upload all extracted texts to the dataset on hf
+#     """
+#     upload()

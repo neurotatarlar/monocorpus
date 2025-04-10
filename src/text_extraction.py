@@ -49,7 +49,7 @@ def extract_content(doc, path_to_doc, path_to_la, pages_slice):
     print(f"Extracting text from the document with md5 `{doc.md5}`...")
     parent_folder = os.path.join(get_path_in_workdir(Dirs.ARTIFACTS), doc.md5)
     os.makedirs(parent_folder, exist_ok=True)
-    output_file = os.path.join(parent_folder, "content.md")
+    output_file = os.path.join(parent_folder, f"{doc.md5}.md")
     with open(path_to_la, 'rb') as anno_f:
         annotations = json.load(anno_f)
 

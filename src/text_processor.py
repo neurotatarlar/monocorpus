@@ -1,10 +1,11 @@
 import os.path
 import re
 import string
+from string import whitespace
 
 import typer
 
-from consts import Dirs, VALID_CHARS
+from consts import VALID_CHARS
 
 """
 Minimal threshold of valid Tatar chars(see consts.EXPECTED_CHARS) in the document to consider it as Tatar document.
@@ -38,20 +39,22 @@ def post_process(text_block):
     # remove poetry line end
     text_block = re.sub(r'(<#PLE#>)+', '  \n', text_block)
     # remove single whitespace before the punctuations
-    text_block = re.sub(r'\s([?.!")\]}][\s|$)])', r'\1', text_block)
+    text_block = re.sub(r'\s([?.!")\]}])', r'\1', text_block)
     # remove single whitespace after the open brackets
     text_block = re.sub(r'([(\[{§])\s', r'\1', text_block)
     # workaround for enormously big characters at the beginning of the paragraph what detected as a header
     text_block = re.sub(r'^#+\s(.)\s(.*)', r'\1\2', text_block)
 
     # replace look-alike chars with the chars of Tatar alphabet
-    # text_block = _replace_look_alikes(text_block)
-    # text_block = _replace_nonalphanum_chars(text_block)
+    text_block = _replace_look_alikes(text_block)
+    text_block = _replace_nonalphanum_chars(text_block)
 
     # escape unordered markdown list markers
-    text_block = re.sub(r'^(\s)?([-*+-])(\s)', r'\1\\\2\3', text_block)
+    text_block = re.sub(r'^(\s)?([-*+-])([\s\n])', r'\1\\\2\3', text_block)
 
-    return text_block.strip()
+    text_block = re.sub(r'^•', r'-', text_block)
+
+    return text_block.strip(whitespace)
 
 
 def pre_process(text):
