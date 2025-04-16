@@ -7,3 +7,5 @@ git+https:///github.com/tagay1n/monocorpus-models
 portion
 spacy
 pymupdf
+google-genai
+mdformat

@@ -1,19 +1,3 @@
-yc:
-  bucket:
-    images: label-studio-import-images
-    tasks: label-studio-import-tasks-2
-    title_tasks: label-studio-import-title-tasks
-    annotations_summary: annotations-summary
-    annotations: label-studio-export-annotations
-  # https://yandex.cloud/en-ru/docs/iam/operations/sa/create-access-key
-  aws_access_key_id:
-  aws_secret_access_key:
-
-yandex_disk:
-  download_url: https://cloud-api.yandex.net/v1/disk/public/resources/download
-  # https://yandex.com/dev/direct/doc/start/token.html
-  # https://oauth.yandex.com/authorize?response_type=token&client_id=
-  token:
-
+google_api_key: <SET ME>
 
 
