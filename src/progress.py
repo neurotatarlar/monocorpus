@@ -15,7 +15,7 @@ class CheckBoxColumn(ProgressColumn):
         if task.stop_time:
             return Text("[x]", style="green")
         else:
-            return Text("[ ]", style="yellow")
+            return Text("==>", style="yellow")
 
     def update(self, complete):
         self.complete = complete
@@ -23,67 +23,131 @@ class CheckBoxColumn(ProgressColumn):
 
 class ProgressRenderer():
 
-    def __init__(self):
+    def __init__(self, context):
+        self.context = context
         
         self._main_progress = Progress(
-            CheckBoxColumn(),
             TimeElapsedColumn(),
             TextColumn("{task.description}"),
+            auto_refresh=False,
+        )
+        self._main_progress_active_task = self._main_progress.add_task(
+            description="Starting...",
+            start=True,
         )
 
-        self.extraction_progress = Progress(
+        self._details_table = Table.grid(expand=False, padding=(0, 1))
+        self._operational_progress = Progress(
             CheckBoxColumn(),
             TimeElapsedColumn(),
             TextColumn("{task.description}"),
-            MofNCompleteColumn(),
-            TaskProgressColumn(),
             auto_refresh=False,
         )
 
         self._panel = Panel(
             Group(
-                self._main_progress, 
-                self.extraction_progress
+                self._details_table,
+                self._operational_progress,
             ),
             border_style="green"
         )
-        progress_table = Table.grid(expand=True)
+        progress_table = Table.grid(expand=False)
         progress_table.add_row(self._panel)
+        progress_table.add_row(self._main_progress)
         self.live = Live(progress_table)
+        self._operational_progress_active_task = None
+        self.rendered_table_rows = {}
+   
         
-        self._main_progress_active_task = None
+    def _stop_operational_progress(self):
+        if self._operational_progress_active_task is not None:
+            self._operational_progress.stop_task(self._operational_progress_active_task)
+        self._operational_progress_active_task = None
         
-    def _stop_main_progress(self):
-        if self._main_progress_active_task is not None:
-            self._main_progress.stop_task(self._main_progress_active_task)
-        self._main_progress_active_task = None
+    def operational(self, description):
+        self._stop_operational_progress()
+        self._update()
         
-    def main(self, description):
-        self._stop_main_progress()
-        
-        self._main_progress_active_task = self._main_progress.add_task(
+        self._operational_progress_active_task = self._operational_progress.add_task(
             description=description,
             start=True
         )
-
-    def track_extraction(self, iterable, description="Extraction content of document"):
-        self._stop_main_progress()
-        return ProgressRenderer._track(iterable, description, self.extraction_progress)
-
-    def _track(iterable, description, progress):
-        task_id = progress.add_task(
-            description=description, total=len(iterable)
+    
+    def _update(self, decription="In progress..."):
+        table_rows = {}
+        if cli_params := self.context.cli_params:
+            table_rows = {
+                "force": cli_params.force,
+                "batch size": cli_params.batch_size,
+                "model": cli_params.model,
+            }
+            if slice:= cli_params.page_slice:
+                table_rows["slice"] = f"{slice.start or ''}:{slice.stop or ''}:{slice.step or ''}"
+        if self.context.ya_public_url:
+            table_rows["link"] = self.context.ya_public_url
+        if self.context.md5:
+            table_rows["md5"] = f"[link=file://{self.context.local_doc_path}]{self.context.md5}[/link]"
+        if self.context.local_content_path_raw:
+            table_rows["content"] = f"[link=file://{self.context.local_content_path_raw}]{self.context.local_content_path_raw}[/link]"
+        if metadata := self.context.metadata:
+            title = None
+            if metadata.name:
+                title = metadata.name
+            if metadata.author:
+                authors = [a.name for a in metadata.author]
+                title = f"'{title}' by '{', '.join(authors)}'"
+            if title:
+                table_rows["title"] = title
+        
+        self._main_progress.update(
+            self._main_progress_active_task,
+            description=decription,
         )
-        for elem in iterable:
+        for key, value in table_rows.items():
+            if key not in self.rendered_table_rows:
+                self._details_table.add_row(key, f"{value}")
+        self.rendered_table_rows.update(table_rows)
+        self.live.refresh()
+
+    def track_extraction(self, iterable, description):
+        self._stop_operational_progress()
+        self._update()
+        # return self._track(iterable, description, self._operational_progress)
+        total = len(iterable)
+        task_id = self._operational_progress.add_task(description=f"{description} (1/{total})", total=total)
+        for idx, elem  in enumerate(iterable):
+            yield elem
+            self._operational_progress.advance(task_id, 1)
+            self._operational_progress.update(
+                task_id,
+                description=f"{description} ({idx+1}/{total})"
+            )
+        self._operational_progress.stop_task(task_id)
+        if self.context.tokens:
+            self._details_table.add_row("TPR", f"{int(sum(self.context.tokens) / len(self.context.tokens))}")
+
+    def _track(self, iterable, description, progress):
+        total = len(iterable)
+        task_id = progress.add_task(description=f"{description} (1/{total})", total=total)
+        for idx, elem  in enumerate(iterable):
             yield elem
             progress.advance(task_id, 1)
+            progress.update(
+                task_id,
+                description=f"{description} ({idx+1}/{total})"
+            )
 
         progress.stop_task(task_id)
 
     def __enter__(self):
         self.live.start()
+        self._update()
         return self
 
     def __exit__(self, type, value, traceback):
+        self._stop_operational_progress()
+        if type is KeyboardInterrupt:
+            self._update(decription=f"[bold red]Processing interrupted by user[/ bold red]")
+        elif type is None:
+            self._update(decription=f"[bold green]Processing complete[/ bold green]")
         self.live.__exit__(type, value, traceback)
-        pass

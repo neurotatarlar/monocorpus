@@ -35,10 +35,10 @@ def read_config(config_file: str = "config.yaml"):
         return yaml.safe_load(file)
 
 
-def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str = 'workdir'):
+def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str = '~/.monocorpus'):
     dir_names = [i.value if isinstance(i, Dirs) else i for i in dir_names]
     script_parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
-    path = [script_parent_dir, '..', prefix, *dir_names]
+    path = [script_parent_dir, '..', os.path.expanduser(prefix), *dir_names]
     path = os.path.normpath(os.path.join(*path))
     os.makedirs(path, exist_ok=True)
     if file:
