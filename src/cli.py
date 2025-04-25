@@ -3,6 +3,8 @@ from typing_extensions import Annotated
 from typing import Optional
 import re
 from dataclasses import dataclass
+from sync import sync as _sync
+import dispatch
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -80,7 +82,6 @@ def extract(
         )
     ] = "gemini-2.0-flash",
     ):
-    import dispatch
     cli_params = ExtractCliParams(
         public_url=public_url,
         force=force,
@@ -90,3 +91,11 @@ def extract(
         model=model
     )
     dispatch.extract_content(public_url, cli_params)
+
+
+@app.command()
+def sync():
+    """
+    Sync the documents with the Yandex Disk and Google Sheets. It will traverse files and dirs in the yadisk and upload new entries to Google Sheets.
+    """
+    _sync()

@@ -6,6 +6,15 @@ from monocorpus_models import Document, Session
 from rich.progress import track
 from sqlalchemy import select
 
+def get_all_md5s():
+    """
+    Returns a dict of all md5s in the database with ya_resource_id
+    :return: set of md5s
+    """
+    res = Session()._create_session().execute(
+        select(Document.md5, Document.ya_resource_id)
+    ).all()
+    return { i[0]: i[1] for i in res if i[1] is not None }
 
 def find_by_md5(md5):
     stmt = select(Document).where(Document.md5.is_(md5)).limit(1)
