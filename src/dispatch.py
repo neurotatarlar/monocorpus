@@ -110,16 +110,6 @@ def _upload_artifacts(context):
                 
     session = create_session(context.config)
     
-    if context.local_doc_path:
-        doc_bucket = context.config["yandex"]["cloud"]['bucket']['document']
-        doc_key = f"{context.md5}{os.path.splitext(context.local_doc_path)[1]}"
-        context.remote_doc_url = upload_file(context.local_doc_path, doc_bucket, doc_key, session, skip_if_exists=True)
-    
-    if context.local_meta_path:
-        meta_key = f"{context.md5}-meta.zip"
-        meta_bucket = context.config["yandex"]["cloud"]['bucket']['metadata']
-        context.remote_meta_url = upload_file(context.local_meta_path, meta_bucket, meta_key, session)
-    
     if context.local_content_path:
         content_key = f"{context.md5}-content.zip"
         content_bucket = context.config["yandex"]["cloud"]['bucket']['content']

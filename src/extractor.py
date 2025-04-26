@@ -4,7 +4,7 @@ from itertools import batched, groupby
 from google import genai
 from google.genai import types
 import pymupdf
-from prompt import EXTRACT_CONTENT_PROMPT, DEFINE_METADATA_PROMPT
+from prompt import EXTRACT_CONTENT_PROMPT, DEFINE_META_PROMPT
 import mdformat
 from schema_org import Book
 import zipfile
@@ -23,8 +23,6 @@ import os
 def extract(context):
     client = genai.Client(api_key=context.config['google_api_key'])
     with pymupdf.open(context.local_doc_path) as pdf_doc:
-        if context.cli_params.meta:
-            _extract_metadata(context, pdf_doc, client)
         _extract_content(context, pdf_doc, client)
         context.extraction_method = context.cli_params.model
         context.doc_page_count=pdf_doc.page_count
@@ -94,14 +92,6 @@ def _interact_with_gemini(client, file_path, model, schema=None, shots=None, pro
         file=file_path,
         config={"mime_type": "application/pdf"}
     )
-    # contents = [file, shots, {"text": "Extract all the text from the PDF document using the same approach:"}]
-    # if shots:
-    #     contents.append(shots)
-    # if prompt:
-    #     contents.append(prompt)
-        
-    # contents.append(file)
-    # print(contents)
     contents = [
         {"text": EXTRACT_CONTENT_PROMPT},
     ]

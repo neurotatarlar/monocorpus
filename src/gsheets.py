@@ -6,6 +6,37 @@ from monocorpus_models import Document, Session
 from rich.progress import track
 from sqlalchemy import select
 
+def find_all_without_metadata():
+    """
+    Returns all documents without metadata.
+    :return: List of documents without metadata.
+    """
+    stmt = select(Document).where(Document.metadata_url.is_(None))
+    return Session().select(stmt)
+
+def remove_file(md5):
+    """
+    Removes a document from the database by md5.
+    :param md5: The md5 hash of the document to remove.
+    :return: None
+    """
+    with Session()._create_session() as s:
+        stmt = select(Document).where(Document.md5.is_(md5))
+        res = s.scalars(stmt).all()
+        if res:
+            for doc in res:
+                s.delete(doc)
+            s.commit()
+
+def find_by_file_name(file_name):
+    """
+    Removes a document from the database by file name.
+    :param file_name: The file name to remove.
+    :return: None
+    """
+    stmt = select(Document).where(Document.file_name.is_(file_name))
+    return Session().select(stmt)
+
 def get_all_md5s():
     """
     Returns a dict of all md5s in the database with ya_resource_id

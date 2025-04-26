@@ -32,7 +32,7 @@ class Book(BaseModel):
     inLanguage: Optional[str]
     description: Optional[str]
     numberOfPages: Optional[int]
-    bookEdition: Optional[str]
+    bookEdition: Optional[int]
     additionalProperty: Optional[List[PropertyValue]]
 
     # Optional enhancements
@@ -40,8 +40,7 @@ class Book(BaseModel):
     audience: Optional[str]
     accessMode: Optional[str]
     accessModeSufficient: Optional[List[str]]
-    suggestedAge: Optional[str]
-    translator: Optional[List[PersonOrOrganization]]
+    suggestedMinAge: Optional[int]
     isBasedOn: Optional[CreativeWork] = None 
     
     class Config:

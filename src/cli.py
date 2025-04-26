@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from sync import sync as _sync
 import dispatch
+import metadata
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -99,3 +100,18 @@ def sync():
     Sync the documents with the Yandex Disk and Google Sheets. It will traverse files and dirs in the yadisk and upload new entries to Google Sheets.
     """
     _sync()
+    
+@app.command()
+def meta(
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model", "-m",
+            help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
+        )
+    ] = "gemini-2.0-flash",
+):
+    """
+    Extract metadata from the documents
+    """
+    metadata.extract(model)
