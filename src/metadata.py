@@ -67,7 +67,7 @@ def _prepare_prompt(doc, slice_page_count):
     prompt = [{'text': prompt}]
     if raw_input_metadata := _load_upstream_metadata(doc):
         prompt.append({
-            "text": "In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
+            "text": "📌 In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
         })
         prompt.append({
             "text": raw_input_metadata

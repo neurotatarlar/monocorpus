@@ -17,9 +17,7 @@ from schema import ExtractionResult
 # - all pages aligned horizontally
 
 # todo normalize headers
-# todo hints im prompt: pages diapason, title/no title, last page of prev chunk 
 # todo optimize uploading of data to gemini
-# todo update prompt: input text can have various scripts 
 # todo postprocess output: remove page delimeters, fix headers hierarchy
 # todo more shots: between pages, footnotes
 # todo preview returned markdown
@@ -70,15 +68,22 @@ def _extract_content(context, pdf_doc, client):
     with zipfile.ZipFile(context.local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         zf.write(arcname=f"{context.md5}.md", filename=context.local_content_path_raw)
 
-def _prepare_prompt(slice_from, ):
-    contents = [{"text": EXTRACT_CONTENT_PROMPT}]
+def _prepare_prompt(slice_from, last_page=None):
+    contents = [{"text": EXTRACT_CONTENT_PROMPT.strip()}]
     if slice_from:
         # does not contain document title, so all headers should be '##' or deeper
-        contents.append({"text": "Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #."})
+        contents.append({"text": "📌 Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #. Always preserve the heading hierarchy based on the document's logical structure."})
     else:
         # may contain document title
-        contents.append({"text": "Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on."})
+        contents.append({"text": "📌 Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on. Always preserve the heading hierarchy based on the document's logical structure."})
     
+    if last_page:
+        contents.append({
+            "text": "📌 The last page of the previous chunk is attached. Use it to properly continue any broken sentences or structures at the beginning of the current chunk. Process the continuation according to all other instructions. The content of the previous chunk's last page is provided here for your reference:"
+        })
+        contents.append({
+            "text": last_page
+        })
     return contents
 
    
