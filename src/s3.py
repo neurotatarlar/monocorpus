@@ -1,12 +1,5 @@
-import os.path
-from concurrent import futures
-from concurrent.futures import ThreadPoolExecutor
-
-import typer
 from boto3 import Session
-from dirs import Dirs
 from utils import read_config
-from rich.progress import track
 
 CONFIG_FILE = "config.yaml"
 

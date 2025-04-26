@@ -1,6 +1,5 @@
 from rich.progress import Progress, TextColumn, ProgressColumn, BarColumn, MofNCompleteColumn, TimeRemainingColumn, TaskProgressColumn, Text, SpinnerColumn, TimeElapsedColumn, FileSizeColumn, TransferSpeedColumn
 from rich.live import Live
-from rich import print
 from rich.progress import Group
 from rich.table import Table
 from rich.panel import Panel
@@ -89,15 +88,15 @@ class ProgressRenderer():
             table_rows["md5"] = f"[link=file://{self.context.local_doc_path}]{self.context.md5}[/link]"
         if self.context.local_content_path_raw:
             table_rows["content"] = f"[link=file://{self.context.local_content_path_raw}]{self.context.local_content_path_raw}[/link]"
-        if metadata := self.context.metadata:
-            title = None
-            if metadata.name:
-                title = metadata.name
-            if metadata.author:
-                authors = [a.name for a in metadata.author]
-                title = f"'{title}' by '{', '.join(authors)}'"
-            if title:
-                table_rows["title"] = title
+        # if metadata := self.context.metadata:
+        #     title = None
+        #     if metadata.name:
+        #         title = metadata.name
+        #     if metadata.author:
+        #         authors = [a.name for a in metadata.author]
+        #         title = f"'{title}' by '{', '.join(authors)}'"
+        #     if title:
+        #         table_rows["title"] = title
         
         self._main_progress.update(
             self._main_progress_active_task,
@@ -147,7 +146,7 @@ class ProgressRenderer():
     def __exit__(self, type, value, traceback):
         self._stop_operational_progress()
         if type is KeyboardInterrupt:
-            self._update(decription=f"[bold red]Processing interrupted by user[/ bold red]")
+            self._update(decription=f"[bold red]Process interrupted by user[/ bold red]")
         elif type is None:
             self._update(decription=f"[bold green]Processing complete[/ bold green]")
         self.live.__exit__(type, value, traceback)

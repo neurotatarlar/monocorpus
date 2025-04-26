@@ -11,7 +11,11 @@ def find_all_without_metadata():
     Returns all documents without metadata.
     :return: List of documents without metadata.
     """
-    stmt = select(Document).where(Document.metadata_url.is_(None))
+    stmt = select(Document).where(
+        Document.metadata_url.is_(None)
+        &
+        Document.full.is_(True) 
+    )
     return Session().select(stmt)
 
 def remove_file(md5):

@@ -1,14 +1,14 @@
 EXTRACT_CONTENT_PROMPT = """
-You are given a PDF document written in Tatar (Cyrillic script). Please process the content according to the following instructions and return the result as a Markdown + HTML object.
+You are extracting structured content from a Tatar-language document slice. Please process the content according to the following instructions and return the result as a json with content of the document in the 'content' property with formatted output as Markdown + HTML.
 
-1. Remove all headers, footers, and page numbers. These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates.
+1. Remove all headers, footers, and page numbers. These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates. Do not mix page header with section name at the beginning of the page.
 
 2. Preserve and identify structural elements:
 - Keep paragraphs intact.
 - Recognize and preserve section titles or headings.
-- Do not modify the original language or content, just clean and format the structure.
+- Do not modify the original language or content, just clean and format the structure. Do not translate.
 - Use empty lines between paragraphs for readability.
-- Join lines in the same header, paragraph, etc. Dehyphenate words if they are split across lines.
+- Join lines in the same header, paragraph, etc. If a word is hyphenated at the end of a line (e.g., "мәдә-\nниәт"), join the parts correctly ("мәдәният").
 
 3. Detect and format tables:
 - If a table is recognized, format it using HTML table.
@@ -19,7 +19,7 @@ You are given a PDF document written in Tatar (Cyrillic script). Please process 
   - Inline formulas → $...$
   - Displayed formulas → $$...$$
 
-5. Detect images and insert `<figure></img></figure>`. Add a caption if it is present in the document.
+5. Detect images and insert `<figure></img></figure>`. Add a caption if it is present in the document `<figure></img><figcaption>Рәсем 5</figcaption></figure>`
 
 6. Keep natural reading order.
 
@@ -31,9 +31,7 @@ You are given a PDF document written in Tatar (Cyrillic script). Please process 
 
 10. If the image is a background or an ornament, omit it.
 
-11. Only the main title can be formatted with a single markdown `#`, other headers should use multiple `#` based on their hierarchy.
-
-12. Output a clean, continuous version of the document, with clear paragraph breaks and titles where appropriate.
+11. Output a clean, continuous version of the document, with clear paragraph breaks and titles where appropriate.
 
 Work carefully and ensure no important content is accidentally removed. Do not translate or rewrite the content. Keep the Tatar text unchanged. Your task is to improve structure and readability only. The language is Tatar, written in Cyrillic.
 """
@@ -41,7 +39,7 @@ Work carefully and ensure no important content is accidentally removed. Do not t
 DEFINE_META_PROMPT="""
 You are given a PDF document that contains the first {n} and last {n} pages of a book.
 
-The book may be written in Tatar or Russian. Tatar text may appear in several different scripts:
+Text may appear in several different scripts:
 - Tatar in Cyrillic script → use `"tt-Cyrl"`
 - Tatar in Zamanalif Latin script → use `"tt-Latn-x-zamanalif"`
 - Tatar in Yanalif Latin script → use `"tt-Latn-x-yanalif"`

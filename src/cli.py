@@ -62,12 +62,6 @@ def extract(
             help="Slice of the pages to process. Format: `start:stop:step`. If not provided, all pages will be processed."
         )
     ] = "::",
-    meta: Annotated[
-        bool,
-        typer.Option(
-            help="Extract metadata from the document",
-        )
-    ] = True,
     batch_size: Annotated[
         int,
         typer.Option(
@@ -81,7 +75,7 @@ def extract(
             "--model", "-m",
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
-    ] = "gemini-2.0-flash",
+    ] = "gemini-2.5-flash-preview-04-17",
     ):
     cli_params = ExtractCliParams(
         public_url=public_url,

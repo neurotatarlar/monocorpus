@@ -6,9 +6,6 @@ def create_client(config=read_config()):
     return genai.Client(api_key=config['google_api_key'])
 
 def request_gemini(prompt, files = {}, client=create_client(), model='gemini-2.5-flash-preview-04-17', temperature=0.1, schema=None, response_mime_type=None):
-    prompt.append(
-        {"text": "Now, extract metadata from the following document"}
-    )
     for path, mime_type in files.items():
         _f = client.files.upload(
             file=path,

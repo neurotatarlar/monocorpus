@@ -9,11 +9,6 @@ from rich.progress import track
 import zipfile
 import json
 
-# todo extract metadata from docs
-# todo add books from other folders
-# todo fix bbc
-# todo upload external metadata
-# separate full and partial documents
 not_document_types = [
     'application/vnd.android.package-archive',
     'image/jpeg',
@@ -31,16 +26,12 @@ not_document_types = [
 ]
 
 def flatten():
-    # visit dir
-    # if file, process as usual
-    # if dir, then check content
-    # special treatment for 'limited' folder
     config = read_config()
     s3client = create_session(config)
-    dir_to_visit = '/НейроТатарлар/kitaplar/_все книги/милли.китапханә/limited'
+    dir_to_visit = '/НейроТатарлар/kitaplar/_все книги/милли.китапханә/full'
     with YaDisk(config['yandex']['disk']['oauth_token']) as client:
         listing = client.listdir(dir_to_visit, max_items=None, fields=['type', 'path'])
-        for dir in track([res for res in listing if res.type == 'dir'], "Flatteninfg folders"):
+        for dir in track([res for res in listing if res.type == 'dir'], "Flattening..."):
             print(f"Visiting: '{dir.path}'")
             dir_content = [c for c in client.listdir(dir.path, fields=['name', 'path', 'type', 'md5']) if c.type == 'file']
             metas = [m for m in dir_content if m.name == 'metadata.json']
@@ -85,43 +76,25 @@ def sync():
     dirs_to_visit = [config['yandex']['disk']['entry_point']]
     skipped_by_mime_type_files = []
     s3client = create_session(config)
+    upstream_meta = _lookup_upstream_metadata(s3client, config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as client:
         while dirs_to_visit:
             current_dir = dirs_to_visit.pop(0)
-            if current_dir.startswith("/НейроТатарлар/kitaplar/_все книги/милли.китапханә/") or current_dir.startswith("disk:/НейроТатарлар/kitaplar/_все книги/милли.китапханә/"):
-                continue
             print(f"Visiting: '{current_dir}'")
             listing = client.listdir(current_dir, max_items=None, fields=['type', 'path', 'mime_type', 'md5', 'public_key', 'public_url', 'resource_id', 'name'])
             for resource in listing:
-                match _type := resource['type']:
-                    case 'dir':
-                        dirs_to_visit.append(resource['path'])
-                    case 'file':
-                        _process_file(client, resource, all_md5s, skipped_by_mime_type_files, s3client, config)
-                    case _:
-                        print(f"Unknown type: '{_type}'")
+                if resource.type == 'dir':
+                    dirs_to_visit.append(resource.path)
+                elif resource.type == 'file':
+                    _process_file(client, resource, all_md5s, skipped_by_mime_type_files, upstream_meta.get(resource.md5, None))
     
     print("Skipped by MIME type files:")
     for s in skipped_by_mime_type_files:
         print(s)
 
 
-def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, s3client, config):
+def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta):
 
-    if file.name == 'metadata.json':
-        # print("removing file ", file.path)
-        # tmp_file = get_in_workdir(file=".tmp")
-        # ya_client.download(file.path, tmp_file)
-        # bucket = config["yandex"]["cloud"]["bucket"]["upstream_metadata"]
-        # upload_file(path=tmp_file, bucket=bucket, key=file.md5, session=s3client, skip_if_exists=True)
-        # ya_client.remove(file.path, md5=file.md5)
-        return
-    
-    if file.name == 'parta_decrypted.zip':
-        # print("removing file ", file.path)
-        # ya_client.remove(file.path)
-        return
-    
     if file.mime_type in not_document_types:
         print(f"Skipping file: '{file.path}' of type '{file.mime_type}'")
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
@@ -134,14 +107,17 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, s3clien
         if all_md5s[file.md5] != file.resource_id:
             print(f"File '{file.path}' already exists in gsheet, but with different resource_id: '{file.resource_id}' with md5 '{file.md5}', removing it from yadisk")
             ya_client.remove(file.path, md5=file.md5)
-        return
+            
+        # todo remove `upstream_meta` check and just always return
+        if not upstream_meta:
+            return
     
     print(f"Processing file: '{file.path}' with md5 '{file.md5}'")
 
     ya_public_key = file.public_key
     ya_public_url = file.public_url
     if not (ya_public_key and ya_public_url):
-        file.public_key , ya_public_url = publish_file(ya_client, file.path)
+        ya_public_key, ya_public_url = publish_file(ya_client, file.path)
     doc = Document(
         md5=file.md5,
         mime_type=file.mime_type,
@@ -149,13 +125,8 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, s3clien
         ya_public_key=ya_public_key,
         ya_public_url=ya_public_url,
         ya_resource_id=file.resource_id,
-        full=True,
+        full=False if "милли.китапханә/limited" in file.path else True,
     )
-    
-    # # todo remove me later
-    # dst_path = os.path.join(os.path.dirname(os.path.dirname(file.path)), file.name)
-    # print(f"Moving from '{file.path}' to '{dst_path}'")
-    # ya_client.move(file.path, dst_path)
     
     # update gsheet
     upsert(doc)
@@ -165,3 +136,15 @@ def publish_file(client, path):
     _ = client.publish(path)
     resp = client.get_meta(path, fields = ['public_key', 'public_url'])
     return resp['public_key'], resp['public_url']
+
+
+def _lookup_upstream_metadata(s3client, config):
+    bucket = config["yandex"]["cloud"]["bucket"]["upstream_metadata"]
+    s3client.list_objects_v2(Bucket=bucket)
+    paginator = s3client.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=bucket)
+    return {
+         obj['Key'].removesuffix('.zip'): f"{s3client._endpoint.host}/{bucket}/{obj['Key']}"
+         for page in pages
+         for obj in page['Contents']
+    }

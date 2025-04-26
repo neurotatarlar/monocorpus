@@ -6,3 +6,4 @@ class Dirs(Enum):
     DOC_SLICES = "misc/doc_slices"
     CONTENT = "1_result"
     METADATA="2_metadata"
+    UPSTREAM_METADATA = "misc/upstream_metadata"

@@ -8,23 +8,15 @@ import os
 from itertools import groupby
 import pymupdf
 from gemini import request_gemini, create_client
-from schema_org import Book
+from schema import Book
 import zipfile
 import isbnlib
 from prompt import DEFINE_META_PROMPT
-
-# todo fix udc
+import requests
 
 def extract(model):
-    # 1. get all docs without extracted metadata
-    # 2. download doc yadisk
-    # 2. upload doc to s3
-    # 3. for each doc create a slice of first N and last M pages
-    # 4. send to gemini
-    # 5. get response, process it, update gsheet and upload to s3
-    
     config = read_config()
-    s3_client =  create_session(config)
+    s3lient =  create_session(config)
     gemini_client = create_client(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         
@@ -40,28 +32,21 @@ def extract(model):
             # upload doc to s3
             doc_bucket = config["yandex"]["cloud"]['bucket']['document']
             doc_key = os.path.basename(local_doc_path)
-            doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3_client, skip_if_exists=True)
+            doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
             
             # create a slice of first n and last n pages
             slice_file_path = get_in_workdir(Dirs.DOC_SLICES, file=f"slice-{doc_key}")
             slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=10)
             
+            # prepare prompt
+            prompt = _prepare_prompt(doc, slice_page_count)
+            
             # send to gemini
-            prompt = DEFINE_META_PROMPT.strip().format(n=int(slice_page_count / 2))
-            prompt = [{'text': prompt}]
-            if raw_input_metadata := _lookup_metadata(doc, ya_client):
-                prompt.append({
-                    "text": "In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
-                })
-                prompt.append({
-                    "text": raw_input_metadata
-                })
             files = {slice_file_path: doc.mime_type}
             response = request_gemini(client=gemini_client, model=model, prompt=prompt, files=files, schema=Book)
             
             # validate response
             metadata = Book.model_validate_json("".join([ch.text for ch in response]))
-            print(metadata)
             
             # write metadata to zip
             local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
@@ -72,11 +57,25 @@ def extract(model):
             # upload metadata to s3
             meta_key = f"{doc.md5}-meta.zip"
             meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
-            doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3_client, skip_if_exists=False)
+            doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
             
             # update metadata in gsheet
             _update_document(doc, metadata, original_doc_page_count)
             
+def _prepare_prompt(doc, slice_page_count):
+    prompt = DEFINE_META_PROMPT.strip().format(n=int(slice_page_count / 2))
+    prompt = [{'text': prompt}]
+    if raw_input_metadata := _load_upstream_metadata(doc):
+        prompt.append({
+            "text": "In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
+        })
+        prompt.append({
+            "text": raw_input_metadata
+        })
+        print(prompt)
+        exit(0)
+    prompt.append({"text": "Now, extract metadata from the following document"})
+    return prompt
             
 def _download_file_locally(ya_client, doc):
     ext = doc.mime_type.split("/")[-1]
@@ -133,16 +132,10 @@ def _update_document(doc, meta, pdf_doc_page_count):
         doc.isbn = isbnlib.canonical(scraped_isbns[0])
         
     def _extract_classification(_properties, _expected_names):
-        if _properties and (_val := [
-            p.value.strip().replace(' ', '') 
-            for p 
-            in _properties
-            if 
-            p.name.strip().upper() in _expected_names 
-            and 
-            p.value.lower() != 'unknown'
-        ] == 1):
-            return _val[0]
+        if _properties:
+            vals = [p.value.strip().replace(' ', '')  for p in _properties if p.name.strip().upper() in _expected_names and p.value.lower() not in ['unknown', 'неизвестно']]
+            if len(vals) == 1:
+                return vals[0] 
         return None
         
     if _bbc := _extract_classification(meta.additionalProperty, ["ББК", "BBC"]):
@@ -159,9 +152,20 @@ def _update_document(doc, meta, pdf_doc_page_count):
         doc.page_count = pdf_doc_page_count
         
     upsert(doc)
-    
-def _lookup_metadata(doc, ya_client):
-    # meta = ya_client.get_meta(doc., fields=['path'])
-    # print(meta)
-    # exit(0)
-    return []
+
+def _load_upstream_metadata(doc):
+    if not (upstream_metadata_url := doc.upstream_metadata_url):
+        return None
+    upstream_metadata_zip = get_in_workdir(Dirs.UPSTREAM_METADATA, file=f"{doc.md5}.zip")
+    with open(upstream_metadata_zip, "w") as um_zip, requests.get(upstream_metadata_url, stream=True) as resp:
+        resp.raise_for_status()
+        for chunk in resp.iter_content(chunk_size=8192): 
+            um_zip.write(chunk)
+            
+    upstream_metadata_unzip = get_in_workdir(Dirs.UPSTREAM_METADATA, doc.md5)
+    with zipfile.ZipFile(upstream_metadata_zip, 'r') as enc_zip:
+        enc_zip.extractall(upstream_metadata_unzip)
+        
+    with open(os.path.join(upstream_metadata_unzip, "metadata.json"), "r") as raw_meta:
+        return raw_meta.read()
+            
