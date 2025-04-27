@@ -25,49 +25,7 @@ not_document_types = [
     'audio/mpeg'
 ]
 
-def flatten():
-    config = read_config()
-    s3client = create_session(config)
-    dir_to_visit = '/НейроТатарлар/kitaplar/_все книги/милли.китапханә/full'
-    with YaDisk(config['yandex']['disk']['oauth_token']) as client:
-        listing = client.listdir(dir_to_visit, max_items=None, fields=['type', 'path'])
-        for dir in track([res for res in listing if res.type == 'dir'], "Flattening..."):
-            print(f"Visiting: '{dir.path}'")
-            dir_content = [c for c in client.listdir(dir.path, fields=['name', 'path', 'type', 'md5']) if c.type == 'file']
-            metas = [m for m in dir_content if m.name == 'metadata.json']
-            docs = [d for d in dir_content if d.name.endswith(".pdf")]
-
-            doc = None 
-            meta = None
-            if docs and len(docs) == 1:
-                doc = docs[0]
-            
-            if metas and len(metas) == 1 and doc:
-                print("About to upload meta to S3: " + dir.path)
-                meta = metas[0]
-                tmp_file = get_in_workdir(file=".tmp")
-                client.download(meta.path, tmp_file)
-                tmp_zip_file = tmp_file + ".zip"
-                with zipfile.ZipFile(tmp_zip_file, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf, open(tmp_file, "r") as meta_file:
-                    meta_raw = json.load(meta_file)
-                    zf.writestr("metadata.json", json.dumps(meta_raw, ensure_ascii=False, indent=None, separators=(',', ':')))
-                bucket = config["yandex"]["cloud"]["bucket"]["upstream_metadata"]
-                upload_file(path=tmp_zip_file, bucket=bucket, key=f"{doc.md5}.zip", session=s3client, skip_if_exists=False)
-                print("Uploaded meta to S3 " + dir.path)
-            
-            if doc:
-                dst_path = os.path.join(os.path.dirname(os.path.dirname(doc.path)), doc.name)
-                print(f"Moving from '{doc.path}' to '{dst_path}'")
-                client.move(doc.path, dst_path, overwrite=True)
-                
-            print("Removing ", dir.path)
-            client.remove(dir.path)
-            
-    exit(0)
-
 def sync():
-    flatten()
-    
     """
     Syncs files from Yandex Disk to Google Sheets.
     """
@@ -100,6 +58,11 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
         return
     
+    ya_public_key = file.public_key
+    ya_public_url = file.public_url
+    if not (ya_public_key and ya_public_url):
+        ya_public_key, ya_public_url = publish_file(ya_client, file.path)
+    
     if file.md5 in all_md5s:
         # compare with ya_resource_id
         # if 'resource_id' is the same, then skip, due to we have it in gsheet
@@ -114,10 +77,6 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     
     print(f"Processing file: '{file.path}' with md5 '{file.md5}'")
 
-    ya_public_key = file.public_key
-    ya_public_url = file.public_url
-    if not (ya_public_key and ya_public_url):
-        ya_public_key, ya_public_url = publish_file(ya_client, file.path)
     doc = Document(
         md5=file.md5,
         mime_type=file.mime_type,
@@ -125,6 +84,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         ya_public_key=ya_public_key,
         ya_public_url=ya_public_url,
         ya_resource_id=file.resource_id,
+        upstream_metadata_url=upstream_meta,
         full=False if "милли.китапханә/limited" in file.path else True,
     )
     

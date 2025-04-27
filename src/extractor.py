@@ -59,8 +59,6 @@ def _extract_content(context, pdf_doc, client):
                 tokens = chunk.usage_metadata.total_token_count
             context.tokens.append(tokens)
             
-            result_file.flush()
-            exit(0)
         result_file.flush()
 
     # mdformat.file(context.local_content_path_raw)
