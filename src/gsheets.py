@@ -47,9 +47,14 @@ def get_all_md5s():
     :return: set of md5s
     """
     res = Session()._create_session().execute(
-        select(Document.md5, Document.ya_resource_id)
+        select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url)
     ).all()
-    return { i[0]: i[1] for i in res if i[1] is not None }
+    return { 
+            i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2]} 
+            for i 
+            in res 
+            if i[1] is not None
+    }
 
 def find_by_md5(md5):
     stmt = select(Document).where(Document.md5.is_(md5)).limit(1)
@@ -99,3 +104,9 @@ def upsert_many_in_parallel(docs):
                 raise typer.Abort()
 
             yield future.result()
+            
+def find_all_by_md5(md5s):
+    # sort out docs on client due to adding additional 
+    # clause 'document.md5 in md5s' causes too long execution
+    stmt = select(Document).where(Document.metadata_url.is_(None))
+    return [doc for doc in Session().select(stmt) if doc.md5 in md5s]

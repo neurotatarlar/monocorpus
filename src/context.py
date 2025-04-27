@@ -3,9 +3,9 @@ from progress import ProgressRenderer
 
 class Context():
 
-    def __init__(self, config, public_url, cli_params):
+    def __init__(self, config, cli_params):
         self.config = config
-        self.ya_public_url = public_url
+        self.ya_public_url = cli_params.public_url
         self.cli_params = cli_params
 
         self.ya_file_name = None

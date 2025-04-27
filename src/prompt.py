@@ -1,3 +1,6 @@
+from string import Template
+
+
 SYSTEM_PROMPT="""
 You are an expert assistant specializing in processing Tatar-language documents written in Cyrillic script.
 You perform two types of tasks based on the user’s instruction:
@@ -120,10 +123,10 @@ You are extracting structured content from a Tatar-language slice of pages from 
     - Be careful not to accidentally remove important content.
 """
 
-DEFINE_META_PROMPT="""
+DEFINE_META_PROMPT=Template("""
 # TASK: METADATA_EXTRACTION
 
-You are given a PDF document that contains the first {n} and last {n} pages of a book.
+You are given a PDF document that contains the first ${n} and last ${n} pages of a book.
 
 Text may appear in different scripts:
 - Tatar in Cyrillic script → use `"tt-Cyrl"`
@@ -146,7 +149,7 @@ Follow these rules strictly:
 Extract metadata such as:
 - `name` — Title of the book
 - `author` — Author(s)
-- `contributor` — Persons involved in roles such as: author, editor, translator, illustrator, composer, lyricist, contributor, reviewer, publisher, sponsor
+- `contributor` — Persons involved in roles such as: author, editor, translator, illustrator, composer, lyricist, contributor, reviewer, publisher, sponsor. Express roles in English
 - `publisher`
 - `datePublished` — Year of publication
 - `isbn`
@@ -186,4 +189,4 @@ REMINDERS:
 
 📌 Output only the final clean JSON-LD object.  
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
-"""
+""")

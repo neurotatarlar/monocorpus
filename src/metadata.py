@@ -1,5 +1,6 @@
-from gsheets import find_all_without_metadata, upsert
+from gsheets import upsert, find_by_md5, find_all_without_metadata, find_all_by_md5
 from rich.progress import track
+from rich import print
 from s3 import upload_file, create_session
 from utils import read_config, get_in_workdir, calculate_md5
 from dirs import Dirs
@@ -13,18 +14,21 @@ import zipfile
 import isbnlib
 from prompt import DEFINE_META_PROMPT
 import requests
+import json
 
-def extract(model):
+def metadata(cli_params):
     config = read_config()
     s3lient =  create_session(config)
     gemini_client = create_client(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         
         # get all docs without extracted metadata
-        for doc in track(find_all_without_metadata(), description="Extracting document metadata..."):
+        for doc in track(_obtain_documents(cli_params, ya_client), description="Extracting document metadata..."):
             if doc.mime_type != "application/pdf":
                 print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
                 continue
+            
+            print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
             
             # download doc from yadisk
             local_doc_path = _download_file_locally(ya_client, doc)
@@ -43,10 +47,10 @@ def extract(model):
             
             # send to gemini
             files = {slice_file_path: doc.mime_type}
-            response = request_gemini(client=gemini_client, model=model, prompt=prompt, files=files, schema=Book)
+            response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book)
             
             # validate response
-            metadata = Book.model_validate_json("".join([ch.text for ch in response]))
+            metadata = Book.model_validate_json("".join([ch.text for ch in response if ch.text]))
             
             # write metadata to zip
             local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
@@ -62,8 +66,32 @@ def extract(model):
             # update metadata in gsheet
             _update_document(doc, metadata, original_doc_page_count)
             
+def _obtain_documents(cli_params, ya_client):
+    if cli_params.md5:
+        print(f"Looking for document by md5 '{cli_params.md5}'")
+        return [find_by_md5(cli_params.md5)]
+    if cli_params.path:
+        _meta = ya_client.get_meta(cli_params.path, fields=['md5', 'type', 'path'])
+        if _meta.type == 'file':
+            print(f"Looking for document by path '{cli_params.path}'")
+            return [find_by_md5(_meta.md5)]
+        if _meta.type == 'dir':
+            print(f"Recursively looking for documents by path '{cli_params.path}'")
+            dirs_to_visit = [_meta.path]
+            md5s = set()
+            while dirs_to_visit:
+                dir = dirs_to_visit.pop(0)
+                _listing = ya_client.listdir(dir, max_items=None, fields=['md5', 'type', 'path'])
+                for _item in _listing:
+                    if _item.type == 'dir':
+                        dirs_to_visit.append(_item.path)
+                    elif _item.type == 'file':
+                        md5s.add(_item.md5)
+            return find_all_by_md5(md5s)
+    return find_all_without_metadata()
+            
 def _prepare_prompt(doc, slice_page_count):
-    prompt = DEFINE_META_PROMPT.strip().format(n=int(slice_page_count / 2))
+    prompt = DEFINE_META_PROMPT.substitute(n=int(slice_page_count / 2),)
     prompt = [{'text': prompt}]
     if raw_input_metadata := _load_upstream_metadata(doc):
         prompt.append({
@@ -72,8 +100,6 @@ def _prepare_prompt(doc, slice_page_count):
         prompt.append({
             "text": raw_input_metadata
         })
-        print(prompt)
-        exit(0)
     prompt.append({"text": "Now, extract metadata from the following document"})
     return prompt
             
@@ -122,18 +148,22 @@ def _update_document(doc, meta, pdf_doc_page_count):
     doc.summary = meta.description.replace('\n', ' ') if meta.description and meta.description.lower() != 'unknown' else None
     doc.language=meta.inLanguage
     doc.genre=", ".join([g.lower() for g in meta.genre if g.lower() != 'unknown']) if meta.genre else None
-    doc.translated = bool([c for c in meta.contributor if c.role == 'translator'])
+    doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
     doc.page_count=meta.numberOfPages or None
     doc.publish_date = meta.datePublished if meta.datePublished and meta.datePublished.lower() != 'unknown' else None
     doc.edition = meta.bookEdition
-    doc.audience = meta.audience if meta.audience and meta.audience.lower() != 'unknown' else None
+    doc.audience = meta.audience.lower() if meta.audience and meta.audience.lower() != 'unknown' else None
 
     if meta.isbn and len(scraped_isbns := isbnlib.get_isbnlike(meta.isbn)) == 1:
         doc.isbn = isbnlib.canonical(scraped_isbns[0])
         
     def _extract_classification(_properties, _expected_names):
         if _properties:
-            vals = [p.value.strip().replace(' ', '')  for p in _properties if p.name.strip().upper() in _expected_names and p.value.lower() not in ['unknown', 'неизвестно']]
+            vals = [
+                p.value.strip().replace(' ', '').replace('\n', '')
+                for p
+                in _properties 
+                if p.name.strip().upper() in _expected_names and p.value.lower() not in ['unknown', 'неизвестно']]
             if len(vals) == 1:
                 return vals[0] 
         return None
@@ -157,7 +187,7 @@ def _load_upstream_metadata(doc):
     if not (upstream_metadata_url := doc.upstream_metadata_url):
         return None
     upstream_metadata_zip = get_in_workdir(Dirs.UPSTREAM_METADATA, file=f"{doc.md5}.zip")
-    with open(upstream_metadata_zip, "w") as um_zip, requests.get(upstream_metadata_url, stream=True) as resp:
+    with open(upstream_metadata_zip, "wb") as um_zip, requests.get(upstream_metadata_url, stream=True) as resp:
         resp.raise_for_status()
         for chunk in resp.iter_content(chunk_size=8192): 
             um_zip.write(chunk)
@@ -167,5 +197,14 @@ def _load_upstream_metadata(doc):
         enc_zip.extractall(upstream_metadata_unzip)
         
     with open(os.path.join(upstream_metadata_unzip, "metadata.json"), "r") as raw_meta:
-        return raw_meta.read()
+        _meta = json.load(raw_meta)
+        _meta.pop("available_pages", None)
+        _meta.pop("doc_card_url", None)
+        _meta.pop("download_code", None)
+        _meta.pop("doc_url", None)
+        _meta.pop("access", None)
+        _meta.pop("lang", None)
+        return json.dumps(_meta, ensure_ascii=False)
+
+
             

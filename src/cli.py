@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from sync import sync as _sync
 import dispatch
 import metadata
+import string
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -18,7 +19,13 @@ class ExtractCliParams:
     meta: bool
     batch_size: int
     model: str
-
+    
+@dataclass
+class MetaCliParams:
+    md5: str
+    path: str
+    model: str
+    
  
 def slice_parser(value: str):
     if value:
@@ -38,6 +45,14 @@ def slice_parser(value: str):
         return slice(start, stop, step)
     return slice(0, None, 1)
     
+def md5_validator(value: str):
+    if value:
+        if len(value) != 32:
+            raise typer.BadParameter("MD5 should be 32 characters long")
+        value = value.lower()
+        if not all(ch in string.hexdigits for ch in value):
+            raise typer.BadParameter("MD5 should be a hex string")
+    return value
 
 @app.command()
 def extract(
@@ -85,7 +100,7 @@ def extract(
         batch_size=batch_size,
         model=model
     )
-    dispatch.extract_content(public_url, cli_params)
+    dispatch.extract_content(cli_params)
 
 
 @app.command()
@@ -97,15 +112,35 @@ def sync():
     
 @app.command()
 def meta(
+    md5: Annotated[
+        Optional[str],
+        typer.Option(
+            "--md5",
+            callback=md5_validator,
+            help="MD5 hash of the document. If not provided, all local documents will be processed."
+        )
+    ] = None,
+    path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--path", "-p",
+            help="Path to the document or directory in yandex disk" 
+        )
+    ] = None,
     model: Annotated[
         str,
         typer.Option(
             "--model", "-m",
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
-    ] = "gemini-2.0-flash",
+    ] = "gemini-2.5-flash-preview-04-17",
 ):
     """
     Extract metadata from the documents
     """
-    metadata.extract(model)
+    cli_params = MetaCliParams(
+        md5=md5,
+        path=path,
+        model=model
+    )
+    metadata.metadata(cli_params)

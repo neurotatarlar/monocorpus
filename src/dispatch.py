@@ -15,10 +15,10 @@ from s3 import upload_file, create_session
 # todo check Many-Shot In-Context Learning https://aload_test_docrxiv.org/pdf/2404.11018
 # todo deduplicate by isbn
 
-def extract_content(public_url, cli_params):
+def extract_content(cli_params):
     config = read_config()
     try:
-        with Context(config, public_url, cli_params) as context:
+        with Context(config, cli_params) as context:
             _download_file_locally(context)
             _load_document(context)
             if not context.cli_params.force and context.gsheet_doc.extraction_complete:
