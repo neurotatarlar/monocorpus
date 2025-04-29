@@ -15,18 +15,15 @@ class Context():
         self.progress = ProgressRenderer(self)
         
         self.local_doc_path = None
-        # self.local_meta_path = None
         self.local_content_path = None
-        self.local_content_path_raw = None
+        self.formatted_response_md = None
                 
-        # self.remote_doc_url = None
-        # self.remote_meta_url = None
+        self.remote_doc_url = None
         self.remote_content_url = None
         
         self.md5 = None
         self.gsheet_doc = None
         
-        # self.metadata = None
         self.extraction_method = None
         # count of pages in the document, not in the book inside document
         self.doc_page_count = None

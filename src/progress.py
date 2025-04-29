@@ -86,17 +86,8 @@ class ProgressRenderer():
             table_rows["link"] = self.context.ya_public_url
         if self.context.md5:
             table_rows["md5"] = f"[link=file://{self.context.local_doc_path}]{self.context.md5}[/link]"
-        if self.context.local_content_path_raw:
-            table_rows["content"] = f"[link=file://{self.context.local_content_path_raw}]{self.context.local_content_path_raw}[/link]"
-        # if metadata := self.context.metadata:
-        #     title = None
-        #     if metadata.name:
-        #         title = metadata.name
-        #     if metadata.author:
-        #         authors = [a.name for a in metadata.author]
-        #         title = f"'{title}' by '{', '.join(authors)}'"
-        #     if title:
-        #         table_rows["title"] = title
+        if self.context.formatted_response_md:
+            table_rows["content"] = f"[link=file://{self.context.formatted_response_md}]{self.context.formatted_response_md}[/link]"
         
         self._main_progress.update(
             self._main_progress_active_task,
@@ -111,7 +102,6 @@ class ProgressRenderer():
     def track_extraction(self, iterable, description):
         self._stop_operational_progress()
         self._update()
-        # return self._track(iterable, description, self._operational_progress)
         total = len(iterable)
         task_id = self._operational_progress.add_task(description=f"{description} (1/{total})", total=total)
         for idx, elem  in enumerate(iterable):
@@ -127,7 +117,7 @@ class ProgressRenderer():
 
     def _track(self, iterable, description, progress):
         total = len(iterable)
-        task_id = progress.add_task(description=f"{description} (1/{total})", total=total)
+        task_id = progress.add_task(description=f"{description} (0/{total})", total=total)
         for idx, elem  in enumerate(iterable):
             yield elem
             progress.advance(task_id, 1)

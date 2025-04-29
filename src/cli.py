@@ -83,7 +83,7 @@ def extract(
             "--batch-size", "-b",
             help="Batch size for processing pages",
         )
-    ] = 5,
+    ] = 50,
     model: Annotated[
         str,
         typer.Option(

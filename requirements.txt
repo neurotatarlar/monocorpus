@@ -1,12 +1,12 @@
 typer
-# ultralytics
 boto3
 pyyaml
 git+https:///github.com/tagay1n/monocorpus-models
 git+https:///github.com/tagay1n/yadisk-client
 portion
-# spacy
 pymupdf
 google-genai
 mdformat
+mdformat-toc
+mdformat-footnote
 isbnlib

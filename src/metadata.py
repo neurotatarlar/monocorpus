@@ -15,6 +15,7 @@ import isbnlib
 from prompt import DEFINE_META_PROMPT
 import requests
 import json
+import re
 
 def metadata(cli_params):
     config = read_config()
@@ -50,7 +51,12 @@ def metadata(cli_params):
             response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book)
             
             # validate response
-            metadata = Book.model_validate_json("".join([ch.text for ch in response if ch.text]))
+           
+            if not (raw_response := "".join([ch.text for ch in response if ch.text])):
+                print(f"No metadata was extracted from document {doc.md5}")
+                continue
+            else:
+                metadata = Book.model_validate_json(raw_response)
             
             # write metadata to zip
             local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
@@ -150,10 +156,12 @@ def _update_document(doc, meta, pdf_doc_page_count):
     doc.genre=", ".join([g.lower() for g in meta.genre if g.lower() != 'unknown']) if meta.genre else None
     doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
     doc.page_count=meta.numberOfPages or None
-    doc.publish_date = meta.datePublished if meta.datePublished and meta.datePublished.lower() != 'unknown' else None
     doc.edition = meta.bookEdition
     doc.audience = meta.audience.lower() if meta.audience and meta.audience.lower() != 'unknown' else None
-
+    if (_publish_date := meta.datePublished) and meta.datePublished.lower() != 'unknown':
+        if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
+            doc.publish_date = res.group(1)
+    
     if meta.isbn and len(scraped_isbns := isbnlib.get_isbnlike(meta.isbn)) == 1:
         doc.isbn = isbnlib.canonical(scraped_isbns[0])
         

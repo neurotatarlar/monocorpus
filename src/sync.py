@@ -70,9 +70,11 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         if all_md5s[file.md5]['resource_id'] != file.resource_id:
             print(f"File '{file.path}' already exists in gsheet, but with different resource_id: '{file.resource_id}' with md5 '{file.md5}', removing it from yadisk")
             ya_client.remove(file.path, md5=file.md5)
+            return
             
         # todo remove `upstream_meta` check and just always return
-        if (not upstream_meta) or all_md5s[file.md5]['upstream_metadata_url']:
+        # if (not upstream_meta) or all_md5s[file.md5]['upstream_metadata_url']:
+        if not upstream_meta or upstream_meta == all_md5s[file.md5]['upstream_metadata_url']:
             return
     
     print(f"Processing file: '{file.path}' with md5 '{file.md5}'")
@@ -87,7 +89,6 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         upstream_metadata_url=upstream_meta,
         full=False if "милли.китапханә/limited" in file.path else True,
     )
-    
     # update gsheet
     upsert(doc)
     all_md5s[file.md5] = {"resource_id": doc.ya_resource_id, "upstream_metadata_url": doc.upstream_metadata_url} 
