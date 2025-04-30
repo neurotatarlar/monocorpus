@@ -67,13 +67,22 @@ You are extracting structured content from a Tatar-language slice of pages from 
 7. Detect and format images:
    - Insert images using:
      ```html
-     <figure><img src="..." /></figure>
+     <figure data-bbox="[y_min, x_min, y_max, x_max]"><img src="..." /></figure>
      ```
+   - The `data-bbox` attribute should contain the bounding box of the image in the following format: `[y_min, x_min, y_max, x_max]`.
+     - These coordinates are normalized values between `0` and `1000`.
+     - The top-left corner of the page is the origin `(0, 0)`, where:
+       - `y_min`: vertical coordinate of the top edge
+       - `x_min`: horizontal coordinate of the left edge
+       - `y_max`: vertical coordinate of the bottom edge
+       - `x_max`: horizontal coordinate of the right edge
+     - For example, `[100, 150, 300, 450]` means the image starts 100 units from the top, 150 units from the left, and extends to 300 units down and 450 units across.
    - If a caption is present, format it inside `<figcaption>`, for example:
      ```html
-     <figure><img src="..." /><figcaption>Рәсем 5</figcaption></figure>
+     <figure data-bbox="[100, 150, 300, 450]"><img src="..." /><figcaption>Рәсем 5</figcaption></figure>
      ```
-   - If the image is purely decorative (background, ornament), omit it.
+   - If the image is purely decorative (e.g., background ornament), omit it.
+
 
 8. Maintain the natural reading order throughout the document.
 
@@ -88,33 +97,36 @@ You are extracting structured content from a Tatar-language slice of pages from 
 11. Insert page markers:
     - Insert immediately at the start of every page:
       ```html
-      <!-- page start -->
+      <!-- page 10 start -->
       ```
     - Insert immediately at the end of every page:
       ```html
-      <!-- page end -->
+      <!-- page 10 end -->
       ```
+   - do not forget to add the page number (starting from 0)
 
 12. Handling content continuation across pages:
     - If the first paragraph of the current page continues a paragraph from the previous page, **do not** add a new blank line. Continue naturally without a break.
     - If a table continues from a previous page, continue it without restarting.
 
 13. Detect and mark footnotes:
-    - When you detect a footnote reference (numbers, asterisks, symbols) inside the text, insert it as:
-      ```html
-      <sup class="footnote">original_number_or_symbol</sup>
-      ```
-    - When you detect footnote text (typically at the bottom of a page):
-      - Collect all detected footnotes into a block at the end of the **current page**, inside:
-        ```html
-        <div class="footnotes">
-        <div>[^1]: Full footnote text here.</div>
-        <div>[^2]: Another footnote text here.</div>
-        </div>
-        ```
-      - List multiple footnotes one after another inside the same `<div class="footnotes">`.
-      - Keep the original footnote number or symbol without renumbering.
-      - Insert the `<div class="footnotes">` block only if footnote texts are detected on that page; otherwise, omit it.
+   - In the `'content'` property, when you detect a footnote reference (numbers, asterisks, symbols) inside the text, insert it as:
+     ```html
+     <sup class="footnote">original_number_or_symbol</sup>
+     ```
+   - Do **not** include the full footnote text in the `'content'`.
+   - When you detect footnote text (typically at the bottom of a page), extract it and insert it into a separate `'footnotes'` property in the JSON output.
+     - Each footnote entry should include:
+       - `page`: the page number (starting from 0)
+       - `label`: the original footnote marker (number, asterisk, or symbol)
+       - `text`: the full footnote text
+     - Example:
+       ```json
+       "footnotes": [
+         { "page": 3, "label": "1", "text": "Full footnote text here." },
+         { "page": 3, "label": "*", "text": "Another footnote here." }
+       ]
+       ```
 
 14. General requirements:
     - Output a clean, continuous version of the document, improving structure and readability.

@@ -47,5 +47,11 @@ class Book(BaseModel):
         populate_by_name = True
         
         
+class Footnote(BaseModel):
+    page: int
+    label: str
+    text: str
+    
 class ExtractionResult(BaseModel):
     content: str
+    footnotes: Optional[List[Footnote]]

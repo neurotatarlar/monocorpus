@@ -106,94 +106,14 @@ def _prepare_prompt(slice_from, last_chunk_page=None):
         prompt.append({"text": "📌 Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on. Always preserve the heading hierarchy based on the document's logical structure."})
     
     if last_chunk_page:
-        prompt.append({
-            "text": "📌 The last page of the previous chunk is attached. Use it to properly continue any broken sentences or structures at the beginning of the current chunk. Process the continuation according to all other instructions. The content of the previous chunk's last page is provided here for your reference:"
-        })
-        prompt.append({
-            "text": last_chunk_page
-        })
+        prompt.append({"text": "📌 The last page of the previous chunk is attached. Use it to properly continue any broken sentences or structures at the beginning of the current chunk. Process the continuation according to all other instructions. The content of the previous chunk's last page is provided here for your reference:"})
+        prompt.append({"text": last_chunk_page})
         
     prompt.extend(load_inline_shots())
-        
-    # prompt.append({"text": "Here are examples of how to extract content from a document:"})
-    # for idx, (image, ground_truth) in enumerate(_load_pairs("./shots/general")):
-    #     prompt.append({"text": f"Example {idx+1} Image:"})
-    #     prompt.append({"inline_data": {
-    #         "data": image,
-    #         "mime_type": "image/png",
-    #     }})
-    #     prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
-        
-    # prompt.append({"text": "Additional Examples: Handling Content Across Page Breaks. These examples illustrate how to correctly handle paragraphs and tables that continue across pages in this chunk. Follow these conventions to ensure structural continuity and preserve reading flow."})
-    # for idx, (image1, image2, ground_truth) in enumerate(_load_triplets("./shots/paragraphs")):
-    #     prompt.append({"text": f"Example {idx+1} Paragraph continued on the next page:"})
-    #     prompt.append({"text": f"Previous page"})
-    #     prompt.append({"inline_data": {
-    #         "data": image1,
-    #         "mime_type": "image/png",
-    #     }})
-    #     prompt.append({"text": f"Current page"})
-    #     prompt.append({"inline_data": {
-    #         "data": image2,
-    #         "mime_type": "image/png",
-    #     }})
-    #     prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
-    # prompt.append({"text": "Summary: **Do not** insert a blank line if the paragraph is continuing. Merge seamlessly and naturally"})    
-    
-        
-    # for idx, (image1, image2, ground_truth) in enumerate(_load_triplets("./shots/tables")):
-    #     prompt.append({"text": f"Example {idx+1} Table continued on the next page:"})
-    #     prompt.append({"text": f"Previous page"})
-    #     prompt.append({"inline_data": {
-    #         "data": image1,
-    #         "mime_type": "image/png",
-    #     }})
-    #     prompt.append({"text": f"Current page"})
-    #     prompt.append({"inline_data": {
-    #         "data": image2,
-    #         "mime_type": "image/png",
-    #     }})
-    #     prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
-        
-    # prompt.append({"text": "Summary: **Do not** restart the table if it continues from a previous page. Just append the rows inside the same block."})    
-        
     prompt.append({"text": "Now, extract structured content from the following document"})
+    
     return prompt
 
-    
-def _load_pairs(rel_path):
-    for i in os.listdir(rel_path):
-        if i.endswith(".png"):
-            image_path = os.path.join(rel_path, i)
-            with open(image_path, "rb") as f:
-                image = base64.b64encode(f.read()).decode("utf-8")
-            with open(os.path.join(rel_path, i.replace(".png", ".md")), "r") as f:
-                ground_truth = f.read()
-            yield image, ground_truth
-            
-def _load_triplets(dir):
-    files = os.listdir(dir)
-    png_files = sorted([f for f in files if f.endswith('.png')])
-    md_files = sorted([f for f in files if f.endswith('.md')])
-    
-    for md_file in md_files:
-        # Extract index from md filename (e.g., '0.md' -> 0)
-        index = int(os.path.splitext(md_file)[0])
-
-        prev_image = f"{index}0.png"
-        curr_image = f"{index}1.png"
-
-        if prev_image in png_files and curr_image in png_files:
-            with open(os.path.join(dir, prev_image), "rb") as f:
-                _prev_image =  base64.b64encode(f.read()).decode("utf-8")
-            with open(os.path.join(dir, curr_image), "rb") as f:
-                _curr_image =  base64.b64encode(f.read()).decode("utf-8")
-            with open(os.path.join(dir, md_file), "r") as f:
-                ground_truth = f.read()
-            yield _prev_image, _curr_image, ground_truth
-        else:
-            print(f"Warning: missing images for {md_file}")
-            
 def _post_process(unformatted):
     # todo footnotes
     unformatted = unformatted.replace("\\n", "\n")
