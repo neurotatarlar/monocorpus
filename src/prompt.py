@@ -28,7 +28,7 @@ In both tasks:
 EXTRACT_CONTENT_PROMPT = """
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a Tatar-language slice of pages from a document (for example, pages 0–10 or 10–20). Please process the content according to the following instructions and return the result as a JSON with the document content in the 'content' property, formatted using Markdown and HTML.
+You are extracting structured content from a Tatar-language slice of pages from a document (for example, pages 0–10 or 10–20). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
 
 1. Remove all headers, footers, and page numbers.
    - These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates.

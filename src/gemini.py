@@ -3,8 +3,8 @@ from google import genai
 from google.genai import types
 from prompt import SYSTEM_PROMPT
 
-def create_client(config=read_config()):
-    return genai.Client(api_key=config['google_api_key'])
+def create_client(tier='free', config=read_config()):
+    return genai.Client(api_key=config['google_api_key'][tier])
 
 def request_gemini(prompt, files = {}, client=create_client(), model='gemini-2.5-flash-preview-04-17', temperature=0.1, schema=None, response_mime_type=None):
     for path, mime_type in files.items():

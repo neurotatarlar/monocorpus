@@ -20,7 +20,7 @@ import re
 def metadata(cli_params):
     config = read_config()
     s3lient =  create_session(config)
-    gemini_client = create_client(config)
+    gemini_client = create_client(tier='free', config=config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         
         # get all docs without extracted metadata

@@ -103,13 +103,13 @@ class ProgressRenderer():
         self._stop_operational_progress()
         self._update()
         total = len(iterable)
-        task_id = self._operational_progress.add_task(description=f"{description} (1/{total})", total=total)
-        for idx, elem  in enumerate(iterable):
+        task_id = self._operational_progress.add_task(description=f"{description} (0/{total})", total=total)
+        for idx, elem  in enumerate(iterable, start=1):
             yield elem
             self._operational_progress.advance(task_id, 1)
             self._operational_progress.update(
                 task_id,
-                description=f"{description} ({idx+1}/{total})"
+                description=f"{description} ({idx}/{total})"
             )
         self._operational_progress.stop_task(task_id)
         if self.context.tokens:

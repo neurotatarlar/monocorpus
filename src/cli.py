@@ -144,3 +144,11 @@ def meta(
         model=model
     )
     metadata.metadata(cli_params)
+
+@app.command()
+def prepare_shots():
+    """
+    Find, resize if necessary, convert to base 64 format and create a shots file what is ready to be inlined in prompt
+    """
+    import prepare_shots
+    prepare_shots.prepare_shots()

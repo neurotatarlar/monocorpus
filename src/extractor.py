@@ -1,18 +1,16 @@
 from utils import get_in_workdir
 from dirs import Dirs
 from itertools import batched
-from google import genai
 import pymupdf
 from prompt import EXTRACT_CONTENT_PROMPT
 import zipfile
-from gemini import request_gemini
+from gemini import request_gemini, create_client
 from schema import ExtractionResult
 import base64
 import os
 import mdformat
 import re
-# import mdformat_footnote
-# import mdformat_toc
+from prepare_shots import load_inline_shots
 
 
 # Content extraction checklist:
@@ -29,10 +27,10 @@ import re
 # todo replace toc
 # 
 def extract(context):
-    client = genai.Client(api_key=context.config['google_api_key'])
+    client = create_client("promo")
     with pymupdf.open(context.local_doc_path) as pdf_doc:
         _extract_content(context, pdf_doc, client)
-        context.extraction_method = f"{context.cli_params.model}/{context.cli_params.batch_size}"
+        context.extraction_method = f"{context.cli_params.model}/{context.cli_params.batch_size}/noimg"
         context.doc_page_count=pdf_doc.page_count
 
 def _extract_content(context, pdf_doc, client):
@@ -40,10 +38,11 @@ def _extract_content(context, pdf_doc, client):
     iter = list(batched(range(0, pdf_doc.page_count)[context.cli_params.page_slice], batch_size))
 
     last_chunk_page = None
-    context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}.md")
-    unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.json")
-    with open(context.formatted_response_md , "w", encoding="utf-8") as formatted, open(unformatted_response_md , "w", encoding="utf-8") as unformatted:
-        unformatted.write("[")
+    context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-formatted.md")
+    unformatted_response_json = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}.json")
+    unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
+    with open(context.formatted_response_md , "w", encoding="utf-8") as formatted, open(unformatted_response_json , "w", encoding="utf-8") as unformatted_json, open(unformatted_response_md , "w", encoding="utf-8") as unformatted_md:
+        unformatted_json.write("[")
         for idx, batch in enumerate(context.progress.track_extraction(iter, f"Extracting content in batches of size '{batch_size}'"), start=1):
             # create a pdf doc what will contain a slice of original pdf doc
             slice_from = batch[0]
@@ -60,17 +59,30 @@ def _extract_content(context, pdf_doc, client):
             files = {slice_file_path: "application/pdf"}
             response = request_gemini(client=client, model=context.cli_params.model, prompt=prompt, files=files, schema=ExtractionResult)
             
-            unformatted_content = ''
+            raw_content = ''
             for chunk in response:
                 if text := chunk.text:
-                    unformatted_content += text
-            context.tokens.append(chunk.usage_metadata.total_token_count)
-            unformatted.write(unformatted_content)
+                    raw_content += text
+                    
+            # write raw response in json 
+            unformatted_json.write(raw_content)
             if idx < len(iter):
-                unformatted.write(",\n")
-            formatted_content, last_chunk_page = _post_process(unformatted_content)
+                unformatted_json.write(",\n")
+            
+            # validate response 
+            extraction_result = ExtractionResult.model_validate_json(raw_content)
+            
+            # postprocess response
+            formatted_content, unformatted_content, last_chunk_page = _post_process(extraction_result.content)
+            
+            # write down processed result
             formatted.write(formatted_content)
-        unformatted.write("]")
+            
+            # write down variant vefore preprocessing for debugging and observability purpose 
+            unformatted_md.write(unformatted_content)
+            
+            context.tokens.append(chunk.usage_metadata.total_token_count)
+        unformatted_json.write("]")
 
 
     mdformat.file(
@@ -101,47 +113,49 @@ def _prepare_prompt(slice_from, last_chunk_page=None):
             "text": last_chunk_page
         })
         
-    prompt.append({"text": "Here are examples of how to extract content from a document:"})
-    for idx, (image, ground_truth) in enumerate(_load_pairs("./shots/general")):
-        prompt.append({"text": f"Example {idx+1} Image:"})
-        prompt.append({"inline_data": {
-            "data": image,
-            "mime_type": "image/png",
-        }})
-        prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
+    prompt.extend(load_inline_shots())
         
-    prompt.append({"text": "Additional Examples: Handling Content Across Page Breaks. These examples illustrate how to correctly handle paragraphs and tables that continue across pages in this chunk. Follow these conventions to ensure structural continuity and preserve reading flow."})
-    for idx, (image1, image2, ground_truth) in enumerate(_load_triplets("./shots/parapgraphs")):
-        prompt.append({"text": f"Example {idx+1} Paragraph continued on the next page:"})
-        prompt.append({"text": f"Previous page"})
-        prompt.append({"inline_data": {
-            "data": image1,
-            "mime_type": "image/png",
-        }})
-        prompt.append({"text": f"Current page"})
-        prompt.append({"inline_data": {
-            "data": image2,
-            "mime_type": "image/png",
-        }})
-        prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
-    prompt.append({"text": "Summary: **Do not** insert a blank line if the paragraph is continuing. Merge seamlessly and naturally"})    
+    # prompt.append({"text": "Here are examples of how to extract content from a document:"})
+    # for idx, (image, ground_truth) in enumerate(_load_pairs("./shots/general")):
+    #     prompt.append({"text": f"Example {idx+1} Image:"})
+    #     prompt.append({"inline_data": {
+    #         "data": image,
+    #         "mime_type": "image/png",
+    #     }})
+    #     prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
+        
+    # prompt.append({"text": "Additional Examples: Handling Content Across Page Breaks. These examples illustrate how to correctly handle paragraphs and tables that continue across pages in this chunk. Follow these conventions to ensure structural continuity and preserve reading flow."})
+    # for idx, (image1, image2, ground_truth) in enumerate(_load_triplets("./shots/paragraphs")):
+    #     prompt.append({"text": f"Example {idx+1} Paragraph continued on the next page:"})
+    #     prompt.append({"text": f"Previous page"})
+    #     prompt.append({"inline_data": {
+    #         "data": image1,
+    #         "mime_type": "image/png",
+    #     }})
+    #     prompt.append({"text": f"Current page"})
+    #     prompt.append({"inline_data": {
+    #         "data": image2,
+    #         "mime_type": "image/png",
+    #     }})
+    #     prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
+    # prompt.append({"text": "Summary: **Do not** insert a blank line if the paragraph is continuing. Merge seamlessly and naturally"})    
     
         
-    for idx, (image1, image2, ground_truth) in enumerate(_load_triplets("./shots/tables")):
-        prompt.append({"text": f"Example {idx+1} Table continued on the next page:"})
-        prompt.append({"text": f"Previous page"})
-        prompt.append({"inline_data": {
-            "data": image1,
-            "mime_type": "image/png",
-        }})
-        prompt.append({"text": f"Current page"})
-        prompt.append({"inline_data": {
-            "data": image2,
-            "mime_type": "image/png",
-        }})
-        prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
+    # for idx, (image1, image2, ground_truth) in enumerate(_load_triplets("./shots/tables")):
+    #     prompt.append({"text": f"Example {idx+1} Table continued on the next page:"})
+    #     prompt.append({"text": f"Previous page"})
+    #     prompt.append({"inline_data": {
+    #         "data": image1,
+    #         "mime_type": "image/png",
+    #     }})
+    #     prompt.append({"text": f"Current page"})
+    #     prompt.append({"inline_data": {
+    #         "data": image2,
+    #         "mime_type": "image/png",
+    #     }})
+    #     prompt.append({"text": f"✅ Example {idx+1} Ground Truth:\n```markdown\n{ground_truth}```"})
         
-    prompt.append({"text": "Summary: **Do not** restart the table if it continues from a previous page. Just append the rows inside the same block."})    
+    # prompt.append({"text": "Summary: **Do not** restart the table if it continues from a previous page. Just append the rows inside the same block."})    
         
     prompt.append({"text": "Now, extract structured content from the following document"})
     return prompt
@@ -149,7 +163,6 @@ def _prepare_prompt(slice_from, last_chunk_page=None):
     
 def _load_pairs(rel_path):
     for i in os.listdir(rel_path):
-        # check if file 
         if i.endswith(".png"):
             image_path = os.path.join(rel_path, i)
             with open(image_path, "rb") as f:
@@ -167,8 +180,8 @@ def _load_triplets(dir):
         # Extract index from md filename (e.g., '0.md' -> 0)
         index = int(os.path.splitext(md_file)[0])
 
-        prev_image = f"{index:02d}.png"
-        curr_image = f"{index+1:02d}.png"
+        prev_image = f"{index}0.png"
+        curr_image = f"{index}1.png"
 
         if prev_image in png_files and curr_image in png_files:
             with open(os.path.join(dir, prev_image), "rb") as f:
@@ -182,15 +195,16 @@ def _load_triplets(dir):
             print(f"Warning: missing images for {md_file}")
             
 def _post_process(unformatted):
-    formatted = ""
+    # todo footnotes
     unformatted = unformatted.replace("\\n", "\n")
     pages = re.findall(r'<!--\s*page start\s*-->(.*?)<!--\s*page end\s*-->', unformatted, re.DOTALL)
-    unprocessed_page = None
+    last_page = None
+    formatted = ""
     for page in [page for page in pages]:
-        unprocessed_page = page
+        last_page = page
         page = page.rstrip(" \t\n\r-")
-        page = re.sub(r"<figure>\s*<img[^>]*\/>\s*(<figcaption>.*?<\/figcaption>)?\s*<\/figure>", "", page, flags=re.DOTALL)
+        # page = re.sub(r"<figure>\s*<img[^>]*\/>\s*(<figcaption>.*?<\/figcaption>)?\s*<\/figure>", "", page, flags=re.DOTALL)
         page = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', page, flags=re.DOTALL)
         formatted += page
-    return formatted, unprocessed_page
+    return formatted, unformatted, last_page
         

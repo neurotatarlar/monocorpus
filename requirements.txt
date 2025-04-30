@@ -10,3 +10,4 @@ mdformat
 mdformat-toc
 mdformat-footnote
 isbnlib
+pillow

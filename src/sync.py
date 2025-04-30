@@ -1,13 +1,9 @@
-from utils import read_config, get_in_workdir
-from gsheets import get_all_md5s, upsert, find_by_file_name, remove_file
+from utils import read_config
+from gsheets import get_all_md5s, upsert
 from yadisk_client import YaDisk
 from rich import print
 from monocorpus_models import Document
-from s3 import upload_file, create_session
-import os
-from rich.progress import track
-import zipfile
-import json
+from s3 import  create_session
 
 not_document_types = [
     'application/vnd.android.package-archive',
@@ -22,7 +18,9 @@ not_document_types = [
     'application/x-rar',
     'application/x-download',
     "application/json",
-    'audio/mpeg'
+    'audio/mpeg',
+    'text/html',
+    'text/plain'
 ]
 
 def sync():
