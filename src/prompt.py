@@ -53,7 +53,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Format detected tables using HTML `<table>`.
    - Ensure the structure remains readable and clear.
    - If a table continues from a previous page, continue it without restarting.
-   - If a Table of Contents is detected (list of sections/chapters with page numbers), do not parse it into separate links. Instead, wrap the entire ToC as a block inside `<table class="toc">...</table>`. Preserve its internal structure lightly for readability.
+   - If a Table of Contents is detected (list of sections/chapters with page numbers), do not parse it into separate links. Instead, wrap the entire ToC as a block inside `<table class="toc"></table>`. Preserve its internal structure lightly for readability.
 
 5. Detect and format mathematical, physical, or chemical formulas:
    - If a formula is recognized (inline or display), format using LaTeX:
