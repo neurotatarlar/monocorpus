@@ -6,8 +6,6 @@ from prompt import EXTRACT_CONTENT_PROMPT
 import zipfile
 from gemini import request_gemini, create_client
 from schema import ExtractionResult
-import base64
-import os
 import mdformat
 import re
 from prepare_shots import load_inline_shots
@@ -53,7 +51,7 @@ def _extract_content(context, pdf_doc, client):
             doc_slice.save(slice_file_path)
             
             # prepare prompt
-            prompt = _prepare_prompt(slice_from, last_chunk_page)
+            prompt = _prepare_prompt(slice_from, slice_to, last_chunk_page)
             
             # request gemini
             files = {slice_file_path: "application/pdf"}
@@ -72,14 +70,14 @@ def _extract_content(context, pdf_doc, client):
             # validate response 
             extraction_result = ExtractionResult.model_validate_json(raw_content)
             
+            # write down variant vefore preprocessing for debugging and observability purpose 
+            unformatted_md.write(extraction_result.content)
+            
             # postprocess response
-            formatted_content, unformatted_content, last_chunk_page = _post_process(extraction_result.content)
+            formatted_content = _post_process(extraction_result.content)
             
             # write down processed result
             formatted.write(formatted_content)
-            
-            # write down variant vefore preprocessing for debugging and observability purpose 
-            unformatted_md.write(unformatted_content)
             
             context.tokens.append(chunk.usage_metadata.total_token_count)
         unformatted_json.write("]")
@@ -96,8 +94,8 @@ def _extract_content(context, pdf_doc, client):
     with zipfile.ZipFile(context.local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         zf.write(arcname=f"{context.md5}.md", filename=context.formatted_response_md)
         
-def _prepare_prompt(slice_from, last_chunk_page=None):
-    prompt = [{"text": EXTRACT_CONTENT_PROMPT.strip()}]
+def _prepare_prompt(slice_from, slice_to, last_chunk_page=None):
+    prompt = [{"text": EXTRACT_CONTENT_PROMPT.format(slice_to=slice_to, slice_from=slice_from)}]
     if slice_from:
         # does not contain document title, so all headers should be '##' or deeper
         prompt.append({"text": "📌 Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #. Always preserve the heading hierarchy based on the document's logical structure."})
@@ -115,16 +113,8 @@ def _prepare_prompt(slice_from, last_chunk_page=None):
     return prompt
 
 def _post_process(unformatted):
-    # todo footnotes
-    unformatted = unformatted.replace("\\n", "\n")
-    pages = re.findall(r'<!--\s*page start\s*-->(.*?)<!--\s*page end\s*-->', unformatted, re.DOTALL)
-    last_page = None
-    formatted = ""
-    for page in [page for page in pages]:
-        last_page = page
-        page = page.rstrip(" \t\n\r-")
-        # page = re.sub(r"<figure>\s*<img[^>]*\/>\s*(<figcaption>.*?<\/figcaption>)?\s*<\/figure>", "", page, flags=re.DOTALL)
-        page = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', page, flags=re.DOTALL)
-        formatted += page
-    return formatted, unformatted, last_page
+    result = unformatted.replace("\\n", "\n").replace('-', '')
+    # page = re.sub(r"<figure>\s*<img[^>]*\/>\s*(<figcaption>.*?<\/figcaption>)?\s*<\/figure>", "", page, flags=re.DOTALL)
+    result = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', result, flags=re.DOTALL)
+    return result
         

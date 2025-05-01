@@ -41,7 +41,7 @@ def metadata(cli_params):
             
             # create a slice of first n and last n pages
             slice_file_path = get_in_workdir(Dirs.DOC_SLICES, file=f"slice-{doc_key}")
-            slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=10)
+            slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=5)
             
             # prepare prompt
             prompt = _prepare_prompt(doc, slice_page_count)

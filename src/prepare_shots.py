@@ -55,12 +55,12 @@ def _form_inline_shots(_dir = './shots'):
         with open(ground_truth_path, 'r', encoding='utf-8') as f:
             prompt.append({"text": f"✅ Example {idx} Ground Truth in Markdown format:\n{f.read()}"})
                 
-        footnotes = os.path.join(_dir, f"{_id}3.json")
-        if os.path.exists(footnotes):
-            with open(footnotes, 'r', encoding='utf-8') as f:
-                prompt.append({"text": f"Example {idx} Formatted footnotes on the page:\n{f.read()}"})
-        else:
-            prompt.append({"text": f"Example {idx} has no Formatted footnotes on the page"})
+        # footnotes = os.path.join(_dir, f"{_id}3.json")
+        # if os.path.exists(footnotes):
+        #     with open(footnotes, 'r', encoding='utf-8') as f:
+        #         prompt.append({"text": f"Example {idx} Formatted footnotes on the page:\n{f.read()}"})
+        # else:
+            # prompt.append({"text": f"Example {idx} has no Formatted footnotes on the page"})
             
     prompt.append({"text": "Summary: \n- **Do not** insert a blank line if the paragraph is continuing. Merge seamlessly and naturally\n -**Do not** restart the table if it continues from a previous page. Just append the rows inside the same block."})    
     return prompt  

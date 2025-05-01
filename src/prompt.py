@@ -1,34 +1,35 @@
 from string import Template
 
 
-SYSTEM_PROMPT="""
-You are an expert assistant specializing in processing Tatar-language documents written in Cyrillic script.
-You perform two types of tasks based on the user’s instruction:
+# SYSTEM_PROMPT="""
+# You are an expert assistant specializing in processing Tatar-language documents written in Cyrillic script.
+# You perform two types of tasks based on the user’s instruction:
 
-1. Structured Content Extraction:
-- Extract and format the document’s main content into Markdown with some embedded HTML.
-- Focus on preserving the structure: paragraphs, headings, tables, formulas, images, footnotes, subscripts, and tables of contents.
-- Do not translate, summarize, or rewrite the original text.
-- Maintain natural reading order and document flow.
-- Insert special markers for page boundaries and handle content that spans pages (e.g., continuing paragraphs, tables).
+# 1. Structured Content Extraction:
+# - Extract and format the document’s main content into Markdown with some embedded HTML.
+# - Focus on preserving the structure: paragraphs, headings, tables, formulas, images, footnotes, subscripts, and tables of contents.
+# - Do not translate, summarize, or rewrite the original text.
+# - Maintain natural reading order and document flow.
+# - Handle content that spans pages (e.g., continuing paragraphs, tables).
+# - Maintain the natural reading order throughout the document.
 
-2. Metadata Extraction:
-- Extract metadata (such as title, author, language, publisher, publication date) by analyzing the first few and last few pages of the document.
-- Return metadata structured in Schema.org format as valid JSON-LD.
-- When information is missing, leave fields blank or omit them.
-- Do not invent information that does not exist in the document.
-- Language of metadata values must remain in original Tatar language unless otherwise specified.
+# 2. Metadata Extraction:
+# - Extract metadata (such as title, author, language, publisher, publication date) by analyzing the first few and last few pages of the document.
+# - Return metadata structured in Schema.org format as valid JSON-LD.
+# - When information is missing, leave fields blank or omit them.
+# - Do not invent information that does not exist in the document.
+# - Language of metadata values must remain in original Tatar language unless otherwise specified.
 
-In both tasks:
-- Be precise, structured, and careful.
-- Prioritize accuracy and document integrity over speculation or creativity.
-- Never translate, summarize, or paraphrase unless explicitly requested.
-"""
+# In both tasks:
+# - Be precise, structured, and careful.
+# - Prioritize accuracy and document integrity over speculation or creativity.
+# - Never translate, summarize, or paraphrase unless explicitly requested.
+# """
 
 EXTRACT_CONTENT_PROMPT = """
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a Tatar-language slice of pages from a document (for example, pages 0–10 or 10–20). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
+You are extracting structured content from a Tatar-language slice of pages from a document (from page {slice_from} inclusive to page {slice_to} exclusive). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
 
 1. Remove all headers, footers, and page numbers.
    - These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates.
@@ -41,6 +42,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Insert empty lines between paragraphs for readability.
    - Merge lines within the same paragraph, title, or header.
    - If a word is hyphenated across lines (e.g., "мәдә-\nниәт"), join it correctly ("мәдәният").
+   - Maintain the natural reading order throughout the document.
 
 3. Format headings:
    - If the slice contains pages including the document title (for example, pages 0–10), format the main title using a single `#`.
@@ -51,7 +53,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Format detected tables using HTML `<table>`.
    - Ensure the structure remains readable and clear.
    - If a table continues from a previous page, continue it without restarting.
-   - **If a Table of Contents is detected (list of sections/chapters with page numbers), do not parse it into separate links. Instead, wrap the entire ToC as a block inside `<table class="toc">...</table>`. Preserve its internal structure lightly for readability.**
+   - If a Table of Contents is detected (list of sections/chapters with page numbers), do not parse it into separate links. Instead, wrap the entire ToC as a block inside `<table class="toc">...</table>`. Preserve its internal structure lightly for readability.
 
 5. Detect and format mathematical, physical, or chemical formulas:
    - If a formula is recognized (inline or display), format using LaTeX:
@@ -83,52 +85,19 @@ You are extracting structured content from a Tatar-language slice of pages from 
      ```
    - If the image is purely decorative (e.g., background ornament), omit it.
 
-
-8. Maintain the natural reading order throughout the document.
-
-9. Preserve lists:
+8. Preserve lists:
    - Use Markdown bullets (`-`) or numbers (`1.`, `2.`, etc.).
    - Detect and format multi-level lists correctly, preserving indentation and hierarchy.
 
-10. Images and embedded text:
+9. Images and embedded text:
     - If there is textual content inside an image, do not extract it.
     - Only represent the image, not its internal text.
 
-11. Insert page markers:
-    - Insert immediately at the start of every page:
-      ```html
-      <!-- page 10 start -->
-      ```
-    - Insert immediately at the end of every page:
-      ```html
-      <!-- page 10 end -->
-      ```
-   - do not forget to add the page number (starting from 0)
-
-12. Handling content continuation across pages:
+10. Handling content continuation across pages:
     - If the first paragraph of the current page continues a paragraph from the previous page, **do not** add a new blank line. Continue naturally without a break.
     - If a table continues from a previous page, continue it without restarting.
 
-13. Detect and mark footnotes:
-   - In the `'content'` property, when you detect a footnote reference (numbers, asterisks, symbols) inside the text, insert it as:
-     ```html
-     <sup class="footnote">original_number_or_symbol</sup>
-     ```
-   - Do **not** include the full footnote text in the `'content'`.
-   - When you detect footnote text (typically at the bottom of a page), extract it and insert it into a separate `'footnotes'` property in the JSON output.
-     - Each footnote entry should include:
-       - `page`: the page number (starting from 0)
-       - `label`: the original footnote marker (number, asterisk, or symbol)
-       - `text`: the full footnote text
-     - Example:
-       ```json
-       "footnotes": [
-         { "page": 3, "label": "1", "text": "Full footnote text here." },
-         { "page": 3, "label": "*", "text": "Another footnote here." }
-       ]
-       ```
-
-14. General requirements:
+11. General requirements:
     - Output a clean, continuous version of the document, improving structure and readability.
     - Do not translate, rewrite, or modify the original Tatar text.
     - The document language is Tatar, written in Cyrillic.
@@ -202,3 +171,21 @@ REMINDERS:
 📌 Output only the final clean JSON-LD object.  
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """)
+# 12. Detect and mark footnotes:
+#    - In the `'content'` property, when you detect a footnote reference (numbers, asterisks, symbols) inside the text, insert it as:
+#      ```html
+#      <sup class="footnote">original_number_or_symbol</sup>
+#      ```
+#    - Do **not** include the full footnote text in the `'content'`.
+#    - When you detect footnote text (typically at the bottom of a page), extract it and insert it into a separate `'footnotes'` property in the JSON output.
+#      - Each footnote entry should include:
+#        - `page`: the page number (starting from 0)
+#        - `label`: the original footnote marker (number, asterisk, or symbol)
+#        - `text`: the full footnote text
+#      - Example:
+#        ```json
+#        "footnotes": [
+#          { "page": 3, "label": "1", "text": "Full footnote text here." },
+#          { "page": 3, "label": "*", "text": "Another footnote here." }
+#        ]
+#        ```

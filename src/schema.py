@@ -54,4 +54,4 @@ class Footnote(BaseModel):
     
 class ExtractionResult(BaseModel):
     content: str
-    footnotes: Optional[List[Footnote]]
+    # footnotes: Optional[List[Footnote]]

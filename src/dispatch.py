@@ -1,5 +1,4 @@
 from context import Context
-from rich import print
 from extractor import extract
 from utils import read_config, calculate_md5, get_in_workdir
 from dirs import Dirs
@@ -7,13 +6,9 @@ from gsheets import find_by_md5, upsert
 from monocorpus_models import Document
 from yadisk_client import YaDisk
 import os
-import isbnlib
 from s3 import upload_file, create_session
 
-# todo experiment with system prompt
-# todo check one-shot approach
 # todo check Many-Shot In-Context Learning https://aload_test_docrxiv.org/pdf/2404.11018
-# todo deduplicate by isbn
 
 def extract_content(cli_params):
     config = read_config()
