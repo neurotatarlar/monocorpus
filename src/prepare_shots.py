@@ -29,16 +29,43 @@ def _resize(target_size=1536):
             img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             img.save(img_path)
             
-def _form_inline_shots(_dir = './shots'):
-    prompt = [{"text": "Here are examples of how to extract content from a document. Additionally these examples illustrate how to correctly handle paragraphs and tables that continue across pages in this chunk. Follow these conventions to ensure structural continuity and preserve reading flow."}]
+def _form_inline_shots():
+    prompt = []
+    prompt, examples_count = _snippets(prompt)
+    prompt = _triplets(prompt, start_with=examples_count+1)
+    return prompt
     
-    for idx, ground_truth_path in enumerate(_list_files(_dir, enswith='.md'), start=1):
+def _snippets(prompt, _dir = './shots/snippets', start_with=1):
+    prompt.append({"text": "Here are examples of how to extract content from a document:"})
+    gt = _list_files(_dir, enswith='.md')
+    for idx, ground_truth_path in enumerate(gt, start=start_with):
         _id, _ = os.path.splitext(os.path.basename(ground_truth_path))
         _id = _id[:-1]
         
         with open(os.path.join(_dir, f"{_id}1.png"), 'rb') as f:
             prev_img = base64.b64encode(f.read()).decode("utf-8")
-            prompt.append({"text": f"Example {idx} Previous page"})
+            prompt.append({"text": f"Example {idx} Image:"})
+            prompt.append({"inline_data": {
+                "data": prev_img,
+                "mime_type": "image/png",
+            }})
+            
+        with open(ground_truth_path, 'r', encoding='utf-8') as f:
+            prompt.append({"text": f"✅ Example {idx} Ground Truth in Markdown format:\n{f.read()}"})
+                
+    return prompt, len(gt)
+    
+def _triplets(prompt, _dir = './shots/triplets', start_with=1):
+    prompt.append({"text": "Examples below illustrate how to correctly handle paragraphs and tables that continue across pages in this chunk. Follow these conventions to ensure structural continuity and preserve reading flow."})
+    gt = _list_files(_dir, enswith='.md')
+
+    for idx, ground_truth_path in enumerate(gt, start=start_with):
+        _id, _ = os.path.splitext(os.path.basename(ground_truth_path))
+        _id = _id[:-1]
+        
+        with open(os.path.join(_dir, f"{_id}1.png"), 'rb') as f:
+            prev_img = base64.b64encode(f.read()).decode("utf-8")
+            prompt.append({"text": f"Example {idx} Previous page:"})
             prompt.append({"inline_data": {
                 "data": prev_img,
                 "mime_type": "image/png",
@@ -46,7 +73,7 @@ def _form_inline_shots(_dir = './shots'):
             
         with open(os.path.join(_dir, f"{_id}2.png"), 'rb') as f:
             cur_img = base64.b64encode(f.read()).decode("utf-8")
-            prompt.append({"text": f"Example {idx} Current page"})
+            prompt.append({"text": f"Example {idx} Current page:"})
             prompt.append({"inline_data": {
                 "data": cur_img,
                 "mime_type": "image/png",
@@ -55,13 +82,6 @@ def _form_inline_shots(_dir = './shots'):
         with open(ground_truth_path, 'r', encoding='utf-8') as f:
             prompt.append({"text": f"✅ Example {idx} Ground Truth in Markdown format:\n{f.read()}"})
                 
-        # footnotes = os.path.join(_dir, f"{_id}3.json")
-        # if os.path.exists(footnotes):
-        #     with open(footnotes, 'r', encoding='utf-8') as f:
-        #         prompt.append({"text": f"Example {idx} Formatted footnotes on the page:\n{f.read()}"})
-        # else:
-            # prompt.append({"text": f"Example {idx} has no Formatted footnotes on the page"})
-            
     prompt.append({"text": "Summary: \n- **Do not** insert a blank line if the paragraph is continuing. Merge seamlessly and naturally\n -**Do not** restart the table if it continues from a previous page. Just append the rows inside the same block."})    
     return prompt  
 
