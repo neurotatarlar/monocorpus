@@ -1,57 +1,55 @@
 from context import Context
 from extractor import extract
-from utils import read_config, calculate_md5, get_in_workdir
-from dirs import Dirs
-from gsheets import find_by_md5, upsert
-from monocorpus_models import Document
+from utils import read_config, download_file_locally, obtain_documents
+from gsheets import upsert, find_all_without_extracted_content
 from yadisk_client import YaDisk
-import os
 from s3 import upload_file, create_session
+from google.genai.errors import ClientError
+from time import sleep
+import os
 
 # todo check Many-Shot In-Context Learning https://aload_test_docrxiv.org/pdf/2404.11018
 
 def extract_content(cli_params):
     config = read_config()
-    try:
-        with Context(config, cli_params) as context:
-            _download_file_locally(context)
-            _load_document(context)
-            if not context.cli_params.force and context.gsheet_doc.extraction_complete:
-                context.progress._update(f"Document already processed, skipping...")
-                return
-            extract(context)
-            _upload_artifacts(context)
-            _upsert_document(context)
-    except KeyboardInterrupt:
-        return
-    except BaseException as e:
-        raise e
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+        for doc in obtain_documents(cli_params, ya_client, find_all_without_extracted_content):
+            if doc.mime_type != "application/pdf":
+                print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
+                continue
+            try:
+                with Context(config, doc, cli_params) as context:
+                    if not context.cli_params.force and doc.extraction_complete:
+                        context.progress._update(f"Document already processed. Skipping it...")
+                        continue
+                    
+                    context.progress.operational(f"Downloading file from yadisk")
+                    context.local_doc_path = download_file_locally(ya_client, doc)
+                    ya_doc_meta = ya_client.get_public_meta(doc.ya_public_url, fields=['md5', 'name', 'public_key', 'resource_id', 'sha256'])
+                    context.md5 = ya_doc_meta.md5
+                    context.ya_file_name = ya_doc_meta.name
+                    context.ya_public_key = ya_doc_meta.public_key
+                    context.ya_resource_id = ya_doc_meta.resource_id
+                    
+                    extract(context)
+                    _upload_artifacts(context)
+                    _upsert_document(context)
+                    context.progress._update(decription=f"[bold green]Processing complete[/ bold green]")
+            except KeyboardInterrupt:
+                exit()
+            except BaseException as e:
+                print(e)
+                if isinstance(e, ClientError) and e.code == 429:
+                    print("Sleeping for 60 seconds")
+                    sleep(60)
+                continue    
     
-def _download_file_locally(context):
-    with YaDisk(context.config['yandex']['disk']['oauth_token']) as client:
-        ya_doc_meta = client.get_public_meta(context.ya_public_url, fields=['md5', 'name', 'public_key', 'resource_id', 'sha256'])
-        context.md5 = ya_doc_meta['md5']
-        context.ya_file_name = ya_doc_meta['name']
-        context.ya_public_key = ya_doc_meta['public_key']
-        context.ya_resource_id = ya_doc_meta['resource_id']
-
-        context.local_doc_path=get_in_workdir(Dirs.ENTRY_POINT, file=f"{context.md5}.pdf")
-        if not (os.path.exists(context.local_doc_path) and calculate_md5(context.local_doc_path) == context.md5):
-            context.progress.operational(f"Downloading doc from yadisk")
-            with open(context.local_doc_path, "wb") as f:
-                client.download_public(context.ya_public_url, f)
-                
-def _load_document(context):
-    context.progress.operational(f"Requesting doc details from gsheets")
-    context.gsheet_doc = find_by_md5(context.md5) or Document(md5=context.md5, mime_type="application/pdf")
-
 def _upsert_document(context):
     context.progress.operational(f"Updating doc details in gsheets")
 
-    doc = context.gsheet_doc
+    doc = context.doc
     doc.file_name = context.ya_file_name
     doc.ya_public_key=context.ya_public_key
-    doc.ya_public_url=context.ya_public_url
     doc.ya_resource_id=context.ya_resource_id
 
     doc.content_extraction_method=context.extraction_method
@@ -70,5 +68,10 @@ def _upload_artifacts(context):
         content_key = f"{context.md5}-content.zip"
         content_bucket = context.config["yandex"]["cloud"]['bucket']['content']
         context.remote_content_url = upload_file(context.local_content_path, content_bucket, content_key, session)
+        
+    if context.local_doc_path:
+        doc_bucket = context.config["yandex"]["cloud"]['bucket']['document']
+        doc_key = os.path.basename(context.local_doc_path)
+        context.remote_doc_url = upload_file(context.local_doc_path, doc_bucket, doc_key, session, skip_if_exists=True)
     
     

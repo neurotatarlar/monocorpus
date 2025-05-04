@@ -3,10 +3,10 @@ from progress import ProgressRenderer
 
 class Context():
 
-    def __init__(self, config, cli_params):
+    def __init__(self, config, doc, cli_params):
         self.config = config
-        self.ya_public_url = cli_params.public_url
         self.cli_params = cli_params
+        self.doc = doc
 
         self.ya_file_name = None
         self.ya_public_key = None 
@@ -22,7 +22,6 @@ class Context():
         self.remote_content_url = None
         
         self.md5 = None
-        self.gsheet_doc = None
         
         self.extraction_method = None
         # count of pages in the document, not in the book inside document

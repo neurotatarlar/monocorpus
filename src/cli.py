@@ -14,7 +14,8 @@ slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d
 
 @dataclass
 class ExtractCliParams:
-    public_url: str
+    md5: str
+    path: str
     force: bool
     page_slice: str
     meta: bool
@@ -57,12 +58,21 @@ def md5_validator(value: str):
 
 @app.command()
 def extract(
-    public_url: Annotated[
-        str,
-        typer.Argument(
-            help="Public URL of the document to process. Example: https://yadi.sk/i/XXXXXX",
+    md5: Annotated[
+        Optional[str],
+        typer.Option(
+            "--md5",
+            callback=md5_validator,
+            help="MD5 hash of the document. If not provided, all local documents will be processed."
         )
-    ],
+    ] = None,
+    path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--path", "-p",
+            help="Path to the document or directory in yandex disk" 
+        )
+    ] = None,
     force: Annotated[
             bool,
             typer.Option(
@@ -94,7 +104,8 @@ def extract(
     ] = "gemini-2.5-flash-preview-04-17",
     ):
     cli_params = ExtractCliParams(
-        public_url=public_url,
+        md5=md5,
+        path=path,
         force=force,
         page_slice=pages_slice, 
         meta=meta,
@@ -147,8 +158,8 @@ def meta(
     metadata.metadata(cli_params)
 
 @app.command()
-def prepare_shots():
+def shots():
     """
-    Find, resize if necessary, convert to base 64 format and create a shots file what is ready to be inlined in prompt
+    Assemble ready-to-use prompt of structured content extraction
     """
     prepare_shots.prepare_shots()

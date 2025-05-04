@@ -18,6 +18,18 @@ def find_all_without_metadata():
     )
     return Session().select(stmt)
 
+def find_all_without_extracted_content():
+    """
+    Returns all documents without metadata.
+    :return: List of documents without metadata.
+    """
+    stmt = select(Document).where(
+        Document.metadata_url.is_(None)
+        &
+        Document.full.is_(True) 
+    )
+    return Session().select(stmt)
+
 def remove_file(md5):
     """
     Removes a document from the database by md5.
@@ -108,5 +120,9 @@ def upsert_many_in_parallel(docs):
 def find_all_by_md5(md5s):
     # sort out docs on client due to adding additional 
     # clause 'document.md5 in md5s' causes too long execution
-    stmt = select(Document).where(Document.metadata_url.is_(None))
+    stmt = select(Document).where(
+        Document.metadata_url.is_(None) 
+        |
+        Document.content_url.is_(None)
+    )
     return [doc for doc in Session().select(stmt) if doc.md5 in md5s]

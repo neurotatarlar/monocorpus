@@ -82,12 +82,15 @@ class ProgressRenderer():
             }
             if slice:= cli_params.page_slice:
                 table_rows["slice"] = f"{slice.start or ''}:{slice.stop or ''}:{slice.step or ''}"
-        if self.context.ya_public_url:
-            table_rows["link"] = self.context.ya_public_url
+        if self.context.doc.title:
+            table_rows["title"] = self.context.doc.title
+        if self.context.doc.ya_public_url:
+            table_rows["link"] = self.context.doc.ya_public_url
         if self.context.md5:
-            table_rows["md5"] = f"[link=file://{self.context.local_doc_path}]{self.context.md5}[/link]"
-        if self.context.formatted_response_md:
-            table_rows["content"] = f"[link=file://{self.context.formatted_response_md}]{self.context.formatted_response_md}[/link]"
+            # table_rows["md5"] = f"[link=file://{self.context.local_doc_path}]{self.context.md5}[/link]"
+            table_rows['md5'] = self.context.md5
+        # if self.context.formatted_response_md:
+            # table_rows["content"] = f"[link=file://{self.context.formatted_response_md}]{self.context.formatted_response_md}[/link]"
         
         self._main_progress.update(
             self._main_progress_active_task,
@@ -137,6 +140,4 @@ class ProgressRenderer():
         self._stop_operational_progress()
         if type is KeyboardInterrupt:
             self._update(decription=f"[bold red]Process interrupted by user[/ bold red]")
-        elif type is None:
-            self._update(decription=f"[bold green]Processing complete[/ bold green]")
         self.live.__exit__(type, value, traceback)

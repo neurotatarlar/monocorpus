@@ -1,8 +1,8 @@
-from gsheets import upsert, find_by_md5, find_all_without_metadata, find_all_by_md5
+from gsheets import upsert, find_all_without_metadata
 from rich.progress import track
 from rich import print
 from s3 import upload_file, create_session
-from utils import read_config, get_in_workdir, calculate_md5
+from utils import read_config, get_in_workdir, download_file_locally, obtain_documents
 from dirs import Dirs
 from yadisk_client import YaDisk
 import os
@@ -23,19 +23,22 @@ def metadata(cli_params):
     config = read_config()
     s3lient =  create_session(config)
     gemini_client = create_client(tier='promo', config=config)
+    attempt = 0
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        # get all docs without extracted metadata
-        for doc in track(_obtain_documents(cli_params, ya_client), description="Extracting document metadata..."):
+        for doc in track(obtain_documents(cli_params, ya_client, find_all_without_metadata), description="Extracting document metadata..."):
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params)
+                attempt = 0
             except KeyboardInterrupt:
                 exit(0)
             except BaseException as e:
                 print(e)
+                if attempt >= 5:
+                    exit(1)
                 if isinstance(e, ClientError) and e.code == 429:
                     print("Sleeping for 60 seconds")
                     sleep(60)
-                continue
+                attempts += 1
          
             
 def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
@@ -46,7 +49,7 @@ def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
     print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
 
     # download doc from yadisk
-    local_doc_path = _download_file_locally(ya_client, doc)
+    local_doc_path = download_file_locally(ya_client, doc)
 
     # upload doc to s3
     doc_bucket = config["yandex"]["cloud"]['bucket']['document']
@@ -87,30 +90,6 @@ def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
     # update metadata in gsheet
     _update_document(doc, metadata, original_doc_page_count)
             
-def _obtain_documents(cli_params, ya_client):
-    if cli_params.md5:
-        print(f"Looking for document by md5 '{cli_params.md5}'")
-        return [find_by_md5(cli_params.md5)]
-    if cli_params.path:
-        _meta = ya_client.get_meta(cli_params.path, fields=['md5', 'type', 'path'])
-        if _meta.type == 'file':
-            print(f"Looking for document by path '{cli_params.path}'")
-            return [find_by_md5(_meta.md5)]
-        if _meta.type == 'dir':
-            print(f"Recursively looking for documents by path '{cli_params.path}'")
-            dirs_to_visit = [_meta.path]
-            md5s = set()
-            while dirs_to_visit:
-                dir = dirs_to_visit.pop(0)
-                _listing = ya_client.listdir(dir, max_items=None, fields=['md5', 'type', 'path'])
-                for _item in _listing:
-                    if _item.type == 'dir':
-                        dirs_to_visit.append(_item.path)
-                    elif _item.type == 'file':
-                        md5s.add(_item.md5)
-            return find_all_by_md5(md5s)
-    return find_all_without_metadata()
-            
 def _prepare_prompt(doc, slice_page_count):
     prompt = DEFINE_META_PROMPT.substitute(n=int(slice_page_count / 2),)
     prompt = [{'text': prompt}]
@@ -124,21 +103,6 @@ def _prepare_prompt(doc, slice_page_count):
     prompt.append({"text": "Now, extract metadata from the following document"})
     return prompt
             
-def _download_file_locally(ya_client, doc):
-    ext = doc.mime_type.split("/")[-1]
-    if ext == "pdf":
-        ext = "pdf"
-    elif ext == "epub":
-        ext = "epub"
-    else:
-        raise ValueError(f"Unsupported file type: {doc.mime_type}")
-    
-    local_path=get_in_workdir(Dirs.ENTRY_POINT, file=f"{doc.md5}.{ext}")
-    if not (os.path.exists(local_path) and calculate_md5(local_path) == doc.md5):
-        with open(local_path, "wb") as f:
-            ya_client.download_public(doc.ya_public_url, f)
-    return local_path
-
 def _prepare_slices(pdf_doc, dest_path, n):
     """
     Prepare aux PDF doc with slices of pages of the original document for metadata extraction.
