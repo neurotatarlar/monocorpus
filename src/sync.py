@@ -68,12 +68,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         if all_md5s[file.md5]['resource_id'] != file.resource_id:
             print(f"File '{file.path}' already exists in gsheet, but with different resource_id: '{file.resource_id}' with md5 '{file.md5}', removing it from yadisk")
             ya_client.remove(file.path, md5=file.md5)
-            return
-            
-        # todo remove `upstream_meta` check and just always return
-        # if (not upstream_meta) or all_md5s[file.md5]['upstream_metadata_url']:
-        if not upstream_meta or upstream_meta == all_md5s[file.md5]['upstream_metadata_url']:
-            return
+        return
     
     print(f"Processing file: '{file.path}' with md5 '{file.md5}'")
 
@@ -95,7 +90,6 @@ def publish_file(client, path):
     _ = client.publish(path)
     resp = client.get_meta(path, fields = ['public_key', 'public_url'])
     return resp['public_key'], resp['public_url']
-
 
 def _lookup_upstream_metadata(s3client, config):
     bucket = config["yandex"]["cloud"]["bucket"]["upstream_metadata"]

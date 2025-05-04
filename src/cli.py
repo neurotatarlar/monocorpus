@@ -7,6 +7,7 @@ from sync import sync as _sync
 import dispatch
 import metadata
 import string
+import prepare_shots
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -150,5 +151,4 @@ def prepare_shots():
     """
     Find, resize if necessary, convert to base 64 format and create a shots file what is ready to be inlined in prompt
     """
-    import prepare_shots
     prepare_shots.prepare_shots()

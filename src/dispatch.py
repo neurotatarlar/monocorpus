@@ -54,7 +54,7 @@ def _upsert_document(context):
     doc.ya_public_url=context.ya_public_url
     doc.ya_resource_id=context.ya_resource_id
 
-    doc.extraction_method=context.extraction_method
+    doc.content_extraction_method=context.extraction_method
     doc.document_url = context.remote_doc_url
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True

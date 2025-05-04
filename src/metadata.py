@@ -16,61 +16,76 @@ from prompt import DEFINE_META_PROMPT
 import requests
 import json
 import re
+from google.genai.errors import ClientError
+from time import sleep
 
 def metadata(cli_params):
     config = read_config()
     s3lient =  create_session(config)
-    gemini_client = create_client(tier='free', config=config)
+    gemini_client = create_client(tier='promo', config=config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        
         # get all docs without extracted metadata
         for doc in track(_obtain_documents(cli_params, ya_client), description="Extracting document metadata..."):
-            if doc.mime_type != "application/pdf":
-                print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
+            try:
+                _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params)
+            except KeyboardInterrupt:
+                exit(0)
+            except BaseException as e:
+                print(e)
+                if isinstance(e, ClientError) and e.code == 429:
+                    print("Sleeping for 60 seconds")
+                    sleep(60)
                 continue
+         
             
-            print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
-            
-            # download doc from yadisk
-            local_doc_path = _download_file_locally(ya_client, doc)
-            
-            # upload doc to s3
-            doc_bucket = config["yandex"]["cloud"]['bucket']['document']
-            doc_key = os.path.basename(local_doc_path)
-            doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
-            
-            # create a slice of first n and last n pages
-            slice_file_path = get_in_workdir(Dirs.DOC_SLICES, file=f"slice-{doc_key}")
-            slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=5)
-            
-            # prepare prompt
-            prompt = _prepare_prompt(doc, slice_page_count)
-            
-            # send to gemini
-            files = {slice_file_path: doc.mime_type}
-            response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book)
-            
-            # validate response
-           
-            if not (raw_response := "".join([ch.text for ch in response if ch.text])):
-                print(f"No metadata was extracted from document {doc.md5}")
-                continue
-            else:
-                metadata = Book.model_validate_json(raw_response)
-            
-            # write metadata to zip
-            local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
-            with zipfile.ZipFile(local_meta_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True)
-                zf.writestr("metadata.json", meta_json)
-            
-            # upload metadata to s3
-            meta_key = f"{doc.md5}-meta.zip"
-            meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
-            doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
-            
-            # update metadata in gsheet
-            _update_document(doc, metadata, original_doc_page_count)
+def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
+    if doc.mime_type != "application/pdf":
+        print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
+        return
+
+    print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
+
+    # download doc from yadisk
+    local_doc_path = _download_file_locally(ya_client, doc)
+
+    # upload doc to s3
+    doc_bucket = config["yandex"]["cloud"]['bucket']['document']
+    doc_key = os.path.basename(local_doc_path)
+    doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
+
+    # create a slice of first n and last n pages
+    slice_file_path = get_in_workdir(Dirs.DOC_SLICES, file=f"slice-{doc_key}")
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=5)
+
+    # prepare prompt
+    prompt = _prepare_prompt(doc, slice_page_count)
+
+    # send to gemini
+    files = {slice_file_path: doc.mime_type}
+    response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book)
+
+    # validate response
+
+    if not (raw_response := "".join([ch.text for ch in response if ch.text])):
+        print(f"No metadata was extracted from document {doc.md5}")
+        return
+    else:
+        metadata = Book.model_validate_json(raw_response)
+
+    # write metadata to zip
+    local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
+    with zipfile.ZipFile(local_meta_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True)
+        zf.writestr("metadata.json", meta_json)
+
+    # upload metadata to s3
+    meta_key = f"{doc.md5}-meta.zip"
+    meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
+    doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
+    doc.metadata_extraction_method = cli_params.model
+
+    # update metadata in gsheet
+    _update_document(doc, metadata, original_doc_page_count)
             
 def _obtain_documents(cli_params, ya_client):
     if cli_params.md5:
