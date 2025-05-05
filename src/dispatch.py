@@ -1,26 +1,29 @@
 from context import Context
 from extractor import extract
 from utils import read_config, download_file_locally, obtain_documents
-from gsheets import upsert, find_all_without_extracted_content
+from gsheets import upsert
 from yadisk_client import YaDisk
 from s3 import upload_file, create_session
 from google.genai.errors import ClientError
 from time import sleep
 import os
+from monocorpus_models import Document
 
 # todo check Many-Shot In-Context Learning https://aload_test_docrxiv.org/pdf/2404.11018
 
 def extract_content(cli_params):
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        for doc in obtain_documents(cli_params, ya_client, find_all_without_extracted_content):
-            if doc.mime_type != "application/pdf":
-                print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
-                continue
+        predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) 
+        for doc in obtain_documents(cli_params, ya_client, predicate):
             try:
                 with Context(config, doc, cli_params) as context:
                     if not context.cli_params.force and doc.extraction_complete:
                         context.progress._update(f"Document already processed. Skipping it...")
+                        continue
+                    
+                    if doc.mime_type != "application/pdf":
+                        context.progress._update(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
                         continue
                     
                     context.progress.operational(f"Downloading file from yadisk")
@@ -42,7 +45,6 @@ def extract_content(cli_params):
                 if isinstance(e, ClientError) and e.code == 429:
                     print("Sleeping for 60 seconds")
                     sleep(60)
-                continue    
     
 def _upsert_document(context):
     context.progress.operational(f"Updating doc details in gsheets")

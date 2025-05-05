@@ -4,7 +4,8 @@ import sys
 import yaml
 from typing import Union
 import hashlib
-from gsheets import find_by_md5, find_all_by_md5
+from gsheets import find_one, find_all
+from monocorpus_models import Document
 
 
 def pick_files(dir_path: Union[str, Dirs]):
@@ -47,18 +48,19 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
     else:
         return path
 
-def obtain_documents(cli_params, ya_client, fallback):
+def obtain_documents(cli_params, ya_client, predicate=None, limit=None):
     if cli_params.md5:
         print(f"Looking for document by md5 '{cli_params.md5}'")
-        return [find_by_md5(cli_params.md5)]
+        return [find_one(Document.md5.is_(cli_params.md5))]
     
     if cli_params.path:
         _meta = ya_client.get_meta(cli_params.path, fields=['md5', 'type', 'path'])
         if _meta.type == 'file':
             print(f"Looking for document by path '{cli_params.path}'")
-            return [find_by_md5(_meta.md5)]
+            return [find_one(Document.md5.is_(cli_params.md5))]
+        
         if _meta.type == 'dir':
-            print(f"Traverse documents by path '{cli_params.path}'")
+            print(f"Traversing documents by path '{cli_params.path}'")
             dirs_to_visit = [_meta.path]
             md5s = set()
             while dirs_to_visit:
@@ -69,9 +71,8 @@ def obtain_documents(cli_params, ya_client, fallback):
                         dirs_to_visit.append(_item.path)
                     elif _item.type == 'file':
                         md5s.add(_item.md5)
-            return find_all_by_md5(md5s)
-    print("Fall back")
-    return fallback()
+            return find_all(predicate, md5s, limit=limit)
+    return find_all(limit=limit)
             
 def download_file_locally(ya_client, doc):
     ext = doc.mime_type.split("/")[-1]

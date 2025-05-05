@@ -1,4 +1,4 @@
-from gsheets import upsert, find_all_without_metadata
+from gsheets import upsert
 from rich.progress import track
 from rich import print
 from s3 import upload_file, create_session
@@ -18,6 +18,7 @@ import json
 import re
 from google.genai.errors import ClientError
 from time import sleep
+from monocorpus_models import Document
 
 def metadata(cli_params):
     config = read_config()
@@ -25,7 +26,8 @@ def metadata(cli_params):
     gemini_client = create_client(tier='promo', config=config)
     attempt = 0
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        for doc in track(obtain_documents(cli_params, ya_client, find_all_without_metadata), description="Extracting document metadata..."):
+        predicate = Document.metadata_url.is_(None) & Document.full.is_(True)
+        for doc in track(obtain_documents(cli_params, ya_client, predicate), description="Extracting document metadata..."):
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params)
                 attempt = 0
@@ -38,7 +40,7 @@ def metadata(cli_params):
                 if isinstance(e, ClientError) and e.code == 429:
                     print("Sleeping for 60 seconds")
                     sleep(60)
-                attempts += 1
+                attempt += 1
          
             
 def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
