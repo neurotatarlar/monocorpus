@@ -82,9 +82,9 @@ class ProgressRenderer():
             }
             if slice:= cli_params.page_slice:
                 table_rows["slice"] = f"{slice.start or ''}:{slice.stop or ''}:{slice.step or ''}"
-        if self.context.doc.title:
+        if self.context.doc and self.context.doc.title:
             table_rows["title"] = self.context.doc.title
-        if self.context.doc.ya_public_url:
+        if self.context.doc and self.context.doc.ya_public_url:
             table_rows["link"] = self.context.doc.ya_public_url
         if self.context.md5:
             # table_rows["md5"] = f"[link=file://{self.context.local_doc_path}]{self.context.md5}[/link]"

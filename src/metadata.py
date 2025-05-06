@@ -27,16 +27,16 @@ def metadata(cli_params):
     attempt = 0
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True)
-        for doc in track(obtain_documents(cli_params, ya_client, predicate), description="Extracting document metadata..."):
+        docs = obtain_documents(cli_params, ya_client, predicate)
+        for doc in track(docs, description="Extracting document metadata...", total=len(docs)):
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params)
                 attempt = 0
             except KeyboardInterrupt:
                 exit(0)
             except BaseException as e:
-                print(e)
                 if attempt >= 5:
-                    exit(1)
+                    raise e
                 if isinstance(e, ClientError) and e.code == 429:
                     print("Sleeping for 60 seconds")
                     sleep(60)
@@ -60,7 +60,7 @@ def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, file=f"slice-{doc_key}")
-    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=5)
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=4)
 
     # prepare prompt
     prompt = _prepare_prompt(doc, slice_page_count)

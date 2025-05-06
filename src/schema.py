@@ -46,11 +46,10 @@ class Book(BaseModel):
     class Config:
         populate_by_name = True
         
-        
-class Footnote(BaseModel):
-    page: int
-    label: str
-    text: str
+# class Footnote(BaseModel):
+#     page: int
+#     label: str
+#     text: str
     
 class ExtractionResult(BaseModel):
     content: str

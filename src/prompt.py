@@ -90,18 +90,51 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Detect and format multi-level lists correctly, preserving indentation and hierarchy.
 
 9. Images and embedded text:
-    - If there is textual content inside an image, do not extract it.
-    - Only represent the image, not its internal text.
+   - If there is textual content inside an image, do not extract it.
+   - Only represent the image, not its internal text.
 
 10. Handling content continuation across pages:
-    - If the first paragraph of the current page continues a paragraph from the previous page, **do not** add a new blank line. Continue naturally without a break.
-    - If a table continues from a previous page, continue it without restarting.
+   - If the first paragraph of the current page continues a paragraph from the previous page, **do not** add a new blank line. Continue naturally without a break.
+   - If a table continues from a previous page, continue it without restarting.
 
 11. General requirements:
-    - Output a clean, continuous version of the document, improving structure and readability.
-    - Do not translate, rewrite, or modify the original Tatar text.
-    - The document language is Tatar, written in Cyrillic.
-    - Be careful not to accidentally remove important content.
+   - Output a clean, continuous version of the document, improving structure and readability.
+   - Do not translate, rewrite, or modify the original Tatar text.
+   - The document language is Tatar, written in Cyrillic.
+   - Be careful not to accidentally remove important content.
+    
+12. Detect and mark footnotes:
+   - Maintain global sequential numbering for footnotes starting from {footnote_start}: [^{footnote_start}]
+   - Replace all original footnote markers (whether numbers, asterisks, symbols, etc.) with the next available global number — formatted as Markdown: [^1], [^2], etc.
+   - When you encounter the footnote text, convert it to a standard Markdown footnote definition on a new line:
+      ```markdown
+      [^1]: This is the text of the first footnote.
+      [^2]: This is the text of the second footnote.
+      ```
+   - 🧾 If footnote texts appear only at the end of the book, treat that section as a footnote glossary - match each footnote to its marker in order of appearance or by matching content when possible. Apply the same global numbering and format as above.
+   - ⚠️ Important: If the footnote text appears in the middle of a paragraph, list, or table (e.g., due to page breaks or layout quirks), do not insert it immediately. Instead, complete the full paragraph, list, or table naturally, without breaks, then insert the footnote text definitions after it.
+   Example:
+   Input:
+   ```
+   Аның фольклорга[^1], тел һәм әдәбият белеменә,
+   әдәби тәнкыйтькә караган фәнни хезмәтләре 
+   тюркологиядә Нәкый Исәнбәт[^2] дигән галим исемен какша-
+   ---
+   <sup>1</sup> Н. Исәнбәтнең шәхси архивы: Н. Исәнбәтнең С. Кудашка язган
+   хатыннан. 
+   <sup>2</sup> Н. Исәнбәтнең шәхси архивы: Әхмәдуллин А. 
+   ---
+   мас итә (М. Галиев, Ф. Ганиев, М. Госманов, Ә. Еники,
+   М. Мәһдиев, Х Мәхмүтов, Г. Рәхим, С. Сафуанов, Б. Урманче, 
+   С. Хәким һ.б.).
+   ```
+   Output (given last global footnote number was 35):
+   ```
+   Аның фольклорга[^36], тел һәм әдәбият белеменә, әдәби тәнкыйтькә караган фәнни хезмәтләре тюркологиядә Нәкый Исәнбәт[^37] дигән галим исемен какшамас итә (М. Галиев, Ф. Ганиев, М. Госманов, Ә. Еники, М. Мәһдиев, Х Мәхмүтов, Г. Рәхим, С. Сафуанов, Б. Урманче, С. Хәким һ.б.).
+   
+   [^36]: Н. Исәнбәтнең шәхси архивы: Н. Исәнбәтнең С. Кудашка язган хатыннан.
+   [^37]: Н. Исәнбәтнең шәхси архивы: Әхмәдуллин А.
+   ```
 """
 
 DEFINE_META_PROMPT=Template("""
@@ -171,21 +204,3 @@ REMINDERS:
 📌 Output only the final clean JSON-LD object.  
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """)
-# 12. Detect and mark footnotes:
-#    - In the `'content'` property, when you detect a footnote reference (numbers, asterisks, symbols) inside the text, insert it as:
-#      ```html
-#      <sup class="footnote">original_number_or_symbol</sup>
-#      ```
-#    - Do **not** include the full footnote text in the `'content'`.
-#    - When you detect footnote text (typically at the bottom of a page), extract it and insert it into a separate `'footnotes'` property in the JSON output.
-#      - Each footnote entry should include:
-#        - `page`: the page number (starting from 0)
-#        - `label`: the original footnote marker (number, asterisk, or symbol)
-#        - `text`: the full footnote text
-#      - Example:
-#        ```json
-#        "footnotes": [
-#          { "page": 3, "label": "1", "text": "Full footnote text here." },
-#          { "page": 3, "label": "*", "text": "Another footnote here." }
-#        ]
-#        ```

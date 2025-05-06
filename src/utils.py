@@ -57,7 +57,7 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None):
         _meta = ya_client.get_meta(cli_params.path, fields=['md5', 'type', 'path'])
         if _meta.type == 'file':
             print(f"Looking for document by path '{cli_params.path}'")
-            return [find_one(Document.md5.is_(cli_params.md5))]
+            return [find_one(Document.md5.is_(_meta.md5))]
         
         if _meta.type == 'dir':
             print(f"Traversing documents by path '{cli_params.path}'")

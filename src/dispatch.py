@@ -15,6 +15,7 @@ def extract_content(cli_params):
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) 
+        attempt = 0
         for doc in obtain_documents(cli_params, ya_client, predicate):
             try:
                 with Context(config, doc, cli_params) as context:
@@ -38,13 +39,17 @@ def extract_content(cli_params):
                     _upload_artifacts(context)
                     _upsert_document(context)
                     context.progress._update(decription=f"[bold green]Processing complete[/ bold green]")
+                    attempt = 0
             except KeyboardInterrupt:
                 exit()
             except BaseException as e:
-                print(e)
-                if isinstance(e, ClientError) and e.code == 429:
-                    print("Sleeping for 60 seconds")
-                    sleep(60)
+                raise e
+                # if attempt >= 5:
+                #     raise e
+                # if isinstance(e, ClientError) and e.code == 429:
+                #     print("Sleeping for 60 seconds")
+                #     sleep(60)
+                # attempt += 1
     
 def _upsert_document(context):
     context.progress.operational(f"Updating doc details in gsheets")
