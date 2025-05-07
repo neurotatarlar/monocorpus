@@ -41,7 +41,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Do not modify, translate, or rewrite the original text.
    - Insert empty lines between paragraphs for readability.
    - Merge lines within the same paragraph, title, or header.
-   - If a word is hyphenated across lines (e.g., "мәдә-\nниәт"), join it correctly ("мәдәният").
+   - If a word is hyphenated across lines (e.g., "мәдә-\nниәт"), join it correctly ("мәдәният"). Only join the word if the break occurs at the end of a line and the next line begins with the continuation of the same word. Do not join words separated by hyphens in the middle of a sentence unless it's clearly a line break artifact.
    - Maintain the natural reading order throughout the document.
 
 3. Format headings:
@@ -53,7 +53,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Format detected tables using HTML `<table>`.
    - Ensure the structure remains readable and clear.
    - If a table continues from a previous page, continue it without restarting.
-   - If a Table of Contents is detected (list of sections/chapters with page numbers), do not parse it into separate links. Instead, wrap the entire ToC as a block inside `<table class="toc"></table>`. Preserve its internal structure lightly for readability.
+   - If the detected text appears to be a Table of Contents(list of sections/chapters with page numbers), do not process its links, page numbers, or headers individually. Instead, preserve its look as a single block using <table class="toc"></table>.
 
 5. Detect and format mathematical, physical, or chemical formulas:
    - If a formula is recognized (inline or display), format using LaTeX:
@@ -69,8 +69,9 @@ You are extracting structured content from a Tatar-language slice of pages from 
 7. Detect and format images:
    - Insert images using:
      ```html
-     <figure data-bbox="[y_min, x_min, y_max, x_max]"><img src="..." /></figure>
+     <figure data-bbox="[y_min, x_min, y_max, x_max]" data-page="10"></img></figure>
      ```
+   - The `data-page` attribute indicates the page number the image was found on (starting from 0).
    - The `data-bbox` attribute should contain the bounding box of the image in the following format: `[y_min, x_min, y_max, x_max]`.
      - These coordinates are normalized values between `0` and `1000`.
      - The top-left corner of the page is the origin `(0, 0)`, where:
@@ -88,13 +89,19 @@ You are extracting structured content from a Tatar-language slice of pages from 
 8. Preserve lists:
    - Use Markdown bullets (`-`) or numbers (`1.`, `2.`, etc.).
    - Detect and format multi-level lists correctly, preserving indentation and hierarchy.
+   Example:
+   ```markdown
+   - First level
+      - Second level
+         1. Numbered list inside
+    ```
 
 9. Images and embedded text:
    - If there is textual content inside an image, do not extract it.
    - Only represent the image, not its internal text.
 
 10. Handling content continuation across pages:
-   - If the first paragraph of the current page continues a paragraph from the previous page, **do not** add a new blank line. Continue naturally without a break.
+   - If the first paragraph of the current page is a direct continuation from the previous page (i.e., the sentence or word continues across the page break), merge them into one paragraph **without inserting a line break or blank line**.
    - If a table continues from a previous page, continue it without restarting.
 
 11. General requirements:
@@ -105,13 +112,17 @@ You are extracting structured content from a Tatar-language slice of pages from 
     
 12. Detect and mark footnotes:
    - Maintain global sequential numbering for footnotes starting from {footnote_start}: [^{footnote_start}]
-   - Replace all original footnote markers (whether numbers, asterisks, symbols, etc.) with the next available global number — formatted as Markdown: [^1], [^2], etc.
+   - Detect footnotes whether marked by numbers (e.g., 1), symbols (*, †, etc.), or superscripts (<sup>). Normalize all to numbered [^\d+] format starting from {footnote_start}.
    - When you encounter the footnote text, convert it to a standard Markdown footnote definition on a new line:
       ```markdown
       [^1]: This is the text of the first footnote.
       [^2]: This is the text of the second footnote.
       ```
    - 🧾 If footnote texts appear only at the end of the book, treat that section as a footnote glossary - match each footnote to its marker in order of appearance or by matching content when possible. Apply the same global numbering and format as above.
+   - Do **not** treat subscripted or superscripted numbers or symbols inside mathematical, physical, or chemical formulas as footnotes. For example, do not convert $H_2O$ or $x^2$ into footnotes. Footnotes should only be detected when:
+      - The marker (number, asterisk, or symbol) appears outside any inline or block LaTeX/math context.
+      - The marker is not part of a scientific term, chemical formula, or equation.
+   When in doubt, prefer LaTeX formatting for anything inside formulas or expressions.
    - ⚠️ Important: If the footnote text appears in the middle of a paragraph, list, or table (e.g., due to page breaks or layout quirks), do not insert it immediately. Instead, complete the full paragraph, list, or table naturally, without breaks, then insert the footnote text definitions after it.
    Example:
    Input:

@@ -23,7 +23,7 @@ from monocorpus_models import Document
 def metadata(cli_params):
     config = read_config()
     s3lient =  create_session(config)
-    gemini_client = create_client(tier='promo', config=config)
+    gemini_client = create_client(tier='free', config=config)
     attempt = 0
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True)
