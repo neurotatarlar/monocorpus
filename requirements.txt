@@ -11,3 +11,6 @@ mdformat-toc
 mdformat-footnote
 isbnlib
 pillow
+beautifulsoup4
+ultralytics
+huggingface_hub

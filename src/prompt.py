@@ -69,7 +69,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
 7. Detect and format images:
    - Insert images using:
      ```html
-     <figure data-bbox="[y_min, x_min, y_max, x_max]" data-page="10"></img></figure>
+     <figure data-bbox="[y_min, x_min, y_max, x_max]" data-page="10"></figure>
      ```
    - The `data-page` attribute indicates the page number the image was found on (starting from 0).
    - The `data-bbox` attribute should contain the bounding box of the image in the following format: `[y_min, x_min, y_max, x_max]`.
@@ -82,8 +82,24 @@ You are extracting structured content from a Tatar-language slice of pages from 
      - For example, `[100, 150, 300, 450]` means the image starts 100 units from the top, 150 units from the left, and extends to 300 units down and 450 units across.
    - If a caption is present, format it inside `<figcaption>`, for example:
      ```html
-     <figure data-bbox="[100, 150, 300, 450]"><img src="..." /><figcaption>Рәсем 5</figcaption></figure>
+     <figure data-bbox="[100, 150, 300, 450]"><figcaption>Рәсем 5</figcaption></figure>
      ```
+   - ⚠️ If the image is located inside a paragraph (e.g., between lines mid-sentence), do not interrupt the paragraph. ❌ Do not insert the image inline in the middle of the paragraph. Instead:
+      - Logically split the paragraph into two parts around the image.
+      - Place the <figure> after the full paragraph (i.e., append it).
+      - Join the paragraph back into a clean, uninterrupted block of text.
+      Example Input (detected image between lines):
+      ```markdwon
+      Кешеләр меңъеллыклар дәвамында  
+      [DETECTED IMAGE]  
+      табигать белән гармониядә яшәгәннәр.
+      ```
+      ✅ Correct Output:
+      ```markdown
+      Кешеләр меңъеллыклар дәвамында табигать белән гармониядә яшәгәннәр.
+
+      <figure data-bbox="[100,150,300,450]" data-page="12"><figcaption>Рәсем 5</figcaption></figure>
+      ```
    - If the image is purely decorative (e.g., background ornament), omit it.
 
 8. Preserve lists:
@@ -94,8 +110,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - First level
       - Second level
          1. Numbered list inside
-    ```
-
+   ```
 9. Images and embedded text:
    - If there is textual content inside an image, do not extract it.
    - Only represent the image, not its internal text.
@@ -112,7 +127,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
     
 12. Detect and mark footnotes:
    - Maintain global sequential numbering for footnotes starting from {footnote_start}: [^{footnote_start}]
-   - Detect footnotes whether marked by numbers (e.g., 1), symbols (*, †, etc.), or superscripts (<sup>). Normalize all to numbered [^\d+] format starting from {footnote_start}.
+   - Detect footnotes whether marked by numbers (e.g., 1), symbols (*, †, etc.), or superscripts (<sup>). Normalize all to numbered [^\\d+] format starting from {footnote_start}.
    - When you encounter the footnote text, convert it to a standard Markdown footnote definition on a new line:
       ```markdown
       [^1]: This is the text of the first footnote.
@@ -215,3 +230,15 @@ REMINDERS:
 📌 Output only the final clean JSON-LD object.  
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """)
+
+
+PREV_CHUNK_TAIL_PROMPT = """
+The last slice of content from the previous chunk is provided below. Use this reference to continue any **broken paragraphs, sentences, lists, tables, or other structures** that begin in the current chunk. 
+
+- When the current chunk starts mid-sentence or mid-structure, join it **seamlessly and naturally** to the reference content, without duplicating or breaking the flow.
+- Do **not** insert extra blank lines or headings when continuing content.
+- Apply **all the same processing rules** (headers/footers removal, image formatting, dehyphenation, etc.) to the joined result.
+- ⚠️ If no continuation is necessary, proceed with the current chunk as a standalone unit.
+
+📎 Previous chunk tail (for reference only, do not repeat):
+"""
