@@ -29,7 +29,7 @@ from string import Template
 EXTRACT_CONTENT_PROMPT = """
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a Tatar-language slice of pages from a document (from page {slice_from} inclusive to page {slice_to} exclusive). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
+You are extracting structured content from a Tatar-language slice of pages from a document (pages {slice_from}-{slice_to} inclusive). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
 
 1. Remove all headers, footers, and page numbers.
    - These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates.
@@ -46,7 +46,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
 
 3. Format headings:
    - If the slice contains pages including the document title (for example, pages 0–10), format the main title using a single `#`.
-   - All lower-level headings should use `##` or deeper (`###`, etc.) according to their hierarchy.
+   - All lower-level headings should use `##` or deeper (`###`, `####`, etc.) according to their hierarchy.
    - If the slice contains only content pages without the title (for example, pages 10–20), use `##` or deeper for all headings.
 
 4. Detect and format tables:
@@ -71,7 +71,7 @@ You are extracting structured content from a Tatar-language slice of pages from 
      ```html
      <figure data-bbox="[y_min, x_min, y_max, x_max]" data-page="10"></figure>
      ```
-   - The `data-page` attribute indicates the page number the image was found on (starting from 0).
+   - The `data-page` attribute indicates the page number the image was found on (starting from 1).
    - The `data-bbox` attribute should contain the bounding box of the image in the following format: `[y_min, x_min, y_max, x_max]`.
      - These coordinates are normalized values between `0` and `1000`.
      - The top-left corner of the page is the origin `(0, 0)`, where:

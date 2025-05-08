@@ -34,7 +34,10 @@ MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 # todo more shots: between pages, footnotes
 # todo preview returned markdown
 # todo upload inline shots in advance?
-# alt text for image?
+# todo escaping problem
+# todo chemical formulas
+# todo batching process
+# fix ,[^1]
 def extract(context):
     client = create_client("promo")
     with pymupdf.open(context.local_doc_path) as pdf_doc:
@@ -65,7 +68,7 @@ def _extract_content(context, pdf_doc, client):
             
             # prepare prompt
             prompt = _prepare_prompt(slice_from, slice_to, next_footnote_num, prev_chunk_tail)
-            
+        
             # request gemini
             files = {slice_file_path: "application/pdf"}
             response = request_gemini(client=client, model=context.cli_params.model, prompt=prompt, files=files, schema=ExtractionResult)
@@ -87,9 +90,10 @@ def _extract_content(context, pdf_doc, client):
             unformatted_md.write(extraction_result.content)
             
             # postprocess response
-            formatted_content, last_footnote_num, = _post_process(extraction_result)
+            formatted_content, last_footnote_num = _post_process(context, extraction_result.content)
             next_footnote_num = max(next_footnote_num, last_footnote_num + 1)
-            prev_chunk_tail = extraction_result[:200]
+            prev_chunk_tail = extraction_result.content[-300:]
+            print("next_footnote_num", next_footnote_num)
             
             # write down processed result
             formatted.write(formatted_content)
@@ -104,14 +108,21 @@ def _extract_content(context, pdf_doc, client):
         extensions=["toc", "footnote"],
         options={"wrap": "keep", "number": "keep", "validate": True, "end_of_line": "lf"},
     )
-
+    
+    # mdformat escapes all baspecial chars, below we redo it
+    with open(context.formatted_response_md, 'r') as f:
+        content = f.read()
+    with open(context.formatted_response_md, 'w') as f:
+        f.write(content.replace('\\\\', '\\').replace('\\_', '_').replace('\\<', '<'))
+    
     context.local_content_path = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}.zip")
     with zipfile.ZipFile(context.local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         zf.write(arcname=f"{context.md5}.md", filename=context.formatted_response_md)
 
 def _prepare_prompt(slice_from, slice_to, footnote_counter, prev_chunk_tail=None):
-    prompt = [{"text": EXTRACT_CONTENT_PROMPT.format(slice_to=slice_to, slice_from=slice_from, footnote_start=footnote_counter).strip()}]
-    print("slice_from", slice)
+    prompt = [{"text": EXTRACT_CONTENT_PROMPT.format(slice_to=slice_to+1, slice_from=slice_from+1, footnote_start=footnote_counter).strip()}]
+    # print(prompt)
+    print("slice_from", slice_from)
     if slice_from:
         # does not contain document title, so all headers should be '##' or deeper
         prompt.append({"text": "📌 Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #. Always preserve the heading hierarchy based on the document's logical structure."})
@@ -119,7 +130,6 @@ def _prepare_prompt(slice_from, slice_to, footnote_counter, prev_chunk_tail=None
         # may contain document title
         prompt.append({"text": "📌 Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on. Always preserve the heading hierarchy based on the document's logical structure."})
     
-    print("prev_chunk_tail", prev_chunk_tail)
     if prev_chunk_tail:
         prompt.append({"text": PREV_CHUNK_TAIL_PROMPT.strip()})
         prompt.append({"text": prev_chunk_tail})
@@ -130,7 +140,7 @@ def _prepare_prompt(slice_from, slice_to, footnote_counter, prev_chunk_tail=None
     return prompt
 
 def _post_process(context, extraction_result):
-    postprocessed = extraction_result.replace("\\n", "\n").replace('-\n', '')
+    postprocessed = extraction_result.replace('-\n', '')
     # replace detected TOC with marker for mdformat-toc.
     # it signalizes mdformat-toc to create TOC based on headers in the document 
     postprocessed = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', postprocessed, flags=re.DOTALL)
@@ -216,13 +226,15 @@ def _replace_images(result, content):
 
 def _upload_to_s3(pairs, session, context):
     for p in pairs:
-        path = p['path']
+        if not (path := p.get('path')):
+            continue
         bucket = context.config["yandex"]["cloud"]['bucket']['image']
         key = os.path.basename(path)
         p['url'] = upload_file(path, bucket, key, session)
 
 def _clips(pix, pairs, page_no, clips_dir, md5):
     image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    pairs = [p for p in pairs if p.get('yolo')]
     for idx, p in enumerate(sorted(pairs, key=lambda f: (f["yolo"]["bbox"][0], f["yolo"]["bbox"][1]))):
         p['path'] = os.path.join(clips_dir, f"{md5}-{page_no}-{idx}.png")
         cropped_image = image.crop(p['yolo']['bbox'])
@@ -232,9 +244,13 @@ def _clips(pix, pairs, page_no, clips_dir, md5):
 
 def _compile_replacement_str(pairs):
     for p in pairs:
-        if caption := p['gemini'].get('caption'):
-            caption = f"<figcaption>{caption}</figcaption>"
-        p['replacement'] = f'<figure><img alt="" src="{p['url']}" width="{int(p['width']/2)}" height="{int(p['height']/2)}">{caption or ''}</figure>'
+        if p.get('yolo'):
+            if caption := p['gemini'].get('caption'):
+                caption = f"<figcaption>{caption}</figcaption>"
+            p['replacement'] = f'<figure><img alt="" src="{p['url']}" width="{int(p['width']/2)}" height="{int(p['height']/2)}">{caption or ''}</figure>\n'
+        else:
+            # here if no pair for Gemini bbox was found, this just returns original <figure>
+            p['replacement'] = ''
     
 def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold = 0.5):
     matches = []
@@ -275,6 +291,10 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold = 0.5)
                 })
             else:
                 print("No matching pair found")
+                # we still keep gemini bbox to later remove it from the document by creating empty replacement string
+                matches.append({
+                    'gemini': gem_box,
+                })
     return matches
 
 
@@ -291,7 +311,7 @@ def _collect_images(content):
         if caption := fig_elem.find("figcaption"):
             details['caption'] = caption.get_text(strip=True)
             
-        page_no = int(fig_elem.get("data-page"))
+        page_no = int(fig_elem.get("data-page")) - 1
         if not dashboard[page_no].get('gemini'):
             dashboard[page_no]['gemini'] = []
         dashboard[page_no]['gemini'].append(details)
