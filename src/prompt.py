@@ -1,5 +1,13 @@
 from string import Template
+from google.genai.errors import ClientError
+from google.genai import types
+import io
+import os
+import datetime
+from prepare_shots import load_inline_shots
+import json
 
+cooked_shots_dir = "./shots/cooked"
 
 # SYSTEM_PROMPT="""
 # You are an expert assistant specializing in processing Tatar-language documents written in Cyrillic script.
@@ -26,11 +34,13 @@ from string import Template
 # - Never translate, summarize, or paraphrase unless explicitly requested.
 # """
 
-EXTRACT_CONTENT_PROMPT = """
+EXTRACT_CONTENT_PROMPT_PRELUDE = """
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a Tatar-language slice of pages from a document (pages {slice_from}-{slice_to} inclusive). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
+You are extracting structured content from a Tatar-language slice of pages from a document (pages {_from}-{_to} inclusive). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
+""".strip()
 
+EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
 1. Remove all headers, footers, and page numbers.
    - These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates.
    - Do not confuse page headers with genuine section titles appearing at the start of a page.
@@ -44,10 +54,12 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - If a word is hyphenated across lines (e.g., "мәдә-\nниәт"), join it correctly ("мәдәният"). Only join the word if the break occurs at the end of a line and the next line begins with the continuation of the same word. Do not join words separated by hyphens in the middle of a sentence unless it's clearly a line break artifact.
    - Maintain the natural reading order throughout the document.
 
-3. Format headings:
-   - If the slice contains pages including the document title (for example, pages 0–10), format the main title using a single `#`.
-   - All lower-level headings should use `##` or deeper (`###`, `####`, etc.) according to their hierarchy.
-   - If the slice contains only content pages without the title (for example, pages 10–20), use `##` or deeper for all headings.
+3. Preserve text formatting using Markdown syntax:
+   - Bold text should be wrapped in double asterisks: **bold**.
+   - Italic text should be wrapped in single asterisks: *italic*.
+   - Bold italic text should use triple asterisks: ***bold italic***.
+   - Preserve inline styles exactly as they appear in the original (e.g., bold names, italicized quotes or terms).
+   - Do not guess or apply formatting arbitrarily—only use bold/italic when it is clearly visually marked.
 
 4. Detect and format tables:
    - Format detected tables using HTML `<table>`.
@@ -124,10 +136,12 @@ You are extracting structured content from a Tatar-language slice of pages from 
    - Do not translate, rewrite, or modify the original Tatar text.
    - The document language is Tatar, written in Cyrillic.
    - Be careful not to accidentally remove important content.
-    
+""".strip()
+
+EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART = """
 12. Detect and mark footnotes:
-   - Maintain global sequential numbering for footnotes starting from {footnote_start}: [^{footnote_start}]
-   - Detect footnotes whether marked by numbers (e.g., 1), symbols (*, †, etc.), or superscripts (<sup>). Normalize all to numbered [^\\d+] format starting from {footnote_start}.
+   - Maintain global sequential numbering for footnotes starting from {next_footnote_num}: [^{next_footnote_num}]
+   - Detect footnotes whether marked by numbers (e.g., 1), symbols (*, †, etc.), or superscripts (<sup>). Normalize all to numbered [^\\d+] format starting from {next_footnote_num}.
    - When you encounter the footnote text, convert it to a standard Markdown footnote definition on a new line:
       ```markdown
       [^1]: This is the text of the first footnote.
@@ -161,6 +175,23 @@ You are extracting structured content from a Tatar-language slice of pages from 
    [^36]: Н. Исәнбәтнең шәхси архивы: Н. Исәнбәтнең С. Кудашка язган хатыннан.
    [^37]: Н. Исәнбәтнең шәхси архивы: Әхмәдуллин А.
    ```
+""".strip()
+
+EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE = """
+13. Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on. Always preserve the heading hierarchy based on the document's logical structure.
+""".strip()
+
+EXTRACT_CONTENT_PROMPT_NO_TITLE = """
+13. Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #. Always preserve the heading hierarchy based on the document's logical structure.
+""".strip()
+
+EXTRACT_CONTENT_PROMPT_PREV_CHUNK_TAIL = """
+14. The last slice of content from the previous chunk is provided below. Use this reference to continue any **broken paragraphs, sentences, lists, tables, or other structures** that begin in the current chunk. 
+   - When the current chunk starts mid-sentence or mid-structure, join it **seamlessly and naturally** to the reference content, without duplicating or breaking the flow.
+   - Do **not** insert extra blank lines or headings when continuing content.
+   - Apply **all the same processing rules** (headers/footers removal, image formatting, dehyphenation, etc.) to the joined result.
+   - ⚠️ If no continuation is necessary, proceed with the current chunk as a standalone unit.
+   📎 Previous chunk tail (for reference only, do not repeat):
 """
 
 DEFINE_META_PROMPT=Template("""
@@ -231,14 +262,56 @@ REMINDERS:
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """)
 
+def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, prev_chunk_tail, client):
+   prompt = [{"text" : EXTRACT_CONTENT_PROMPT_PRELUDE.format(_to=batch_to_page+1, _from=batch_from_page+1)}]
 
-PREV_CHUNK_TAIL_PROMPT = """
-The last slice of content from the previous chunk is provided below. Use this reference to continue any **broken paragraphs, sentences, lists, tables, or other structures** that begin in the current chunk. 
+   prompt.append({"text" : EXTRACT_CONTENT_PROMPT_STATIC_BODY})
+   
+   prompt.append({"text" : EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART.format(next_footnote_num=next_footnote_num)})
 
-- When the current chunk starts mid-sentence or mid-structure, join it **seamlessly and naturally** to the reference content, without duplicating or breaking the flow.
-- Do **not** insert extra blank lines or headings when continuing content.
-- Apply **all the same processing rules** (headers/footers removal, image formatting, dehyphenation, etc.) to the joined result.
-- ⚠️ If no continuation is necessary, proceed with the current chunk as a standalone unit.
+   if batch_from_page:
+      prompt.append({"text" : EXTRACT_CONTENT_PROMPT_NO_TITLE})
+   else:
+      prompt.append({"text" : EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE})
+      
+   if prev_chunk_tail:
+      prompt.append({"text" : EXTRACT_CONTENT_PROMPT_PREV_CHUNK_TAIL})
+      prompt.append({"text" : prev_chunk_tail})
+      
+   path_to_shots = load_inline_shots()
+   with open(path_to_shots, "r") as f:
+      prompt.extend(json.load(f))
 
-📎 Previous chunk tail (for reference only, do not repeat):
-"""
+   prompt.append({"text" : "Now, extract structured content from the following document"})
+   return prompt
+
+
+def _get_remote_file_or_upload(client, name, content=None, path=None):
+   file = None
+   try:
+      file = client.files.get(name=name)
+      print(f"File `{name}` found")
+      if file and file.expiration_time and file.expiration_time - datetime.datetime.now(datetime.UTC) < datetime.timedelta(minutes=30):
+        client.files.delete(name=name)
+        file = None
+   except ClientError as e:
+      if e.code != 403:
+            raise e
+   
+   if not file:
+      print(f"Uploading file `{name}` to gemini")
+      if path:
+         file = path
+      elif content:
+         file=io.BytesIO(content.encode("utf-8"))
+      else:
+         raise ValueError("Expected either `path` or `content` provided")
+      
+      file = client.files.upload(
+            file=file,
+            config=types.UploadFileConfig(
+                  mime_type="text/plain",
+                  name=name,
+            ),
+         )
+   return file

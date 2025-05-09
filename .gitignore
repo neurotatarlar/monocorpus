@@ -2,6 +2,7 @@ credentials.json
 token.json
 workdir/*
 !workdir/900_artifacts
+shots/cooked
 
 0_to_process
 src_old/tests/tmp

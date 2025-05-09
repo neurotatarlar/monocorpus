@@ -4,10 +4,10 @@ from typing import Optional
 import re
 from dataclasses import dataclass
 from sync import sync as _sync
-import dispatch
 import metadata
 import string
 import prepare_shots
+import extract_content
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -112,7 +112,7 @@ def extract(
         batch_size=batch_size,
         model=model
     )
-    dispatch.extract_content(cli_params)
+    extract_content.extract_structured_content(cli_params)
 
 
 @app.command()
@@ -162,4 +162,4 @@ def shots():
     """
     Assemble ready-to-use prompt of structured content extraction
     """
-    prepare_shots.prepare_shots()
+    prepare_shots.load_inline_shots()

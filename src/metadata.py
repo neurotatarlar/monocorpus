@@ -19,15 +19,18 @@ import re
 from google.genai.errors import ClientError
 from time import sleep
 from monocorpus_models import Document
+import time
 
 def metadata(cli_params):
     config = read_config()
-    s3lient =  create_session(config)
-    gemini_client = create_client(tier='free', config=config)
+
     attempt = 0
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True)
         docs = obtain_documents(cli_params, ya_client, predicate)
+        s3lient =  create_session(config)
+        gemini_client = create_client(tier='free', config=config)
+        
         for doc in track(docs, description="Extracting document metadata...", total=len(docs)):
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params)
@@ -35,6 +38,7 @@ def metadata(cli_params):
             except KeyboardInterrupt:
                 exit(0)
             except BaseException as e:
+                print(e)
                 if attempt >= 5:
                     raise e
                 if isinstance(e, ClientError) and e.code == 429:
@@ -43,7 +47,7 @@ def metadata(cli_params):
                 attempt += 1
          
             
-def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
+def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params):
     if doc.mime_type != "application/pdf":
         print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
         return
@@ -51,15 +55,21 @@ def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
     print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
 
     # download doc from yadisk
+    print("downloading file")
+    start_time = time.time()
     local_doc_path = download_file_locally(ya_client, doc)
+    print("downloaded file", round(time.time() - start_time, 1))
 
     # upload doc to s3
+    print("uploading file to s3")
+    start_time = time.time()
     doc_bucket = config["yandex"]["cloud"]['bucket']['document']
     doc_key = os.path.basename(local_doc_path)
     doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
+    print("uploaded file to s3", round(time.time() - start_time, 1))
 
     # create a slice of first n and last n pages
-    slice_file_path = get_in_workdir(Dirs.DOC_SLICES, file=f"slice-{doc_key}")
+    slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")
     slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=4)
 
     # prepare prompt
@@ -67,15 +77,17 @@ def _metadata(doc,config, ya_client, gemini_client, s3lient, cli_params):
 
     # send to gemini
     files = {slice_file_path: doc.mime_type}
+    print("quering gemini")
+    start_time = time.time()
     response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book)
 
     # validate response
-
     if not (raw_response := "".join([ch.text for ch in response if ch.text])):
         print(f"No metadata was extracted from document {doc.md5}")
         return
     else:
         metadata = Book.model_validate_json(raw_response)
+    print("queried gemini", round(time.time() - start_time, 1))
 
     # write metadata to zip
     local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
@@ -169,8 +181,12 @@ def _update_document(doc, meta, pdf_doc_page_count):
         doc.page_count = meta.numberOfPages
     else:
         doc.page_count = pdf_doc_page_count
-        
+    
+    print("111updating doc in google sheets")
+    start_time = time.time()
     upsert(doc)
+    print("111updated doc in google sheets", round(time.time() - start_time, 1))
+    
 
 def _load_upstream_metadata(doc):
     if not (upstream_metadata_url := doc.upstream_metadata_url):

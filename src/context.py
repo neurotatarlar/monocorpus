@@ -7,26 +7,22 @@ class Context():
         self.config = config
         self.cli_params = cli_params
         self.doc = doc
+        self.tokens = []
+        self.progress = ProgressRenderer(self)
 
         self.ya_file_name = None
         self.ya_public_key = None 
         self.ya_resource_id = None
-
-        self.progress = ProgressRenderer(self)
-        
         self.local_doc_path = None
         self.local_content_path = None
         self.formatted_response_md = None
-                
+        self.unformatted_response_md = None
         self.remote_doc_url = None
         self.remote_content_url = None
-        
         self.md5 = None
-        
         self.extraction_method = None
         # count of pages in the document, not in the book inside document
         self.doc_page_count = None
-        self.tokens = []
 
     def __enter__(self):
         self.progress.__enter__()
