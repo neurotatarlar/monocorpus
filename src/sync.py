@@ -5,6 +5,9 @@ from monocorpus_models import Document
 from s3 import  create_session
 from monocorpus_models import Document, Session
 from sqlalchemy import select
+from collections import deque
+
+BATCH_SIZE = 20
 
 not_document_types = [
     'application/vnd.android.package-archive',
@@ -28,29 +31,57 @@ def sync():
     """
     Syncs files from Yandex Disk to Google Sheets.
     """
-    all_md5s = get_all_md5s()
     config = read_config()
-    dirs_to_visit = [config['yandex']['disk']['entry_point']]
-    skipped_by_mime_type_files = []
+    all_md5s = get_all_md5s()
     s3client = create_session(config)
-    upstream_meta = _lookup_upstream_metadata(s3client, config)
-    with YaDisk(config['yandex']['disk']['oauth_token']) as client:
-        while dirs_to_visit:
-            current_dir = dirs_to_visit.pop(0)
-            print(f"Visiting: '{current_dir}'")
-            listing = client.listdir(current_dir, max_items=None, fields=['type', 'path', 'mime_type', 'md5', 'public_key', 'public_url', 'resource_id', 'name'])
-            for resource in listing:
-                if resource.type == 'dir':
-                    dirs_to_visit.append(resource.path)
-                elif resource.type == 'file':
-                    _process_file(client, resource, all_md5s, skipped_by_mime_type_files, upstream_meta.get(resource.md5, None))
-    
-    print("Skipped by MIME type files:")
-    for s in skipped_by_mime_type_files:
-        print(s)
+    upstream_metas = _lookup_upstream_metadata(s3client, config)
 
+    skipped = []
+    gsheets = Session()
+    entry = config['yandex']['disk']['entry_point']
 
-def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta):
+    with YaDisk(config['yandex']['disk']['oauth_token']) as yaclient:
+        batch = []
+        for file_res in _walk_yadisk(yaclient, entry):
+            meta = upstream_metas.get(file_res.md5)
+            doc = _process_file(
+                yaclient, file_res, all_md5s,
+                skipped, meta, gsheets
+            )
+            if doc:
+                batch.append(doc)
+                if len(batch) >= BATCH_SIZE:
+                    gsheets.upsert(batch)
+                    batch.clear()
+
+        if batch:
+            gsheets.upsert(batch)
+            
+    if skipped:
+        print("Skipped by MIME type files:")
+        print(*skipped, sep="\n")
+        
+def _walk_yadisk(client, root):
+    """Yield all file resources under `root` on Yandex Disk."""
+    queue = deque([root])
+    while queue:
+        current = queue.popleft()
+        print(f"Visiting: '{current}'")
+        for res in client.listdir(
+            current,
+            max_items=None,
+            fields=[
+                'type', 'path', 'mime_type',
+                'md5', 'public_key', 'public_url',
+                'resource_id', 'name'
+            ]
+        ):
+            if res.type == 'dir':
+                queue.append(res.path)
+            else:
+                yield res
+
+def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, gsheets_session):
 
     if file.mime_type in not_document_types:
         print(f"Skipping file: '{file.path}' of type '{file.mime_type}'")
@@ -60,7 +91,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     ya_public_key = file.public_key
     ya_public_url = file.public_url
     if not (ya_public_key and ya_public_url):
-        ya_public_key, ya_public_url = publish_file(ya_client, file.path)
+        ya_public_key, ya_public_url = _publish_file(ya_client, file.path)
     
     if file.md5 in all_md5s:
         # compare with ya_resource_id
@@ -84,11 +115,10 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         full=False if "милли.китапханә/limited" in file.path else True,
     )
     # update gsheet
-    raise NotImplementedError
-    # upsert(doc)
     all_md5s[file.md5] = {"resource_id": doc.ya_resource_id, "upstream_metadata_url": doc.upstream_metadata_url} 
+    return doc
 
-def publish_file(client, path):
+def _publish_file(client, path):
     _ = client.publish(path)
     resp = client.get_meta(path, fields = ['public_key', 'public_url'])
     return resp['public_key'], resp['public_url']
