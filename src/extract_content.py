@@ -21,13 +21,17 @@ from gemini import create_client
 from utils import download_file_locally
 import json
 from rich import print
+# from continuity_checker import continue_smoothly
+
+# todo upload intermidiate results to s3?
+# todo change seed in case of error?
 
 def extract_structured_content(cli_params):
-    print(f"about to extract content with params {", ".join([f"{k} -> {v}" for k,v in cli_params.__dict__.items() if v])}")
+    print(f"about to extract content with params {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}")
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
-        docs = obtain_documents(cli_params, ya_client, predicate)
+        docs = obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit)
         with ProcessPoolExecutor(max_workers=cli_params.parallelism) as executor:
             futures = {executor.submit(__task, config, doc, cli_params): doc for doc in docs}
             for future in as_completed(futures):
@@ -35,7 +39,7 @@ def extract_structured_content(cli_params):
                 
 def __task(config, doc, cli_params):
     try:
-        gemini_client = create_client("free")
+        gemini_client = create_client(cli_params.tier)
         with Session() as gsheets_session, Context(config, doc, cli_params, gsheets_session) as context, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
             if not context.cli_params.force and doc.extraction_complete:
                 return f"{doc.md5}: skipped because already processed"
@@ -55,6 +59,8 @@ def __task(config, doc, cli_params):
             _upsert_document(context, gsheets_session)
             
             print(f"{doc.md5}: content extraction complete, tokens per chunk: {round(sum(context.tokens) / len(sum(context.tokens)))}")
+    except KeyboardInterrupt:
+        exit(0)
     except Exception as e:
         print(f"{doc.md5}: failed, error: {e}")
 
@@ -124,6 +130,11 @@ def _extract_content(context, pdf_doc, gemini_client):
                 # "mark" batch as extracted by renaming file
                 shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
             
+            # if prev_chunk_tail:
+                # content = continue_smoothly(prev=prev_chunk_tail, content=content)
+ 
+            prev_chunk_tail = content[-300:]
+            content = content.removesuffix('-')
             output.write(content)
             output.flush()
             
@@ -131,7 +142,6 @@ def _extract_content(context, pdf_doc, gemini_client):
             footnote_counters = re.findall(r"\[\^(\d+)\]:", content)
             last_footnote_num = max(map(int, footnote_counters)) if footnote_counters else 0
             next_footnote_num = max(next_footnote_num, last_footnote_num + 1)
-            prev_chunk_tail = content[-300:]
 
             chunk_result_paths.append(chunk_result_complete_path)
 

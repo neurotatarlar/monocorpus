@@ -8,10 +8,15 @@ import metadata
 import string
 import prepare_shots
 import extract_content
+from enum import Enum
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
 
+class Tier(str, Enum):
+    free = "free"
+    promo = "promo"
+    
 @dataclass
 class ExtractCliParams:
     md5: str
@@ -21,6 +26,8 @@ class ExtractCliParams:
     batch_size: int
     model: str
     parallelism: int
+    limit: int 
+    tier: Tier
     
 @dataclass
 class MetaCliParams:
@@ -107,7 +114,23 @@ def extract(
             "--parallelism", "-p",
             help="Parallelism factor",
         )
-    ] = 3):
+    ] = 4,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit", "-l",
+            help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
+        )
+    ] = None,
+    tier: Annotated[
+        Tier,
+        typer.Option(
+            "--tier", "-t",
+            help="Tier in Google used interact with Gemini",
+            case_sensitive=False
+        )
+    ] = Tier.free,
+    ):
     cli_params = ExtractCliParams(
         md5=md5,
         path=path,
@@ -115,7 +138,9 @@ def extract(
         page_slice=pages_slice, 
         batch_size=batch_size,
         model=model,
-        parallelism=parallelism
+        parallelism=parallelism,
+        limit=limit,
+        tier=tier
     )
     extract_content.extract_structured_content(cli_params)
 
