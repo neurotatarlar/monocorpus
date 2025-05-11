@@ -18,9 +18,9 @@ class ExtractCliParams:
     path: str
     force: bool
     page_slice: str
-    meta: bool
     batch_size: int
     model: str
+    parallelism: int
     
 @dataclass
 class MetaCliParams:
@@ -28,7 +28,6 @@ class MetaCliParams:
     path: str
     model: str
     
- 
 def slice_parser(value: str):
     if value:
         match = slice_pattern.match(value)
@@ -102,15 +101,21 @@ def extract(
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
     ] = "gemini-2.5-flash-preview-04-17",
-    ):
+    parallelism: Annotated[
+        int,
+        typer.Option(
+            "--parallelism", "-p",
+            help="Parallelism factor",
+        )
+    ] = 3):
     cli_params = ExtractCliParams(
         md5=md5,
         path=path,
         force=force,
         page_slice=pages_slice, 
-        meta=meta,
         batch_size=batch_size,
-        model=model
+        model=model,
+        parallelism=parallelism
     )
     extract_content.extract_structured_content(cli_params)
 

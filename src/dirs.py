@@ -10,3 +10,4 @@ class Dirs(Enum):
     PAGE_IMAGES = "misc/page_images"
     CLIPS = "misc/clips"
     CHUNKED_RESULTS = "misc/chunked_result"
+    PROMPTS = "misc/prompts"

@@ -3,13 +3,13 @@ from progress import ProgressRenderer
 
 class Context():
 
-    def __init__(self, config, doc, cli_params, gsheet_session):
+    def __init__(self, config, doc, cli_params, gsheets_session):
         self.config = config
         self.doc = doc
         self.cli_params = cli_params
-        self.gsheet_session = gsheet_session
+        self.gsheets_session = gsheets_session
         self.tokens = []
-        self.progress = ProgressRenderer(self)
+        # self.progress = ProgressRenderer(self)
 
         self.ya_file_name = None
         self.ya_public_key = None 
@@ -26,11 +26,12 @@ class Context():
         self.doc_page_count = None
 
     def __enter__(self):
-        self.progress.__enter__()
+        # self.progress.__enter__()
         return self
 
     def __exit__(self, type, value, traceback):
-        self.progress.__exit__(type, value, traceback)
+        # self.progress.__exit__(type, value, traceback)
+        pass
 
     def __str__(self):
         return '%s(%s)' % (

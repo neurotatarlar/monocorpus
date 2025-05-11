@@ -2,7 +2,6 @@ from utils import read_config, download_file_locally, obtain_documents, get_in_w
 from yadisk_client import YaDisk
 from monocorpus_models import Document
 from context import Context
-from time import sleep
 from s3 import upload_file, create_session
 import os
 from gemini import request_gemini, create_client
@@ -15,54 +14,51 @@ from postprocess import postprocess
 import re
 import zipfile
 from prompt import cook_extraction_prompt
-from google.genai.errors import ClientError
 from monocorpus_models import Session
-
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from context import Context
+from gemini import create_client
+from utils import download_file_locally
+import json
+from rich import print
 
 def extract_structured_content(cli_params):
     config = read_config()
-    gemini_client = create_client("free")
-    attempt = 0
-    predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
-        for doc in obtain_documents(cli_params, ya_client, predicate = predicate, limit = 20):
-            try:
-                with Context(config, doc, cli_params, gsheet_session) as context:
-                    if not context.cli_params.force and doc.extraction_complete:
-                        context.progress._update(f"Document already processed. Skipping it...")
-                        continue
-                        
-                    if doc.mime_type != "application/pdf":
-                        context.progress._update(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
-                        continue
-                    
-                    _take_doc(context, ya_client, gemini_client)
-                attempt = 0
-            except KeyboardInterrupt:
-                exit()
-            except BaseException as e:
-                print(e)
-                if attempt >= 5:
-                    raise e
-                if isinstance(e, ClientError) and e.code == 429:
-                    print("Sleeping for 60 seconds")
-                    sleep(60)
-                attempt += 1
-        print("Sleeping for 10 seconds")
-        exit()
-        
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+        predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
+        docs = obtain_documents(cli_params, ya_client, predicate, limit=1)
+        with ProcessPoolExecutor(max_workers=cli_params.parallelism) as executor:
+            futures = {executor.submit(__task, config, doc, cli_params): doc for doc in docs}
+            for future in as_completed(futures):
+                _ = future.result()
                 
-def _take_doc(context, ya_client, gemini_client):
-    context.progress.operational(f"Downloading file from yadisk")
-    context.local_doc_path = download_file_locally(ya_client, context.doc)
-    
-    # request latest metadata of the doc in yandex disk
-    ya_doc_meta = ya_client.get_public_meta(context.doc.ya_public_url, fields=['md5', 'name', 'public_key', 'resource_id', 'sha256'])
-    context.md5 = ya_doc_meta.md5
-    context.ya_file_name = ya_doc_meta.name
-    context.ya_public_key = ya_doc_meta.public_key
-    context.ya_resource_id = ya_doc_meta.resource_id
-    
+def __task(config, doc, cli_params):
+    print(f"{doc.md5}: about to extract content with params {json.dumps(cli_params.__dict__.items(), ensure_ascii=False)}")
+    try:
+        gemini_client = create_client("free")
+        with Session() as gsheets_session, Context(config, doc, cli_params, gsheets_session) as context, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+            if not context.cli_params.force and doc.extraction_complete:
+                return f"{doc.md5}: skipped because already processed"
+            
+            print(f"{doc.md5}: downloading file from yadisk")
+            context.local_doc_path = download_file_locally(ya_client, context.doc)
+            
+            # request latest metadata of the doc in yandex disk
+            ya_doc_meta = ya_client.get_public_meta(context.doc.ya_public_url, fields=['md5', 'name', 'public_key', 'resource_id', 'sha256'])
+            context.md5 = ya_doc_meta.md5
+            context.ya_file_name = ya_doc_meta.name
+            context.ya_public_key = ya_doc_meta.public_key
+            context.ya_resource_id = ya_doc_meta.resource_id
+            
+            _process(context, gemini_client)
+            _upload_artifacts(context)
+            _upsert_document(context, gsheets_session)
+            
+            print(f"{doc.md5}: content extraction complete, tokens per chunk: {round(sum(context.tokens) / len(sum(context.tokens)))}")
+    except Exception as e:
+        print(f"{doc.md5}: failed, error: {e}")
+
+def _process(context, gemini_client):
     with pymupdf.open(context.local_doc_path) as pdf_doc:
         _extract_content(context, pdf_doc, gemini_client)
         postprocessed = postprocess(context)
@@ -77,10 +73,6 @@ def _take_doc(context, ya_client, gemini_client):
         
         context.extraction_method = f"{context.cli_params.model}/{context.cli_params.batch_size}/pdfinput"
         context.doc_page_count=pdf_doc.page_count
-        
-    _upload_artifacts(context)
-    _upsert_document(context)
-    context.progress._update(decription=f"[bold green]Processing complete[/ bold green]")
     
 def _extract_content(context, pdf_doc, gemini_client):
     batch_size = context.cli_params.batch_size
@@ -92,8 +84,10 @@ def _extract_content(context, pdf_doc, gemini_client):
     chunk_result_paths = []
     
     context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
+    prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
     with open(context.unformatted_response_md, "w") as output:
-        for chunk in context.progress.track_extraction(iter, f"Extracting..."):
+        for idx, chunk in enumerate(iter):
+            print(f"{context.md5}: extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}")
@@ -107,10 +101,12 @@ def _extract_content(context, pdf_doc, gemini_client):
                 
                 # prepare prompt
                 prompt = cook_extraction_prompt(_from, _to, next_footnote_num, prev_chunk_tail, gemini_client)
+                with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}"), "w") as f:
+                    json.dump(prompt, f, indent=4, ensure_ascii=False)
             
                 # request gemini
                 files = {slice_file_path: "application/pdf"}
-                response = request_gemini(client=gemini_client, model=context.cli_params.model, prompt=prompt, files=files, schema=ExtractionResult)
+                response = request_gemini(client=gemini_client, model=context.cli_params.model, prompt=prompt, files=files, schema=ExtractionResult, timeout_sec=6000)
             
                 # write result into file
                 chunk_result_incomplete_path = chunk_result_complete_path + ".part"
@@ -148,7 +144,7 @@ def _create_doc_clice(_from, _to, pdf_doc, md5):
     return slice_file_path
     
 def _upload_artifacts(context):
-    context.progress.operational(f"Uploading artifacts to object storage")
+    print(f"{context.md5}: Uploading artifacts to object storage")
                 
     session = create_session(context.config)
     
@@ -163,7 +159,7 @@ def _upload_artifacts(context):
         context.remote_doc_url = upload_file(context.local_doc_path, doc_bucket, doc_key, session, skip_if_exists=True)
     
 def _upsert_document(context):
-    context.progress.operational(f"Updating doc details in gsheets")
+    print(f"{context.md5}: Updating doc details in gsheets")
 
     doc = context.doc
     doc.file_name = context.ya_file_name
@@ -175,4 +171,5 @@ def _upsert_document(context):
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True
         
-    context.gsheets_session.update(doc)
+    print("upserting")
+    # context.gsheets_session.update(doc)
