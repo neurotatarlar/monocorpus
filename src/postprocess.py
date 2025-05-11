@@ -28,7 +28,7 @@ def postprocess(context):
     # it signalizes mdformat-toc to create TOC based on headers in the document 
     postprocessed = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', postprocessed, flags=re.DOTALL)
     
-    # exctact images
+    # exctract images
     postprocessed = _proccess_images(context, postprocessed)
     
     postprocessed = mdformat.text(
@@ -126,8 +126,6 @@ def _collect_images(content):
         dashboard[page_no]['gemini'].append(details)
     return dashboard
 
-
-
 def _replace_images(result, content):
     for target, replacement in result:
         content = content.replace(target, replacement)
@@ -160,53 +158,54 @@ def _compile_replacement_str(pairs):
         else:
             # here if no pair for Gemini bbox was found, this just returns original <figure>
             p['replacement'] = ''
-    
-def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold = 0.5):
-    matches = []
-    for gem_box in details['gemini']:
-        best_iou = 0
-        best_yolo = None
-        for yolo_box in details['yolo']:
-            iou = compute_iou(gem_box['bbox'], yolo_box['bbox'])
-            if iou > best_iou:
-                best_iou = iou
-                best_yolo = yolo_box
+            
+def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
+    potential_matches = []
 
-        if best_iou > iou_threshold:
-            matches.append({
-                'gemini': gem_box,
-                'yolo': best_yolo,
-                'method': 'iou',
-                'score': best_iou
-            })
-        else:
-            # Fallback: match by closest centroid
-            gem_centroid = compute_centroid(gem_box['bbox'])
-            min_dist = float('inf')
-            closest_yolo = None
-            for yolo_box in details['yolo']:
+    # Step 1: Collect all potential matches with scores
+    for gem_idx, gem_box in enumerate(details['gemini']):
+        gem_centroid = compute_centroid(gem_box['bbox'])
+        for yolo_idx, yolo_box in enumerate(details['yolo']):
+            iou = compute_iou(gem_box['bbox'], yolo_box['bbox'])
+            if iou > iou_threshold:
+                potential_matches.append((
+                    gem_idx, yolo_idx, 'iou', iou
+                ))
+            else:
                 yolo_centroid = compute_centroid(yolo_box['bbox'])
                 dist = compute_distance(gem_centroid, yolo_centroid)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_yolo = yolo_box
+                if dist < centroid_distance_threshold:
+                    potential_matches.append((
+                        gem_idx, yolo_idx, 'centroid distance', dist
+                    ))
 
-            if min_dist < centroid_distance_threshold:
-                matches.append({
-                    'gemini': gem_box,
-                    'yolo': closest_yolo,
-                    'method': 'centroid distance',
-                    'score': min_dist
-                })
-            else:
-                print("No matching pair found")
-                # we still keep gemini bbox to later remove it from the document by creating empty replacement string
-                matches.append({
-                    'gemini': gem_box,
-                })
+    # Step 2: Sort matches — IoU descending, distance ascending
+    potential_matches.sort(key=lambda x: (-x[3] if x[2] == 'iou' else x[3]))
+
+    matched_gemini = set()
+    matched_yolo = set()
+    matches = []
+
+    # Step 3: Pick best non-conflicting matches
+    for gem_idx, yolo_idx, method, score in potential_matches:
+        if gem_idx not in matched_gemini and yolo_idx not in matched_yolo:
+            matches.append({
+                'gemini': details['gemini'][gem_idx],
+                'yolo': details['yolo'][yolo_idx],
+                'method': method,
+                'score': score
+            })
+            matched_gemini.add(gem_idx)
+            matched_yolo.add(yolo_idx)
+
+    # Step 4: Add unmatched Gemini boxes
+    # we still keep gemini bbox to later remove it from the document by creating empty replacement string
+    for idx, gem_box in enumerate(details['gemini']):
+        if idx not in matched_gemini:
+            matches.append({'gemini': gem_box})
+
     return matches
-
-
+    
 def _collect_images(content):
     pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)
     dashboard = defaultdict(dict)

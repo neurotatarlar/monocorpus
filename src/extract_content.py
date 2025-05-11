@@ -23,17 +23,17 @@ import json
 from rich import print
 
 def extract_structured_content(cli_params):
+    print(f"about to extract content with params {", ".join([f"{k} -> {v}" for k,v in cli_params.__dict__.items() if v])}")
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
-        docs = obtain_documents(cli_params, ya_client, predicate, limit=1)
+        docs = obtain_documents(cli_params, ya_client, predicate)
         with ProcessPoolExecutor(max_workers=cli_params.parallelism) as executor:
             futures = {executor.submit(__task, config, doc, cli_params): doc for doc in docs}
             for future in as_completed(futures):
                 _ = future.result()
                 
 def __task(config, doc, cli_params):
-    print(f"{doc.md5}: about to extract content with params {json.dumps(cli_params.__dict__.items(), ensure_ascii=False)}")
     try:
         gemini_client = create_client("free")
         with Session() as gsheets_session, Context(config, doc, cli_params, gsheets_session) as context, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
@@ -92,7 +92,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}")
             if os.path.exists(chunk_result_complete_path):
-                print(f"chunk {_from}-{_to} is already extracted")
+                print(f"{context.md5}: chunk {_from}-{_to} is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
             else:
