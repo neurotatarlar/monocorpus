@@ -1,9 +1,10 @@
 from utils import read_config
-from gsheets import get_all_md5s, upsert
 from yadisk_client import YaDisk
 from rich import print
 from monocorpus_models import Document
 from s3 import  create_session
+from monocorpus_models import Document, Session
+from sqlalchemy import select
 
 not_document_types = [
     'application/vnd.android.package-archive',
@@ -83,7 +84,8 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         full=False if "милли.китапханә/limited" in file.path else True,
     )
     # update gsheet
-    upsert(doc)
+    raise NotImplementedError
+    # upsert(doc)
     all_md5s[file.md5] = {"resource_id": doc.ya_resource_id, "upstream_metadata_url": doc.upstream_metadata_url} 
 
 def publish_file(client, path):
@@ -101,3 +103,19 @@ def _lookup_upstream_metadata(s3client, config):
          for page in pages
          for obj in page['Contents']
     }
+    
+def get_all_md5s():
+    """
+    Returns a dict of all md5s in the database with ya_resource_id
+    :return: set of md5s
+    """
+    with Session() as s:
+        res = s._get_session().execute(
+            select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url)
+        ).all()
+        return { 
+                i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2]} 
+                for i 
+                in res 
+                if i[1] is not None
+        }

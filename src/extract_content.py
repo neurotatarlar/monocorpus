@@ -2,7 +2,6 @@ from utils import read_config, download_file_locally, obtain_documents, get_in_w
 from yadisk_client import YaDisk
 from monocorpus_models import Document
 from context import Context
-from gsheets import upsert
 from time import sleep
 from s3 import upload_file, create_session
 import os
@@ -16,17 +15,19 @@ from postprocess import postprocess
 import re
 import zipfile
 from prompt import cook_extraction_prompt
+from google.genai.errors import ClientError
+from monocorpus_models import Session
 
 
 def extract_structured_content(cli_params):
     config = read_config()
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True)
-        gemini_client = create_client("promo")
-        attempt = 0
-        for doc in obtain_documents(cli_params, ya_client, predicate):
+    gemini_client = create_client("free")
+    attempt = 0
+    predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
+        for doc in obtain_documents(cli_params, ya_client, predicate = predicate, limit = 20):
             try:
-                with Context(config, doc, cli_params) as context:
+                with Context(config, doc, cli_params, gsheet_session) as context:
                     if not context.cli_params.force and doc.extraction_complete:
                         context.progress._update(f"Document already processed. Skipping it...")
                         continue
@@ -40,13 +41,16 @@ def extract_structured_content(cli_params):
             except KeyboardInterrupt:
                 exit()
             except BaseException as e:
-                raise e
-                # if attempt >= 5:
-                #     raise e
-                # if isinstance(e, ClientError) and e.code == 429:
-                #     print("Sleeping for 60 seconds")
-                #     sleep(60)
-                # attempt += 1
+                print(e)
+                if attempt >= 5:
+                    raise e
+                if isinstance(e, ClientError) and e.code == 429:
+                    print("Sleeping for 60 seconds")
+                    sleep(60)
+                attempt += 1
+        print("Sleeping for 10 seconds")
+        exit()
+        
                 
 def _take_doc(context, ya_client, gemini_client):
     context.progress.operational(f"Downloading file from yadisk")
@@ -77,7 +81,7 @@ def _take_doc(context, ya_client, gemini_client):
     _upload_artifacts(context)
     _upsert_document(context)
     context.progress._update(decription=f"[bold green]Processing complete[/ bold green]")
-  
+    
 def _extract_content(context, pdf_doc, gemini_client):
     batch_size = context.cli_params.batch_size
     iter = list(batched(range(0, pdf_doc.page_count)[context.cli_params.page_slice], batch_size))
@@ -134,12 +138,13 @@ def _extract_content(context, pdf_doc, gemini_client):
             prev_chunk_tail = content[-300:]
 
             chunk_result_paths.append(chunk_result_complete_path)
-    
+
 def _create_doc_clice(_from, _to, pdf_doc, md5):
-    doc_slice = pymupdf.open()
-    doc_slice.insert_pdf(pdf_doc, from_page=_from, to_page=_to)
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, md5, file=f"slice-{_from}-{_to}.pdf")
-    doc_slice.save(slice_file_path)
+    if not os.path.exists(slice_file_path):
+        doc_slice = pymupdf.open()
+        doc_slice.insert_pdf(pdf_doc, from_page=_from, to_page=_to)
+        doc_slice.save(slice_file_path)
     return slice_file_path
     
 def _upload_artifacts(context):
@@ -170,4 +175,4 @@ def _upsert_document(context):
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True
         
-    upsert(doc)
+    context.gsheets_session.update(doc)

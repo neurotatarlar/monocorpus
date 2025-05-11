@@ -1,4 +1,3 @@
-from gsheets import upsert
 from rich.progress import track
 from rich import print
 from s3 import upload_file, create_session
@@ -18,36 +17,33 @@ import json
 import re
 from google.genai.errors import ClientError
 from time import sleep
-from monocorpus_models import Document
+from monocorpus_models import Document, Session
 import time
 
 def metadata(cli_params):
     config = read_config()
-
-    attempt = 0
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        predicate = Document.metadata_url.is_(None) & Document.full.is_(True)
-        docs = obtain_documents(cli_params, ya_client, predicate)
+    attempt = 1
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
+        predicate = Document.metadata_url.is_(None) & Document.full.is_(True) & Document.mime_type.is_('application/pdf')
         s3lient =  create_session(config)
         gemini_client = create_client(tier='free', config=config)
         
-        for doc in track(docs, description="Extracting document metadata...", total=len(docs)):
+        for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
             try:
-                _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params)
-                attempt = 0
+                _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)
+                attempt = 1
             except KeyboardInterrupt:
                 exit(0)
             except BaseException as e:
                 print(e)
-                if attempt >= 5:
-                    raise e
                 if isinstance(e, ClientError) and e.code == 429:
                     print("Sleeping for 60 seconds")
                     sleep(60)
+                if attempt >= 5:
+                    raise e
                 attempt += 1
-         
-            
-def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params):
+
+def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session):
     if doc.mime_type != "application/pdf":
         print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
         return
@@ -55,13 +51,11 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params):
     print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
 
     # download doc from yadisk
-    print("downloading file")
     start_time = time.time()
     local_doc_path = download_file_locally(ya_client, doc)
     print("downloaded file", round(time.time() - start_time, 1))
 
     # upload doc to s3
-    print("uploading file to s3")
     start_time = time.time()
     doc_bucket = config["yandex"]["cloud"]['bucket']['document']
     doc_key = os.path.basename(local_doc_path)
@@ -77,9 +71,8 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params):
 
     # send to gemini
     files = {slice_file_path: doc.mime_type}
-    print("quering gemini")
     start_time = time.time()
-    response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book)
+    response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book, timeout_sec=60)
 
     # validate response
     if not (raw_response := "".join([ch.text for ch in response if ch.text])):
@@ -102,7 +95,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params):
     doc.metadata_extraction_method = cli_params.model
 
     # update metadata in gsheet
-    _update_document(doc, metadata, original_doc_page_count)
+    _update_document(doc, metadata, original_doc_page_count, gsheet_session)
             
 def _prepare_prompt(doc, slice_page_count):
     prompt = DEFINE_META_PROMPT.substitute(n=int(slice_page_count / 2),)
@@ -139,7 +132,7 @@ def _ranges(_i):
         yield _b[0][1], _b[-1][1]
         
 
-def _update_document(doc, meta, pdf_doc_page_count):
+def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
     doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
     doc.author =  ", ".join([a.name for a in meta.author if a.name.lower() != 'unknown' ]) if meta.author else None
     doc.title = meta.name if meta.name and meta.name.lower() != 'unknown' else None
@@ -182,10 +175,9 @@ def _update_document(doc, meta, pdf_doc_page_count):
     else:
         doc.page_count = pdf_doc_page_count
     
-    print("111updating doc in google sheets")
     start_time = time.time()
-    upsert(doc)
-    print("111updated doc in google sheets", round(time.time() - start_time, 1))
+    gsheet_session.update(doc)
+    print("updating doc in gsheets", round(time.time() - start_time, 1))
     
 
 def _load_upstream_metadata(doc):
@@ -210,6 +202,3 @@ def _load_upstream_metadata(doc):
         _meta.pop("access", None)
         _meta.pop("lang", None)
         return json.dumps(_meta, ensure_ascii=False)
-
-
-            

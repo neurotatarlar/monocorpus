@@ -4,8 +4,8 @@ import sys
 import yaml
 from typing import Union
 import hashlib
-from gsheets import find_one, find_all
-from monocorpus_models import Document
+from monocorpus_models import Document, Session
+from sqlalchemy import select
 
 
 def pick_files(dir_path: Union[str, Dirs]):
@@ -48,32 +48,37 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
     else:
         return path
 
-def obtain_documents(cli_params, ya_client, predicate=None, limit=None):
-    if cli_params.md5:
-        print(f"Looking for document by md5 '{cli_params.md5}'")
-        return [find_one(Document.md5.is_(cli_params.md5))]
-    
-    if cli_params.path:
-        _meta = ya_client.get_meta(cli_params.path, fields=['md5', 'type', 'path'])
+def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_session = Session()):
+    def _yield_by_md5(md5):
+        print(f"Looking for document by md5 '{md5}'")
+        combined_predicate = predicate & Document.md5.is_(md5) if predicate else Document.md5.is_(md5)
+        yield from _find(gsheet_session, predicate=combined_predicate, limit=1)
+
+    def _yield_by_path(path):
+        _meta = ya_client.get_meta(path, fields=['md5', 'type', 'path'])
         if _meta.type == 'file':
-            print(f"Looking for document by path '{cli_params.path}'")
-            return [find_one(Document.md5.is_(_meta.md5))]
-        
-        if _meta.type == 'dir':
-            print(f"Traversing documents by path '{cli_params.path}'")
+            print(f"Looking for document by path '{path}'")
+            yield from _yield_by_md5(_meta.md5)
+        elif _meta.type == 'dir':
+            print(f"Traversing documents by path '{path}'")
+            unprocessed_docs = {d.md5: d for d in _find(gsheet_session, predicate, limit)}
             dirs_to_visit = [_meta.path]
-            md5s = set()
             while dirs_to_visit:
                 dir = dirs_to_visit.pop(0)
-                _listing = ya_client.listdir(dir, max_items=None, fields=['md5', 'type', 'path'])
-                for _item in _listing:
-                    if _item.type == 'dir':
-                        dirs_to_visit.append(_item.path)
-                    elif _item.type == 'file':
-                        md5s.add(_item.md5)
-            return find_all(predicate, md5s, limit=limit)
-    return find_all(limit=limit)
-            
+                for item in ya_client.listdir(dir, max_items=None, fields=['md5', 'type', 'path']):
+                    if item.type == 'dir':
+                        dirs_to_visit.append(item.path)
+                    elif item.type == 'file' and (doc := unprocessed_docs.get(item.md5)):
+                        yield doc
+                        
+    if cli_params.md5:
+        yield from _yield_by_md5(cli_params.md5)
+    elif cli_params.path:
+        yield from _yield_by_path(cli_params.path)
+    else:
+        print("Traversing all unprocessed documents")
+        yield from _find(gsheet_session, predicate=predicate, limit=limit)
+
 def download_file_locally(ya_client, doc):
     ext = doc.mime_type.split("/")[-1]
     if ext == "pdf":
@@ -88,3 +93,11 @@ def download_file_locally(ya_client, doc):
         with open(local_path, "wb") as f:
             ya_client.download_public(doc.ya_public_url, f)
     return local_path
+
+def _find(session, predicate=None, limit=None):
+    statement = select(Document)
+    if predicate is not None:
+        statement = statement.where(predicate)
+    if limit:
+        statement = statement.limit(limit)
+    yield from session.query(statement)
