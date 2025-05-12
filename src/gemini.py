@@ -19,7 +19,7 @@ def request_gemini(prompt, model, files = {}, client=create_client(), temperatur
         # docs https://ai.google.dev/gemini-api/docs/text-generation#configuration-parameters
         config=types.GenerateContentConfig(
             temperature=temperature,
-            response_mime_type=response_mime_type if response_mime_type else "application/json" if schema else None,
+            response_mime_type="application/json",
             response_schema=schema,
             candidate_count=1,
             seed=1552,

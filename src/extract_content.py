@@ -28,10 +28,11 @@ import time
 
 # todo upload intermidiate results to s3?
 # todo change seed in case of error?
-ATTEMPTS = 10
+# todo chunk and footnote
+ATTEMPTS = 1
 
 def extract_structured_content(cli_params):
-    print(f'about to extract content with params {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
+    print(f'about to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Manager() as manager:
         
@@ -41,7 +42,7 @@ def extract_structured_content(cli_params):
         predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
         docs = obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit)
         
-        with ProcessPoolExecutor(max_workers=cli_params.parallelism) as executor:
+        with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
             futures = {executor.submit(__task, config, doc, cli_params, failure_count, lock): doc for doc in docs}
             for future in as_completed(futures):
                 if failure_count.value >= ATTEMPTS:
@@ -79,7 +80,7 @@ def __task(config, doc, cli_params, failure_count, lock):
                 if context.failure_count.value >= ATTEMPTS:
                     return
             _upload_artifacts(context)
-            _upsert_document(context, gsheets_session)
+            _upsert_document(context)
             
             with lock:
                 failure_count.value = 0
@@ -88,7 +89,11 @@ def __task(config, doc, cli_params, failure_count, lock):
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
+        import traceback
         print(f"{doc.md5}: failed with error: {e}")
+        traceback.print_exc()
+        exit(1)
+        
         if isinstance(e, ClientError) and e.code == 429:
             print(f"{doc.md5}: received 429, sleeping for 60 seconds")
             time.sleep(60)
@@ -127,7 +132,7 @@ def _extract_content(context, pdf_doc, gemini_client):
     context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
     prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
     with open(context.unformatted_response_md, "w") as output:
-        for idx, chunk in enumerate(iter):
+        for idx, chunk in enumerate(iter, start=1):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
                     break
@@ -136,7 +141,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}")
             if os.path.exists(chunk_result_complete_path):
-                print(f"{context.md5}: chunk {_from}-{_to} is already extracted")
+                print(f"{context.md5}: chunk {idx}({_from}-{_to}) is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
             else:
@@ -144,7 +149,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
                 
                 # prepare prompt
-                prompt = cook_extraction_prompt(_from, _to, next_footnote_num, prev_chunk_tail, gemini_client)
+                prompt = cook_extraction_prompt(_from, _to, next_footnote_num, gemini_client)
                 with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}"), "w") as f:
                     json.dump(prompt, f, indent=4, ensure_ascii=False)
             
@@ -160,6 +165,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                             f.write(text)
                             
                 context.tokens.append(p.usage_metadata.total_token_count)
+                print(f"{context.md5}: tokens for this chunk {p.usage_metadata.total_token_count}")
 
                 # validating schema
                 with open(chunk_result_incomplete_path, "r") as f:
@@ -169,9 +175,9 @@ def _extract_content(context, pdf_doc, gemini_client):
                 shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
             
             if prev_chunk_tail:
-                content = continue_smoothly(prev=prev_chunk_tail, content=content)
+                content = continue_smoothly(prev_chunk_tail=prev_chunk_tail, content=content)
  
-            prev_chunk_tail = content[-300:]
+            # prev_chunk_tail = content[-300:]
             content = content.removesuffix('-')
             output.write(content)
             output.flush()
@@ -219,4 +225,4 @@ def _upsert_document(context):
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True
         
-    # context.gsheets_session.update(doc)
+    context.gsheets_session.update(doc)

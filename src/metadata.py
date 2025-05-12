@@ -15,7 +15,7 @@ from prompt import DEFINE_META_PROMPT
 import requests
 import json
 import re
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 from time import sleep
 from monocorpus_models import Document, Session
 import time
@@ -29,7 +29,7 @@ def metadata(cli_params):
         gemini_client = create_client(tier='free', config=config)
         
         docs = obtain_documents(cli_params, ya_client, predicate=predicate)
-        for i in range(50):
+        for i in range(100):
             next(docs)
                 
         for doc in docs:
@@ -42,10 +42,11 @@ def metadata(cli_params):
                 exit(0)
             except BaseException as e:
                 print(e)
+                if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
+                    print("Sleeping for 60 seconds")
+                    sleep(60)
                 if attempt >= 10:
                     raise e
-                print("Sleeping for 60 seconds")
-                sleep(60)
                 attempt += 1
 
 def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session):

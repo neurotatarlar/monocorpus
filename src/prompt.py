@@ -37,7 +37,7 @@ cooked_shots_dir = "./shots/cooked"
 EXTRACT_CONTENT_PROMPT_PRELUDE = """
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a Tatar-language slice of pages from a document (pages {_from}-{_to} inclusive). Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
+You are extracting structured content from a Tatar-language slice of pages from a document. Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
 """.strip()
 
 EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
@@ -185,15 +185,6 @@ EXTRACT_CONTENT_PROMPT_NO_TITLE = """
 13. Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #. Always preserve the heading hierarchy based on the document's logical structure.
 """.strip()
 
-EXTRACT_CONTENT_PROMPT_PREV_CHUNK_TAIL = """
-14. The last slice of content from the previous chunk is provided below. Use this reference to continue any **broken paragraphs, sentences, lists, tables, or other structures** that begin in the current chunk. 
-   - When the current chunk starts mid-sentence or mid-structure, join it **seamlessly and naturally** to the reference content, without duplicating or breaking the flow.
-   - Do **not** insert extra blank lines or headings when continuing content.
-   - Apply **all the same processing rules** (headers/footers removal, image formatting, dehyphenation, etc.) to the joined result.
-   - ⚠️ If no continuation is necessary, proceed with the current chunk as a standalone unit.
-   📎 Previous chunk tail (for reference only, do not repeat):
-"""
-
 DEFINE_META_PROMPT=Template("""
 # TASK: METADATA_EXTRACTION
 
@@ -262,7 +253,7 @@ REMINDERS:
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """)
 
-def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, prev_chunk_tail, client):
+def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, client):
    prompt = [{"text" : EXTRACT_CONTENT_PROMPT_PRELUDE.format(_to=batch_to_page+1, _from=batch_from_page+1)}]
 
    prompt.append({"text" : EXTRACT_CONTENT_PROMPT_STATIC_BODY})
@@ -273,10 +264,6 @@ def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, pr
       prompt.append({"text" : EXTRACT_CONTENT_PROMPT_NO_TITLE})
    else:
       prompt.append({"text" : EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE})
-      
-   if prev_chunk_tail:
-      prompt.append({"text" : EXTRACT_CONTENT_PROMPT_PREV_CHUNK_TAIL})
-      prompt.append({"text" : prev_chunk_tail})
       
    path_to_shots = load_inline_shots()
    with open(path_to_shots, "r") as f:

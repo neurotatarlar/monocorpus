@@ -9,6 +9,7 @@ import string
 import prepare_shots
 import extract_content
 from enum import Enum
+from sheets_introspect import sheets_introspect
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -25,7 +26,7 @@ class ExtractCliParams:
     page_slice: str
     batch_size: int
     model: str
-    parallelism: int
+    workers: int
     limit: int 
     tier: Tier
     
@@ -108,10 +109,10 @@ def extract(
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
     ] = "gemini-2.5-flash-preview-04-17",
-    parallelism: Annotated[
+    workers: Annotated[
         int,
         typer.Option(
-            "--parallelism", "-p",
+            "--workers", "-w",
             help="Parallelism factor",
         )
     ] = 4,
@@ -138,7 +139,7 @@ def extract(
         page_slice=pages_slice, 
         batch_size=batch_size,
         model=model,
-        parallelism=parallelism,
+        workers=workers,
         limit=limit,
         tier=tier
     )
@@ -193,3 +194,11 @@ def shots():
     Assemble ready-to-use prompt of structured content extraction
     """
     prepare_shots.load_inline_shots()
+    
+@app.command()
+def introspect(query):
+    """
+    Execute an SQL query on the monocorpus database.
+    """
+    sheets_introspect(query)
+   

@@ -63,7 +63,7 @@ def _proccess_images(context, content):
                 pix = page.get_pixmap(colorspace='rgb', alpha=False, dpi=300)
                 pix.save(path_to_page_image, 'png')
                 
-            pred = model.predict(path_to_page_image, verbose=False, imgsz=1024, classes=[6]) #picture
+            pred = model.predict(path_to_page_image, verbose=False, imgsz=1024, device='cpu', classes=[6]) #picture
             _results = pred[0].cpu()
             boxes = _results.boxes.xyxy.numpy()
             confs = _results.boxes.conf.numpy()
