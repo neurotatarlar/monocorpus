@@ -154,7 +154,9 @@ def _compile_replacement_str(pairs):
         if p.get('yolo'):
             if caption := p['gemini'].get('caption'):
                 caption = f"<figcaption>{caption}</figcaption>"
-            p['replacement'] = f'<figure><img alt="" src="{p['url']}" width="{int(p['width']/2)}" height="{int(p['height']/2)}">{caption or ''}</figure>\n'
+            url, width, height, caption = p['url'], int(p['width']/2), int(p['height']/2), caption or ''
+            
+            p['replacement'] = f'<figure><img alt="" src="{url}" width="{width}" height="{height}">{caption}</figure>\n'
         else:
             # here if no pair for Gemini bbox was found, this just returns original <figure>
             p['replacement'] = ''

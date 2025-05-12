@@ -28,7 +28,13 @@ def metadata(cli_params):
         s3lient =  create_session(config)
         gemini_client = create_client(tier='free', config=config)
         
-        for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
+        docs = obtain_documents(cli_params, ya_client, predicate=predicate)
+        for i in range(50):
+            next(docs)
+                
+        for doc in docs:
+            if doc.file_name and doc.file_name.startswith("Кызыл Татарстан: иҗтимагый-сәяси газета"):
+                continue
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)
                 attempt = 1
@@ -36,11 +42,10 @@ def metadata(cli_params):
                 exit(0)
             except BaseException as e:
                 print(e)
-                if isinstance(e, ClientError) and e.code == 429:
-                    print("Sleeping for 60 seconds")
-                    sleep(60)
-                if attempt >= 5:
+                if attempt >= 10:
                     raise e
+                print("Sleeping for 60 seconds")
+                sleep(60)
                 attempt += 1
 
 def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session):

@@ -1,12 +1,12 @@
 from utils import read_config, download_file_locally, obtain_documents, get_in_workdir
 from yadisk_client import YaDisk
-from monocorpus_models import Document
+from monocorpus_models import Document, Session
 from context import Context
 from s3 import upload_file, create_session
 import os
 from gemini import request_gemini, create_client
 import pymupdf
-from itertools import batched
+from more_itertools import batched
 from dirs import Dirs
 from schema import ExtractionResult
 import shutil
@@ -14,36 +14,56 @@ from postprocess import postprocess
 import re
 import zipfile
 from prompt import cook_extraction_prompt
-from monocorpus_models import Session
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import Manager, Value, Lock
 from context import Context
 from gemini import create_client
 from utils import download_file_locally
 import json
 from rich import print
-# from continuity_checker import continue_smoothly
+from continuity_checker import continue_smoothly
+from google.genai.errors import ClientError
+import time
+
 
 # todo upload intermidiate results to s3?
 # todo change seed in case of error?
+ATTEMPTS = 10
 
 def extract_structured_content(cli_params):
-    print(f"about to extract content with params {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}")
+    print(f'about to extract content with params {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
     config = read_config()
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Manager() as manager:
+        
+        failure_count = manager.Value('i', 0)
+        lock = manager.Lock()
+
         predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
         docs = obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit)
+        
         with ProcessPoolExecutor(max_workers=cli_params.parallelism) as executor:
-            futures = {executor.submit(__task, config, doc, cli_params): doc for doc in docs}
+            futures = {executor.submit(__task, config, doc, cli_params, failure_count, lock): doc for doc in docs}
             for future in as_completed(futures):
-                _ = future.result()
+                if failure_count.value >= ATTEMPTS:
+                    print("[red]Too many consecutive failures. Exiting all processing.[/red]")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
                 
-def __task(config, doc, cli_params):
+                try:
+                    _ = future.result()
+                except Exception as e:
+                    print(f"Unhandled exception in main loop: {e}")
+                
+def __task(config, doc, cli_params, failure_count, lock):
     try:
         gemini_client = create_client(cli_params.tier)
-        with Session() as gsheets_session, Context(config, doc, cli_params, gsheets_session) as context, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+        with Session() as gsheets_session, \
+            Context(config, doc, cli_params, gsheets_session, failure_count, lock) as context, \
+            YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
             if not context.cli_params.force and doc.extraction_complete:
-                return f"{doc.md5}: skipped because already processed"
-            
+                print(f"{doc.md5}: skipped because already processed")
+                return
+                
             print(f"{doc.md5}: downloading file from yadisk")
             context.local_doc_path = download_file_locally(ya_client, context.doc)
             
@@ -55,18 +75,33 @@ def __task(config, doc, cli_params):
             context.ya_resource_id = ya_doc_meta.resource_id
             
             _process(context, gemini_client)
+            with context.lock:
+                if context.failure_count.value >= ATTEMPTS:
+                    return
             _upload_artifacts(context)
             _upsert_document(context, gsheets_session)
             
+            with lock:
+                failure_count.value = 0
+                
             print(f"{doc.md5}: content extraction complete, tokens per chunk: {round(sum(context.tokens) / len(sum(context.tokens)))}")
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        print(f"{doc.md5}: failed, error: {e}")
+        print(f"{doc.md5}: failed with error: {e}")
+        if isinstance(e, ClientError) and e.code == 429:
+            print(f"{doc.md5}: received 429, sleeping for 60 seconds")
+            time.sleep(60)
+        with lock:
+            failure_count.value += 1
+        return f"{doc.md5}: failed"
 
 def _process(context, gemini_client):
     with pymupdf.open(context.local_doc_path) as pdf_doc:
         _extract_content(context, pdf_doc, gemini_client)
+        with context.lock:
+            if context.failure_count.value >= ATTEMPTS:
+                return
         postprocessed = postprocess(context)
         
         context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-formatted.md")
@@ -93,6 +128,9 @@ def _extract_content(context, pdf_doc, gemini_client):
     prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
     with open(context.unformatted_response_md, "w") as output:
         for idx, chunk in enumerate(iter):
+            with context.lock:
+                if context.failure_count.value >= ATTEMPTS:
+                    break
             print(f"{context.md5}: extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
@@ -130,8 +168,8 @@ def _extract_content(context, pdf_doc, gemini_client):
                 # "mark" batch as extracted by renaming file
                 shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
             
-            # if prev_chunk_tail:
-                # content = continue_smoothly(prev=prev_chunk_tail, content=content)
+            if prev_chunk_tail:
+                content = continue_smoothly(prev=prev_chunk_tail, content=content)
  
             prev_chunk_tail = content[-300:]
             content = content.removesuffix('-')
@@ -181,5 +219,4 @@ def _upsert_document(context):
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True
         
-    print("upserting")
     # context.gsheets_session.update(doc)

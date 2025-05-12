@@ -3,12 +3,14 @@ from progress import ProgressRenderer
 
 class Context():
 
-    def __init__(self, config, doc, cli_params, gsheets_session):
+    def __init__(self, config, doc, cli_params, gsheets_session, failure_count, lock):
         self.config = config
         self.doc = doc
         self.cli_params = cli_params
         self.gsheets_session = gsheets_session
         self.tokens = []
+        self.failure_count = failure_count
+        self.lock = lock
         # self.progress = ProgressRenderer(self)
 
         self.ya_file_name = None
