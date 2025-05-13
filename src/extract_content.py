@@ -25,8 +25,6 @@ from continuity_checker import continue_smoothly
 from google.genai.errors import ClientError
 import time
 
-# todo page numbers mismatch
-# todo model candidates order
 # todo be ready for dynamic batch size
 # todo improve progress
 ATTEMPTS = 10
@@ -256,4 +254,4 @@ def extract_markdown_headers(content):
     for hashes, title in headers:
         output_lines.append(f"{hashes} {title.strip()}")
 
-    return '\n'.join(output_lines)
+    return output_lines

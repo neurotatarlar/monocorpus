@@ -35,14 +35,14 @@ cooked_shots_dir = "./shots/cooked"
 
 EXTRACT_CONTENT_PROMPT_PRELUDE = '''
 # CONTEXT
-from = {_from}
-to = {_to}
+pages_from = {_from}
+pages_to = {_to}
 next_footnote_num = {next_footnote_num}
 {headers_hierarchy}
 
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a specific range of pages in a PDF document written in the Tatar language. The page range is defined by the from and to values above (inclusive), and refers to the actual page indices in the PDF (not printed page numbers).
+You are extracting structured content from a specific range of pages in a PDF document written in the Tatar language. The page range is defined by the `pages_from` and `pages_to` values above (inclusive), and refers to the actual page indices in the PDF (not printed page numbers).
 
 Your task is to return a cleaned and structured version of the selected content, formatted in Markdown + HTML, and wrapped under the "content" key of a JSON object.
 '''.strip()
@@ -295,6 +295,7 @@ REMINDERS:
 
 def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy):
    if headers_hierarchy:
+      headers_hierarchy = "\n".join(headers_hierarchy)
       headers_hierarchy =  f"headers_hierarchy = ```\n{headers_hierarchy}\n```"
    else:
       headers_hierarchy = ''

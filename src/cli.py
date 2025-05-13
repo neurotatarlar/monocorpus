@@ -108,7 +108,7 @@ def extract(
             "--model", "-m",
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
-    ] = "gemini-2.5-flash-preview-04-17",
+    ] = "gemini-2.5-pro-preview-05-06",
     workers: Annotated[
         int,
         typer.Option(
