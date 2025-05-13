@@ -15,7 +15,7 @@ import re
 import zipfile
 from prompt import cook_extraction_prompt
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import Manager, Value, Lock
+from multiprocessing import Manager
 from context import Context
 from gemini import create_client
 from utils import download_file_locally
@@ -25,18 +25,14 @@ from continuity_checker import continue_smoothly
 from google.genai.errors import ClientError
 import time
 
-
-# todo provide headers hierarchy in prompt
 # todo page numbers mismatch
 # todo model candidates order
 # todo be ready for dynamic batch size
 # todo improve progress
-# todo limit image sizes
-# todo False
 ATTEMPTS = 10
 
 def extract_structured_content(cli_params):
-    print(f'about to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
+    print(f'About to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Manager() as manager:
         
@@ -66,10 +62,10 @@ def __task(config, doc, cli_params, failure_count, lock):
             Context(config, doc, cli_params, gsheets_session, failure_count, lock) as context, \
             YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
             if not context.cli_params.force and doc.extraction_complete:
-                print(f"{doc.md5}: skipped because already processed")
+                print(f"{doc.md5}: Skipped because already processed")
                 return
                 
-            print(f"{doc.md5}: downloading file from yadisk")
+            print(f"{doc.md5}: Downloading file from yadisk")
             context.local_doc_path = download_file_locally(ya_client, context.doc)
             
             # request latest metadata of the doc in yandex disk
@@ -128,6 +124,7 @@ def _extract_content(context, pdf_doc, gemini_client):
     iter = list(batched(range(0, pdf_doc.page_count)[context.cli_params.page_slice], batch_size))
 
     prev_chunk_tail = None
+    headers_hierarchy = []
     next_footnote_num = 1
     chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
     
@@ -138,12 +135,12 @@ def _extract_content(context, pdf_doc, gemini_client):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
                     break
-            print(f"{context.md5}: extracting {idx} of {len(iter)}")
+            print(f"{context.md5}: Extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
             if os.path.exists(chunk_result_complete_path):
-                print(f"{context.md5}: chunk {idx}({_from}-{_to}) is already extracted")
+                print(f"{context.md5}: Chunk {idx}({_from}-{_to}) is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
             else:
@@ -151,7 +148,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
                 
                 # prepare prompt
-                prompt = cook_extraction_prompt(_from, _to, next_footnote_num, gemini_client)
+                prompt = cook_extraction_prompt(_from, _to, next_footnote_num, headers_hierarchy)
                 with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}"), "w") as f:
                     json.dump(prompt, f, indent=4, ensure_ascii=False)
             
@@ -166,8 +163,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                         if text := p.text:
                             f.write(text)
                             
-                context.tokens.append(p.usage_metadata.total_token_count)
-                print(f"{context.md5}: tokens for this chunk {p.usage_metadata.total_token_count}")
+                print(f"{context.md5}: Tokens count for this chunk {p.usage_metadata.total_token_count}")
 
                 # validating schema
                 with open(chunk_result_incomplete_path, "r") as f:
@@ -175,6 +171,8 @@ def _extract_content(context, pdf_doc, gemini_client):
                     
                 # "mark" batch as extracted by renaming file
                 shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
+            
+            headers_hierarchy.extend(extract_markdown_headers(content))
             
             if prev_chunk_tail:
                 content = continue_smoothly(prev_chunk_tail=prev_chunk_tail, content=content)
@@ -187,7 +185,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             # define number of last footnote detected in the document
             footnote_counters = re.findall(r"\[\^(\d+)\]:", content)
             last_footnote_num = max(map(int, footnote_counters)) if footnote_counters else 0
-            next_footnote_num = max(next_footnote_num, last_footnote_num + 1)
+            next_footnote_num = max(next_footnote_num, last_footnote_num + 1)            
 
             context.chunk_paths.append(chunk_result_complete_path)
 
@@ -241,32 +239,21 @@ def _upsert_document(context):
     # context.gsheets_session.update(doc)
     
     
-# e69f6006f8ed1f3bdd4345717ff91dbe: downloading file from yadisk
-# e69f6006f8ed1f3bdd4345717ff91dbe: extracting 1 of 3
-# e69f6006f8ed1f3bdd4345717ff91dbe: tokens for this chunk 67253
-# e69f6006f8ed1f3bdd4345717ff91dbe: extracting 2 of 3
-# e69f6006f8ed1f3bdd4345717ff91dbe: tokens for this chunk 54852
-# e69f6006f8ed1f3bdd4345717ff91dbe: extracting 3 of 3
-# e69f6006f8ed1f3bdd4345717ff91dbe: tokens for this chunk 52661
-# Unmatched bbox: {'html': '<figure data-bbox="[0,0,1000,1000]" data-page="6"></figure>', 'bbox': [0.0, 0.0, 5938.0, 7830.0]}
-# Unmatched bbox: {'html': '<figure data-bbox="[700, 80, 950, 950]" data-page="18"></figure>', 'bbox': [475.04, 5477.5, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[50, 50, 950, 950]" data-page="28"></figure>', 'bbox': [296.90000000000003, 391.25, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[50, 50, 950, 950]" data-page="30"></figure>', 'bbox': [296.90000000000003, 391.25, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[650, 80, 950, 950]" data-page="8"></figure>', 'bbox': [475.04, 5086.25, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="10"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[750, 80, 950, 950]" data-page="13"></figure>', 'bbox': [475.04, 5868.75, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[450, 80, 950, 950]" data-page="22"></figure>', 'bbox': [475.04, 3521.25, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="23"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="31"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[50, 80, 400, 950]" data-page="42"></figure>', 'bbox': [475.04, 391.25, 5641.099999999999, 3130.0]}
-# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="43"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[50, 50, 950, 950]" data-page="46"></figure>', 'bbox': [296.90000000000003, 391.25, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[600, 80, 950, 950]" data-page="50"></figure## СТАРОСТА БЕЛӘН ШАЙТАН\n(Латыш халык әкияте)\n\nСтароста үзенең йортыннан алпавыт ишегалдына таба бара икән, юлда аңа шайтан очраган. Менә алар бергәләп сөйләшә-сөйләшә барганнар һәм юл буенда дуңгызлар көтүче бер малайны күргәннәр. Аның бер зур дуңгызы бәрәңге кырына кергән булган. Малай, старостаны күрүгә, дуңгыз артыннан кырга ташланган:\n\n— Әй сине, шайтан алгыры! Бигрәк тә кабахәт дуңгызсың! — дигән.\n\nСтароста, моны ишеткәч, шайтанга төртеп куйган:\n\n— Ишетәсеңме, сиңа дуңгыз бирмәкче булалар, ә син алмыйсың. Мин булсам, хәзер үк барып алыр идем, — дигән.\n\nШайтан аңа болай дип җавап биргән:\n\n— Дуңгыз калсын, тимик! Көтүче малай ул — бер ятим бала, әгәр мин аның дуңгызын алсам,\n\n<figure data-bbox="[46, 59, 931, 948]" data-page="101"></figure>', 'bbox': [475.04, 4695.0, 5641.099999999999, 7433.75]}
-# Unmatched bbox: {'html': '<figure data-bbox="[48, 105, 941, 901]" data-page="106"></figure>', 'bbox': [623.49, 375.6, 5350.138, 7363.325]}
-# Unmatched bbox: {'html': '<figure data-bbox="[45, 101, 945, 904]" data-page="111"></figure>', 'bbox': [599.738, 352.125, 5367.952, 7394.625]}
-# Unmatched bbox: {'html': '<figure data-bbox="[55, 0, 477, 701]" data-page="112"></figure>', 'bbox': [0.0, 430.375, 4162.538, 3732.5249999999996]}
-# Unmatched bbox: {'html': '<figure data-bbox="[603, 168, 935, 838]" data-page="116"></figure>', 'bbox': [997.5840000000001, 4718.474999999999, 4976.044, 7316.375]}
-# Unmatched bbox: {'html': '<figure data-bbox="[41, 101, 945, 904]" data-page="119"></figure>', 'bbox': [599.738, 320.825, 5367.952, 7394.625]}
-# Unmatched bbox: {'html': '<figure data-bbox="[320, 416, 401, 582]" data-page="125"></figure>', 'bbox': [2470.208, 2504.0, 3455.9159999999997, 3137.8250000000003]}
-# e69f6006f8ed1f3bdd4345717ff91dbe: Uploading artifacts to object storage
-# e69f6006f8ed1f3bdd4345717ff91dbe: Updating doc details in gsheets
+
+def extract_markdown_headers(content):
+    """
+    Extracts Markdown headers up to a certain level and returns them in a structured format.
+    
+    Args:
+        text (str): The Markdown content.
+
+    Returns:
+        str: A formatted string showing the header hierarchy.
+    """
+    headers = re.findall(r'^(#{2,6})\s+(.+)', content, re.MULTILINE)
+    
+    output_lines = []
+    for hashes, title in headers:
+        output_lines.append(f"{hashes} {title.strip()}")
+
+    return '\n'.join(output_lines)

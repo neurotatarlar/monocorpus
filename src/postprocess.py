@@ -154,9 +154,11 @@ def _compile_replacement_str(pairs):
         if p.get('yolo'):
             if caption := p['gemini'].get('caption'):
                 caption = f"<figcaption>{caption}</figcaption>"
-            url, width, height, caption = p['url'], int(p['width']/2), int(p['height']/2), caption or ''
+            else:
+                caption = ''
+            url = p['url']
             
-            p['replacement'] = f'<figure><img alt="" src="{url}" width="{width}" height="{height}">{caption}</figure>\n'
+            p['replacement'] = f'<figure style="text-align: center; margin: 1em 0;"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;">{caption}</figure>\n'
         else:
             # here if no pair for Gemini bbox was found, this just returns original <figure>
             p['replacement'] = ''
@@ -222,7 +224,7 @@ def _collect_images(content):
         if caption := fig_elem.find("figcaption"):
             details['caption'] = caption.get_text(strip=True)
             
-        page_no = int(fig_elem.get("data-page")) - 1
+        page_no = int(fig_elem.get("data-page"))
         if not dashboard[page_no].get('gemini'):
             dashboard[page_no]['gemini'] = []
         dashboard[page_no]['gemini'].append(details)

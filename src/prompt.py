@@ -2,7 +2,6 @@ from string import Template
 from google.genai.errors import ClientError
 from google.genai import types
 import io
-import os
 import datetime
 from prepare_shots import load_inline_shots
 import json
@@ -34,56 +33,68 @@ cooked_shots_dir = "./shots/cooked"
 # - Never translate, summarize, or paraphrase unless explicitly requested.
 # """
 
-EXTRACT_CONTENT_PROMPT_PRELUDE = """
+EXTRACT_CONTENT_PROMPT_PRELUDE = '''
+# CONTEXT
+from = {_from}
+to = {_to}
+next_footnote_num = {next_footnote_num}
+{headers_hierarchy}
+
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a Tatar-language slice of pages from a document. Please process the content according to the following instructions and return the result as a JSON with the document's structured content in the 'content' property, formatted using Markdown and HTML.
-""".strip()
+You are extracting structured content from a specific range of pages in a PDF document written in the Tatar language. The page range is defined by the from and to values above (inclusive), and refers to the actual page indices in the PDF (not printed page numbers).
+
+Your task is to return a cleaned and structured version of the selected content, formatted in Markdown + HTML, and wrapped under the "content" key of a JSON object.
+'''.strip()
 
 EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
 1. Remove all headers, footers, and page numbers.
-   - These often appear at the top or bottom of each page and may include titles, chapter names, author names, page numbers, or dates.
-   - Do not confuse page headers with genuine section titles appearing at the start of a page.
+   - These often appear at the top/bottom and may include titles, author names, dates, or printed page numbers.
+   - Do **not** confuse genuine section headings with headers.
 
-2. Preserve and identify structural elements:
-   - Keep paragraphs intact.
-   - Recognize and properly format section titles or headings.
-   - Do not modify, translate, or rewrite the original text.
-   - Insert empty lines between paragraphs for readability.
-   - Merge lines within the same paragraph, title, or header.
-   - If a word is hyphenated across lines (e.g., "мәдә-\nниәт"), join it correctly ("мәдәният"). Only join the word if the break occurs at the end of a line and the next line begins with the continuation of the same word. Do not join words separated by hyphens in the middle of a sentence unless it's clearly a line break artifact.
-   - Maintain the natural reading order throughout the document.
+2. Preserve and structure the main content
+   - Keep paragraphs intact and merge broken lines into full sentences.
+   - Insert an empty line between paragraphs for readability.
+   - Recognize section titles/headings and format them using Markdown headers.
+   - Maintain natural reading order.
+   - Do **not** translate, rewrite, or omit any legitimate content.
 
-3. Preserve text formatting using Markdown syntax:
-   - Bold text should be wrapped in double asterisks: **bold**.
-   - Italic text should be wrapped in single asterisks: *italic*.
-   - Bold italic text should use triple asterisks: ***bold italic***.
-   - Preserve inline styles exactly as they appear in the original (e.g., bold names, italicized quotes or terms).
-   - Do not guess or apply formatting arbitrarily—only use bold/italic when it is clearly visually marked.
+3. Dehyphenate words across line breaks
+   - Join words only if a hyphen occurs at the end of a line and the next line begins with its continuation.  
+   Example: `мәдә-\nниәт` → `мәдәният`
+   - Do **not** merge regular hyphenated words within a line.
 
-4. Detect and format tables:
-   - Format detected tables using HTML `<table>`.
-   - Ensure the structure remains readable and clear.
-   - If a table continues from a previous page, continue it without restarting.
-   - If the detected text appears to be a Table of Contents(list of sections/chapters with page numbers), do not process its links, page numbers, or headers individually. Instead, preserve its look as a single block using <table class="toc"></table>.
+4. Apply Markdown formatting
+   - Use:
+      - `**bold**`
+      - `*italic*`
+      - `***bold italic***`
+   - Only apply formatting if it is clearly visible in the source.
+   - Do **not** guess or apply formatting arbitrarily.
 
-5. Detect and format mathematical, physical, or chemical formulas:
+
+5. Format tables using HTML
+   - Use `<table>` to format recognized tables.
+   - Preserve clarity and structure.
+   - Continue tables across page breaks when needed.
+   - If a Table of Contents is detected (list of sections and page numbers), do not process its links, page numbers, or headers individually. Instead, preserve its look as a single block using 
+   ```html
+   <table class="toc"></table>
+   ```
+
+6. Detect and format mathematical, physical, or chemical formulas:
    - If a formula is recognized (inline or display), format using LaTeX:
      - Inline formulas: `$...$`
      - Displayed (block) formulas: `$$...$$`
-
-6. Detect and format subscripts:
-   - If subscripted text appears:
-     - If it is part of a scientific, mathematical, physical, or chemical formula, format it using LaTeX syntax (e.g., `$H_2O$`).
-     - Otherwise, if stylistic (e.g., chapter number, index), format it using HTML `<sub>...</sub>`.
-   - When unsure, prefer LaTeX if the context appears scientific/mathematical.
+   - Format subscripts as:
+      - Scientific context → LaTeX: $H_2O$
+      - Non-scientific/stylistic (e.g. indices) → HTML: <sub>...</sub>
 
 7. Detect and format images:
    - Insert images using:
-     ```html
-     <figure data-bbox="[y_min, x_min, y_max, x_max]" data-page="10"></figure>
-     ```
-   - The `data-page` attribute indicates the page number the image was found on (starting from 1).
+      ```html
+      <figure data-bbox="[y_min, x_min, y_max, x_max]" data-page="10"></figure>
+      ```
    - The `data-bbox` attribute should contain the bounding box of the image in the following format: `[y_min, x_min, y_max, x_max]`.
      - These coordinates are normalized values between `0` and `1000`.
      - The top-left corner of the page is the origin `(0, 0)`, where:
@@ -93,9 +104,12 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
        - `x_max`: horizontal coordinate of the right edge
      - For example, `[100, 150, 300, 450]` means the image starts 100 units from the top, 150 units from the left, and extends to 300 units down and 450 units across.
    - If a caption is present, format it inside `<figcaption>`, for example:
-     ```html
-     <figure data-bbox="[100, 150, 300, 450]"><figcaption>Рәсем 5</figcaption></figure>
+      ```html
+      <figure data-bbox="[100, 150, 300, 450]"><figcaption>Рәсем 5</figcaption></figure>
      ```
+   - The `data-page` attribute is exact index in the full PDF (not visible printed page number).
+      - The first page you are analyzing might be page 50 in the full document. If so, that is `data-page="50"`.
+      - **Ignore visible page numbers in the book itself**. Always use the sequential PDF document index.
    - ⚠️ If the image is located inside a paragraph (e.g., between lines mid-sentence), do not interrupt the paragraph. ❌ Do not insert the image inline in the middle of the paragraph. Instead:
       - Logically split the paragraph into two parts around the image.
       - Place the <figure> after the full paragraph (i.e., append it).
@@ -114,7 +128,7 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
       ```
    - If the image is purely decorative (e.g., background ornament), omit it.
 
-8. Preserve lists:
+8. Format lists
    - Use Markdown bullets (`-`) or numbers (`1.`, `2.`, etc.).
    - Detect and format multi-level lists correctly, preserving indentation and hierarchy.
    Example:
@@ -123,15 +137,36 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
       - Second level
          1. Numbered list inside
    ```
-9. Images and embedded text:
+9. Text inside images
    - If there is textual content inside an image, do not extract it.
    - Only represent the image, not its internal text.
 
-10. Handling content continuation across pages:
+10. Continuations across pages
    - If the first paragraph of the current page is a direct continuation from the previous page (i.e., the sentence or word continues across the page break), merge them into one paragraph **without inserting a line break or blank line**.
    - If a table continues from a previous page, continue it without restarting.
+   - Apply the same rule for continued tables or formulas.
 
-11. General requirements:
+11. Page Numbering rules:
+   - The input slice come from an arbitrary range of the full PDF document (e.g., pages 50–99).
+   - Each page in the input corresponds to its **PDF document index**, starting from the specified number (e.g., first page = 50, second = 51, etc.).
+   - Use these PDF indices when referencing pages — especially in `data-page` attributes for images.
+   - **Do not rely on or mention the printed page numbers inside the scanned document.** Even if a page shows a visible number like "Page 3", ignore it. Use only the sequential index starting from PDF page ${_from} as described.
+   - Always use the PDF document index (e.g., page 50, 51, 52...) for data-page, not any printed number shown on the page.
+   - Assume the first page provided corresponds to ${_from}.
+   - Use this logic for referencing page numbers in images or figure tags.
+   
+12. Language
+   - The document is written in Tatar using the Cyrillic script.
+   - Be cautious not to delete or alter meaningful Tatar-language content.
+
+13. Output format
+   - Return a JSON object:
+   ```json
+   {{
+      "content": "..."
+   }}
+   ```
+14. General requirements:
    - Output a clean, continuous version of the document, improving structure and readability.
    - Do not translate, rewrite, or modify the original Tatar text.
    - The document language is Tatar, written in Cyrillic.
@@ -139,7 +174,7 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
 """.strip()
 
 EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART = """
-12. Detect and mark footnotes:
+15. Detect and mark footnotes:
    - Maintain global sequential numbering for footnotes starting from {next_footnote_num}: [^{next_footnote_num}]
    - Detect footnotes whether marked by numbers (e.g., 1), symbols (*, †, etc.), or superscripts (<sup>). Normalize all to numbered [^\\d+] format starting from {next_footnote_num}.
    - When you encounter the footnote text, convert it to a standard Markdown footnote definition on a new line:
@@ -178,11 +213,16 @@ EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART = """
 """.strip()
 
 EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE = """
-13. Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on. Always preserve the heading hierarchy based on the document's logical structure.
+16. Document may contain a main title. If you detect a main document title mark it with a single #. Use ## for top-level sections, ### for subsections, and so on. Always preserve the heading hierarchy based on the document's logical structure.
 """.strip()
 
 EXTRACT_CONTENT_PROMPT_NO_TITLE = """
-13. Document does not have a title page, so use ## for the highest-level headings, ### for subsections, and so on. Never use a single #. Always preserve the heading hierarchy based on the document's logical structure.
+[Context: The heading structure so far is:
+
+{headers_hierarchy}
+]
+
+16. Document does not have a title page, so never use a single #. Always preserve the heading hierarchy based on the document's logical structure. Continue the structure above consistently in this chunk. Do not restart or re-level headings. If a new chapter begins, continue from the next logical chapter number.
 """.strip()
 
 DEFINE_META_PROMPT=Template("""
@@ -253,15 +293,19 @@ REMINDERS:
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """)
 
-def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, client):
-   prompt = [{"text" : EXTRACT_CONTENT_PROMPT_PRELUDE.format(_to=batch_to_page+1, _from=batch_from_page+1)}]
+def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy):
+   if headers_hierarchy:
+      headers_hierarchy =  f"headers_hierarchy = ```\n{headers_hierarchy}\n```"
+   else:
+      headers_hierarchy = ''
+   prompt = [{"text" : EXTRACT_CONTENT_PROMPT_PRELUDE.format(_to=batch_to_page, _from=batch_from_page, next_footnote_num=next_footnote_num, headers_hierarchy=headers_hierarchy)}]
 
-   prompt.append({"text" : EXTRACT_CONTENT_PROMPT_STATIC_BODY})
+   prompt.append({"text" : EXTRACT_CONTENT_PROMPT_STATIC_BODY.format(_from=batch_from_page)})
    
    prompt.append({"text" : EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART.format(next_footnote_num=next_footnote_num)})
 
    if batch_from_page:
-      prompt.append({"text" : EXTRACT_CONTENT_PROMPT_NO_TITLE})
+      prompt.append({"text" : EXTRACT_CONTENT_PROMPT_NO_TITLE.format(headers_hierarchy=headers_hierarchy)})
    else:
       prompt.append({"text" : EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE})
       
