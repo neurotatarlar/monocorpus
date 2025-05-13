@@ -21,7 +21,7 @@ def continue_smoothly(prev_chunk_tail, content):
     content_head = content[:300]
     for pattern in HEADER_PATTERNS:
         if re.match(pattern, content_head):
-            return False
+            return '\n\n' + content
 
     nlp_prev = nlp(prev_chunk_tail)
     nlp_new = nlp(content_head)

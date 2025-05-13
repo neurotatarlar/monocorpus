@@ -49,19 +49,22 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
         return path
 
 def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_session = Session()):
-    def _yield_by_md5(md5):
-        print(f"Looking for document by md5 '{md5}'")
-        combined_predicate = predicate & Document.md5.is_(md5) if predicate else Document.md5.is_(md5)
-        yield from _find(gsheet_session, predicate=combined_predicate, limit=1)
+    def _yield_by_md5(_md5, _predicate):
+        print(f"Looking for document by md5 '{_md5}'")
+        if _predicate is None:
+            _predicate = Document.md5.is_(_md5)
+        else:
+            _predicate &= Document.md5.is_(_md5)
+        yield from _find(gsheet_session, predicate=_predicate, limit=1)
 
-    def _yield_by_path(path):
-        _meta = ya_client.get_meta(path, fields=['md5', 'type', 'path'])
+    def _yield_by_path(_path, _predicate):
+        _meta = ya_client.get_meta(_path, fields=['md5', 'type', 'path'])
         if _meta.type == 'file':
-            print(f"Looking for document by path '{path}'")
-            yield from _yield_by_md5(_meta.md5)
+            yield from _yield_by_md5(_meta.md5, _predicate)
         elif _meta.type == 'dir':
-            print(f"Traversing documents by path '{path}'")
-            unprocessed_docs = {d.md5: d for d in _find(gsheet_session, predicate, limit)}
+            print(f"Traversing documents by path '{_path}'")
+            unprocessed_docs = {d.md5: d for d in _find(gsheet_session, _predicate)}
+            counter = 0
             dirs_to_visit = [_meta.path]
             while dirs_to_visit:
                 dir = dirs_to_visit.pop(0)
@@ -70,11 +73,15 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_s
                         dirs_to_visit.append(item.path)
                     elif item.type == 'file' and (doc := unprocessed_docs.get(item.md5)):
                         yield doc
+                        if limit:
+                            counter += 1
+                            if counter >= limit:
+                                return
                         
     if cli_params.md5:
-        yield from _yield_by_md5(cli_params.md5)
+        yield from _yield_by_md5(cli_params.md5, predicate)
     elif cli_params.path:
-        yield from _yield_by_path(cli_params.path)
+        yield from _yield_by_path(cli_params.path, predicate)
     else:
         print("Traversing all unprocessed documents")
         yield from _find(gsheet_session, predicate=predicate, limit=limit)

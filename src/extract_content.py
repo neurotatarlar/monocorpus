@@ -26,10 +26,14 @@ from google.genai.errors import ClientError
 import time
 
 
-# todo upload intermidiate results to s3?
-# todo change seed in case of error?
-# todo chunk and footnote
-ATTEMPTS = 1
+# todo provide headers hierarchy in prompt
+# todo page numbers mismatch
+# todo model candidates order
+# todo be ready for dynamic batch size
+# todo improve progress
+# todo limit image sizes
+# todo False
+ATTEMPTS = 10
 
 def extract_structured_content(cli_params):
     print(f'about to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
@@ -85,14 +89,13 @@ def __task(config, doc, cli_params, failure_count, lock):
             with lock:
                 failure_count.value = 0
                 
-            print(f"{doc.md5}: content extraction complete, tokens per chunk: {round(sum(context.tokens) / len(sum(context.tokens)))}")
+            print(f"{doc.md5}: Content extraction complete")
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        import traceback
         print(f"{doc.md5}: failed with error: {e}")
+        import traceback
         traceback.print_exc()
-        exit(1)
         
         if isinstance(e, ClientError) and e.code == 429:
             print(f"{doc.md5}: received 429, sleeping for 60 seconds")
@@ -127,7 +130,6 @@ def _extract_content(context, pdf_doc, gemini_client):
     prev_chunk_tail = None
     next_footnote_num = 1
     chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
-    chunk_result_paths = []
     
     context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
     prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
@@ -139,7 +141,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             print(f"{context.md5}: extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
-            chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}")
+            chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
             if os.path.exists(chunk_result_complete_path):
                 print(f"{context.md5}: chunk {idx}({_from}-{_to}) is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
@@ -177,7 +179,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             if prev_chunk_tail:
                 content = continue_smoothly(prev_chunk_tail=prev_chunk_tail, content=content)
  
-            # prev_chunk_tail = content[-300:]
+            prev_chunk_tail = content[-300:]
             content = content.removesuffix('-')
             output.write(content)
             output.flush()
@@ -187,7 +189,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             last_footnote_num = max(map(int, footnote_counters)) if footnote_counters else 0
             next_footnote_num = max(next_footnote_num, last_footnote_num + 1)
 
-            chunk_result_paths.append(chunk_result_complete_path)
+            context.chunk_paths.append(chunk_result_complete_path)
 
 def _create_doc_clice(_from, _to, pdf_doc, md5):
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, md5, file=f"slice-{_from}-{_to}.pdf")
@@ -212,8 +214,18 @@ def _upload_artifacts(context):
         doc_key = os.path.basename(context.local_doc_path)
         context.remote_doc_url = upload_file(context.local_doc_path, doc_bucket, doc_key, session, skip_if_exists=True)
     
+    for chunk_path in context.chunk_paths:
+        file_name, _ = os.path.splitext(os.path.basename(chunk_path))
+        file_name_ext = f"{file_name}.zip"
+        key = f"{context.md5}/{file_name_ext}"
+        chunk_path_arc = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5, file=file_name_ext)
+        with zipfile.ZipFile(chunk_path_arc, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+            zf.write(arcname=f"{file_name}.json", filename=chunk_path)
+            
+        doc_bucket = context.config["yandex"]["cloud"]['bucket']['content_chunks']
+        upload_file(chunk_path_arc, doc_bucket, key, session)
+    
 def _upsert_document(context):
-    print(f"{context.md5}: Updating doc details in gsheets")
 
     doc = context.doc
     doc.file_name = context.ya_file_name
@@ -225,4 +237,36 @@ def _upsert_document(context):
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True
         
-    context.gsheets_session.update(doc)
+    print(f"{context.md5}: Updating doc details in gsheets")
+    # context.gsheets_session.update(doc)
+    
+    
+# e69f6006f8ed1f3bdd4345717ff91dbe: downloading file from yadisk
+# e69f6006f8ed1f3bdd4345717ff91dbe: extracting 1 of 3
+# e69f6006f8ed1f3bdd4345717ff91dbe: tokens for this chunk 67253
+# e69f6006f8ed1f3bdd4345717ff91dbe: extracting 2 of 3
+# e69f6006f8ed1f3bdd4345717ff91dbe: tokens for this chunk 54852
+# e69f6006f8ed1f3bdd4345717ff91dbe: extracting 3 of 3
+# e69f6006f8ed1f3bdd4345717ff91dbe: tokens for this chunk 52661
+# Unmatched bbox: {'html': '<figure data-bbox="[0,0,1000,1000]" data-page="6"></figure>', 'bbox': [0.0, 0.0, 5938.0, 7830.0]}
+# Unmatched bbox: {'html': '<figure data-bbox="[700, 80, 950, 950]" data-page="18"></figure>', 'bbox': [475.04, 5477.5, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[50, 50, 950, 950]" data-page="28"></figure>', 'bbox': [296.90000000000003, 391.25, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[50, 50, 950, 950]" data-page="30"></figure>', 'bbox': [296.90000000000003, 391.25, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[650, 80, 950, 950]" data-page="8"></figure>', 'bbox': [475.04, 5086.25, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="10"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[750, 80, 950, 950]" data-page="13"></figure>', 'bbox': [475.04, 5868.75, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[450, 80, 950, 950]" data-page="22"></figure>', 'bbox': [475.04, 3521.25, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="23"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="31"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[50, 80, 400, 950]" data-page="42"></figure>', 'bbox': [475.04, 391.25, 5641.099999999999, 3130.0]}
+# Unmatched bbox: {'html': '<figure data-bbox="[550, 80, 950, 950]" data-page="43"></figure>', 'bbox': [475.04, 4303.75, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[50, 50, 950, 950]" data-page="46"></figure>', 'bbox': [296.90000000000003, 391.25, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[600, 80, 950, 950]" data-page="50"></figure## СТАРОСТА БЕЛӘН ШАЙТАН\n(Латыш халык әкияте)\n\nСтароста үзенең йортыннан алпавыт ишегалдына таба бара икән, юлда аңа шайтан очраган. Менә алар бергәләп сөйләшә-сөйләшә барганнар һәм юл буенда дуңгызлар көтүче бер малайны күргәннәр. Аның бер зур дуңгызы бәрәңге кырына кергән булган. Малай, старостаны күрүгә, дуңгыз артыннан кырга ташланган:\n\n— Әй сине, шайтан алгыры! Бигрәк тә кабахәт дуңгызсың! — дигән.\n\nСтароста, моны ишеткәч, шайтанга төртеп куйган:\n\n— Ишетәсеңме, сиңа дуңгыз бирмәкче булалар, ә син алмыйсың. Мин булсам, хәзер үк барып алыр идем, — дигән.\n\nШайтан аңа болай дип җавап биргән:\n\n— Дуңгыз калсын, тимик! Көтүче малай ул — бер ятим бала, әгәр мин аның дуңгызын алсам,\n\n<figure data-bbox="[46, 59, 931, 948]" data-page="101"></figure>', 'bbox': [475.04, 4695.0, 5641.099999999999, 7433.75]}
+# Unmatched bbox: {'html': '<figure data-bbox="[48, 105, 941, 901]" data-page="106"></figure>', 'bbox': [623.49, 375.6, 5350.138, 7363.325]}
+# Unmatched bbox: {'html': '<figure data-bbox="[45, 101, 945, 904]" data-page="111"></figure>', 'bbox': [599.738, 352.125, 5367.952, 7394.625]}
+# Unmatched bbox: {'html': '<figure data-bbox="[55, 0, 477, 701]" data-page="112"></figure>', 'bbox': [0.0, 430.375, 4162.538, 3732.5249999999996]}
+# Unmatched bbox: {'html': '<figure data-bbox="[603, 168, 935, 838]" data-page="116"></figure>', 'bbox': [997.5840000000001, 4718.474999999999, 4976.044, 7316.375]}
+# Unmatched bbox: {'html': '<figure data-bbox="[41, 101, 945, 904]" data-page="119"></figure>', 'bbox': [599.738, 320.825, 5367.952, 7394.625]}
+# Unmatched bbox: {'html': '<figure data-bbox="[320, 416, 401, 582]" data-page="125"></figure>', 'bbox': [2470.208, 2504.0, 3455.9159999999997, 3137.8250000000003]}
+# e69f6006f8ed1f3bdd4345717ff91dbe: Uploading artifacts to object storage
+# e69f6006f8ed1f3bdd4345717ff91dbe: Updating doc details in gsheets

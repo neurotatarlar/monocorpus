@@ -9,10 +9,12 @@ class Context():
         self.cli_params = cli_params
         self.gsheets_session = gsheets_session
         self.tokens = []
+        self.chunk_paths = []
         self.failure_count = failure_count
         self.lock = lock
         # self.progress = ProgressRenderer(self)
 
+    
         self.ya_file_name = None
         self.ya_public_key = None 
         self.ya_resource_id = None

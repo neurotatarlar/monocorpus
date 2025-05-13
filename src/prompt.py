@@ -152,7 +152,7 @@ EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART = """
       - The marker (number, asterisk, or symbol) appears outside any inline or block LaTeX/math context.
       - The marker is not part of a scientific term, chemical formula, or equation.
    When in doubt, prefer LaTeX formatting for anything inside formulas or expressions.
-   - ⚠️ Important: If the footnote text appears in the middle of a paragraph, list, or table (e.g., due to page breaks or layout quirks), do not insert it immediately. Instead, complete the full paragraph, list, or table naturally, without breaks, then insert the footnote text definitions after it.
+   - ⚠️ Important: If the footnote text appears in the middle of a paragraph, list, or table (e.g., due to page breaks or layout quirks), insert the footnote text definitions before the paragraph, list, or table and only then complete the splitted paragraph, list, or table naturally, without breaks.
    Example:
    Input:
    ```
@@ -170,10 +170,10 @@ EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART = """
    ```
    Output (given last global footnote number was 35):
    ```
-   Аның фольклорга[^36], тел һәм әдәбият белеменә, әдәби тәнкыйтькә караган фәнни хезмәтләре тюркологиядә Нәкый Исәнбәт[^37] дигән галим исемен какшамас итә (М. Галиев, Ф. Ганиев, М. Госманов, Ә. Еники, М. Мәһдиев, Х Мәхмүтов, Г. Рәхим, С. Сафуанов, Б. Урманче, С. Хәким һ.б.).
-   
    [^36]: Н. Исәнбәтнең шәхси архивы: Н. Исәнбәтнең С. Кудашка язган хатыннан.
    [^37]: Н. Исәнбәтнең шәхси архивы: Әхмәдуллин А.
+   
+   Аның фольклорга[^36], тел һәм әдәбият белеменә, әдәби тәнкыйтькә караган фәнни хезмәтләре тюркологиядә Нәкый Исәнбәт[^37] дигән галим исемен какшамас итә (М. Галиев, Ф. Ганиев, М. Госманов, Ә. Еники, М. Мәһдиев, Х Мәхмүтов, Г. Рәхим, С. Сафуанов, Б. Урманче, С. Хәким һ.б.).
    ```
 """.strip()
 
