@@ -1,9 +1,17 @@
-from progress import ProgressRenderer
+from dataclasses import dataclass
+from rich.console import RenderableType
+from typing import List
 
+@dataclass
+class Message:
+    id: str
+    content: List[RenderableType]
+    style: str = 'white'
+    
 
 class Context():
 
-    def __init__(self, config, doc, cli_params, gsheets_session, failure_count, lock):
+    def __init__(self, config, doc, cli_params, gsheets_session, failure_count, lock, queue):
         self.config = config
         self.doc = doc
         self.cli_params = cli_params
@@ -11,7 +19,7 @@ class Context():
         self.chunk_paths = []
         self.failure_count = failure_count
         self.lock = lock
-        # self.progress = ProgressRenderer(self)
+        self.queue = queue
 
     
         self.ya_file_name = None
@@ -41,3 +49,10 @@ class Context():
             type(self).__name__,
             ', '.join('%s=%s' % item for item in vars(self).items())
         )
+        
+    def log(self, content, md5=None):
+        msg = Message(
+            id=md5 if self.md5 else md5,
+            content=content,
+        )
+        self.queue.put(msg)

@@ -18,6 +18,7 @@ class Tier(str, Enum):
     free = "free"
     promo = "promo"
     
+    
 @dataclass
 class ExtractCliParams:
     md5: str
@@ -149,7 +150,11 @@ def extract(
 @app.command()
 def sync():
     """
-    Sync the documents with the Yandex Disk and Google Sheets. It will traverse files and dirs in the yadisk and upload new entries to Google Sheets.
+    Synchronize documents between Yandex Disk and Google Sheets.
+
+    This command traverses files and directories in Yandex Disk, identifies new or updated entries, 
+    and uploads them to Google Sheets. It ensures that the local and remote data are in sync, 
+    facilitating seamless integration and data management.
     """
     _sync()
     
@@ -179,7 +184,12 @@ def meta(
     ] = "gemini-2.5-flash-preview-04-17",
 ):
     """
-    Extract metadata from the documents
+    Extract metadata from documents.
+
+    This command processes documents specified by their MD5 hash or located at a given path 
+    in Yandex Disk. It uses the specified model to extract metadata, which can then be used 
+    for further analysis or integration. If no MD5 or path is provided, all local documents 
+    will be processed.
     """
     cli_params = MetaCliParams(
         md5=md5,
@@ -191,14 +201,23 @@ def meta(
 @app.command()
 def shots():
     """
-    Assemble ready-to-use prompt of structured content extraction
+    Assemble and load inline prompts for structured content extraction.
+
+    This command prepares ready-to-use prompts that can be utilized for extracting 
+    structured content from documents. It ensures that the necessary prompts are 
+    loaded and available for subsequent processing tasks.
     """
     prepare_shots.load_inline_shots()
     
 @app.command()
-def introspect(query):
+def select(query: list[str]):
     """
     Execute an SQL query on the monocorpus database.
+
+    This command allows users to run custom SQL queries directly on the monocorpus database. 
+    It provides a flexible way to retrieve, filter, or analyze data stored in the database 
+    based on the specified query.
     """
-    sheets_introspect(query)
+    sheets_introspect(" ".join(query)
+)
    

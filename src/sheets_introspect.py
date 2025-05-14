@@ -5,7 +5,8 @@ import time
 from rich.syntax import Syntax
 from rich.console import Console
 
-# SELECT COUNT(*) FROM DOCUMENT WHERE metadata_url IS NOT NONE
+# python3 src/main.py select "SELECT COUNT(*) FROM DOCUMENT WHERE metadata_url IS NOT NULL"
+# SELECT COUNT(*) FROM DOCUMENT WHERE metadata_url IS NOT NULL
 # SELECT COUNT(*) FROM Document
 # SELECT mime_type, COUNT(*) AS count, ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM Document), 2) AS percent FROM Document GROUP BY mime_type ORDER BY percent DESC
 # SELECT language, COUNT(*) AS count, ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM Document), 2) AS percent FROM Document GROUP BY language ORDER BY percent DESC

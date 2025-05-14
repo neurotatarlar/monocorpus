@@ -1,7 +1,7 @@
 from utils import read_config, download_file_locally, obtain_documents, get_in_workdir
 from yadisk_client import YaDisk
 from monocorpus_models import Document, Session
-from context import Context
+from context import Context, Message
 from s3 import upload_file, create_session
 import os
 from gemini import request_gemini, create_client
@@ -23,25 +23,46 @@ import json
 from rich import print
 from continuity_checker import continue_smoothly
 from google.genai.errors import ClientError
+from multiprocessing import Manager, Queue
+from rich.console import Group, Console
+from rich.panel import Panel
+import threading
+from rich.table import Table
+from rich.live import Live
 import time
+import datetime
 
 # todo be ready for dynamic batch size
-# todo improve progress
 ATTEMPTS = 10
 
 def extract_structured_content(cli_params):
     print(f'About to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
     config = read_config()
+    
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Manager() as manager:
         
         failure_count = manager.Value('i', 0)
         lock = manager.Lock()
+        queue = manager.Queue()
+        
+        printer_thread = threading.Thread(target=printer_loop, args=(queue,), daemon=True)
+        printer_thread.start()
 
-        predicate = Document.extraction_complete.is_not(True) & Document.full.is_(True) & Document.language.is_("tt-Cyrl") & Document.mime_type.is_('application/pdf')
+        predicate = (
+            Document.extraction_complete.is_not(True) 
+            & Document.full.is_(True) 
+            & Document.language.is_("tt-Cyrl") 
+            & Document.mime_type.is_('application/pdf')
+        )
+        
         docs = obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit)
         
         with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
-            futures = {executor.submit(__task, config, doc, cli_params, failure_count, lock): doc for doc in docs}
+            futures = {
+                executor.submit(__task_wrapper, config, doc, cli_params, failure_count, lock, queue): doc
+                for doc 
+                in docs
+            }
             for future in as_completed(futures):
                 if failure_count.value >= ATTEMPTS:
                     print("[red]Too many consecutive failures. Exiting all processing.[/red]")
@@ -51,19 +72,27 @@ def extract_structured_content(cli_params):
                 try:
                     _ = future.result()
                 except Exception as e:
-                    print(f"Unhandled exception in main loop: {e}")
+                    # Already reported inside __task_wrapper
+                    pass
                 
-def __task(config, doc, cli_params, failure_count, lock):
+        # Gracefully stop printer
+        queue.put("__STOP__")
+        printer_thread.join()
+        
+
+                
+def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     try:
         gemini_client = create_client(cli_params.tier)
         with Session() as gsheets_session, \
-            Context(config, doc, cli_params, gsheets_session, failure_count, lock) as context, \
+            Context(config, doc, cli_params, gsheets_session, failure_count, lock, queue) as context, \
             YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
             if not context.cli_params.force and doc.extraction_complete:
-                print(f"{doc.md5}: Skipped because already processed")
+                context.log("Skipped because already processed")
                 return
                 
-            print(f"{doc.md5}: Downloading file from yadisk")
+            context.log("Downloading file from yadisk")
+        
             context.local_doc_path = download_file_locally(ya_client, context.doc)
             
             # request latest metadata of the doc in yandex disk
@@ -83,20 +112,20 @@ def __task(config, doc, cli_params, failure_count, lock):
             with lock:
                 failure_count.value = 0
                 
-            print(f"{doc.md5}: Content extraction complete")
+            context.log("[bold green]Content extraction complete[/bold green]")
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        print(f"{doc.md5}: failed with error: {e}")
-        import traceback
-        traceback.print_exc()
-        
+        context.log(f"[bold red]failed with error: {e}[/bold red]")
+        # import traceback
+        # traceback.print_exc()
         if isinstance(e, ClientError) and e.code == 429:
-            print(f"{doc.md5}: received 429, sleeping for 60 seconds")
+            context.log("[yellow]received 429, sleeping for 60 seconds[/yellow]")
             time.sleep(60)
         with lock:
             failure_count.value += 1
-        return f"{doc.md5}: failed"
+            if context.failure_count.value >= ATTEMPTS:
+                return
 
 def _process(context, gemini_client):
     with pymupdf.open(context.local_doc_path) as pdf_doc:
@@ -133,12 +162,12 @@ def _extract_content(context, pdf_doc, gemini_client):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
                     break
-            print(f"{context.md5}: Extracting {idx} of {len(iter)}")
+            context.log(f"Extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
             if os.path.exists(chunk_result_complete_path):
-                print(f"{context.md5}: Chunk {idx}({_from}-{_to}) is already extracted")
+                context.log(f"Chunk {idx}({_from}-{_to}) is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
             else:
@@ -161,7 +190,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                         if text := p.text:
                             f.write(text)
                             
-                print(f"{context.md5}: Tokens count for this chunk {p.usage_metadata.total_token_count}")
+                context.log(f"Tokens count for this chunk {p.usage_metadata.total_token_count}")
 
                 # validating schema
                 with open(chunk_result_incomplete_path, "r") as f:
@@ -196,7 +225,7 @@ def _create_doc_clice(_from, _to, pdf_doc, md5):
     return slice_file_path
     
 def _upload_artifacts(context):
-    print(f"{context.md5}: Uploading artifacts to object storage")
+    context.log("Uploading artifacts to object storage")
                 
     session = create_session(context.config)
     
@@ -233,7 +262,7 @@ def _upsert_document(context):
     doc.content_url = context.remote_content_url
     doc.extraction_complete=True
         
-    print(f"{context.md5}: Updating doc details in gsheets")
+    context.log("Updating doc details in gsheets")
     # context.gsheets_session.update(doc)
     
     
@@ -255,3 +284,28 @@ def extract_markdown_headers(content):
         output_lines.append(f"{hashes} {title.strip()}")
 
     return output_lines
+
+def printer_loop(queue: Queue):
+    """Continuously read messages from queue and print with rich."""
+    tables = {}
+    
+    def render(style="white"):
+        # This returns a Group of Panels, one for each task
+        return Group(
+            *[Panel(table, title=str(id), style=style) for id, table in tables.items()]
+        )
+    with Live(render(), refresh_per_second=1, screen=False) as live:        
+        while True:
+            msg = queue.get()
+            if msg == "__STOP__":
+                break
+            
+            if isinstance(msg, Message):
+                if msg.id not in tables:
+                    tables[msg.id] = Table.grid()
+                    
+                tables[msg.id].add_row(f"{format(datetime.datetime.now(datetime.timezone(3))).strftime('%Y %m %d %H:%M:%S')} => {msg.content}")
+                # Update live display
+                live.update(render(msg.style))
+            else: 
+                raise ValueError("tnknown message type")
