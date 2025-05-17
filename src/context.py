@@ -6,14 +6,13 @@ from typing import List
 class Message:
     id: str
     content: List[RenderableType]
-    style: str = 'white'
-    
 
 class Context():
 
     def __init__(self, config, doc, cli_params, gsheets_session, failure_count, lock, queue):
         self.config = config
         self.doc = doc
+        self.md5 = doc.md5
         self.cli_params = cli_params
         self.gsheets_session = gsheets_session
         self.chunk_paths = []
@@ -31,7 +30,6 @@ class Context():
         self.unformatted_response_md = None
         self.remote_doc_url = None
         self.remote_content_url = None
-        self.md5 = None
         self.extraction_method = None
         # count of pages in the document, not in the book inside document
         self.doc_page_count = None
@@ -50,9 +48,9 @@ class Context():
             ', '.join('%s=%s' % item for item in vars(self).items())
         )
         
-    def log(self, content, md5=None):
+    def log(self, content):
         msg = Message(
-            id=md5 if self.md5 else md5,
+            id=self.md5,
             content=content,
         )
         self.queue.put(msg)

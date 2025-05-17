@@ -24,13 +24,13 @@ from rich import print
 from continuity_checker import continue_smoothly
 from google.genai.errors import ClientError
 from multiprocessing import Manager, Queue
-from rich.console import Group, Console
+from rich.console import Group
 from rich.panel import Panel
 import threading
 from rich.table import Table
 from rich.live import Live
 import time
-import datetime
+from datetime import timedelta, timezone, datetime
 
 # todo be ready for dynamic batch size
 ATTEMPTS = 10
@@ -289,7 +289,7 @@ def printer_loop(queue: Queue):
     """Continuously read messages from queue and print with rich."""
     tables = {}
     
-    def render(style="white"):
+    def render(style='white'):
         # This returns a Group of Panels, one for each task
         return Group(
             *[Panel(table, title=str(id), style=style) for id, table in tables.items()]
@@ -304,8 +304,11 @@ def printer_loop(queue: Queue):
                 if msg.id not in tables:
                     tables[msg.id] = Table.grid()
                     
-                tables[msg.id].add_row(f"{format(datetime.datetime.now(datetime.timezone(3))).strftime('%Y %m %d %H:%M:%S')} => {msg.content}")
+                log_time = datetime.now(timezone(timedelta(hours=+3))).strftime('%Y-%m-%d %H:%M:%S')
+                tables[msg.id].add_row(f"{log_time} => {msg.content}")
+                
                 # Update live display
-                live.update(render(msg.style))
+                live.update(render())
+                
             else: 
-                raise ValueError("tnknown message type")
+                raise ValueError("unknown message type")

@@ -46,7 +46,7 @@ def sync():
             meta = upstream_metas.get(file_res.md5)
             doc = _process_file(
                 yaclient, file_res, all_md5s,
-                skipped, meta, gsheets
+                skipped, meta
             )
             if doc:
                 batch.append(doc)
@@ -81,9 +81,9 @@ def _walk_yadisk(client, root):
             else:
                 yield res
 
-def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, gsheets_session):
+def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta):
 
-    if file.mime_type in not_document_types:
+    if should_be_skipped(file):
         print(f"Skipping file: '{file.path}' of type '{file.mime_type}'")
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
         return
@@ -149,3 +149,12 @@ def get_all_md5s():
                 in res 
                 if i[1] is not None
         }
+        
+def should_be_skipped(file):
+    if file.mime_type in not_document_types:
+        # sometimes valid PDF docs detected as octet-stream
+        if file.mime_type == 'application/octet-stream' and file.path.endswith(".pdf"):
+            return False
+        else:
+            return True
+    return False

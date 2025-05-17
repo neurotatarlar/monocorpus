@@ -26,12 +26,9 @@ def metadata(cli_params):
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True) & Document.mime_type.is_('application/pdf')
         s3lient =  create_session(config)
-        gemini_client = create_client(tier='free', config=config)
+        gemini_client = create_client(tier=cli_params.tier, config=config)
         
         docs = obtain_documents(cli_params, ya_client, predicate=predicate)
-        for i in range(100):
-            next(docs)
-                
         for doc in docs:
             if doc.file_name and doc.file_name.startswith("Кызыл Татарстан: иҗтимагый-сәяси газета"):
                 continue
@@ -45,8 +42,8 @@ def metadata(cli_params):
                 if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
                     print("Sleeping for 60 seconds")
                     sleep(60)
-                if attempt >= 10:
-                    raise e
+                # if attempt >= 10:
+                    # raise e
                 attempt += 1
 
 def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session):
@@ -70,7 +67,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")
-    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=4)
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=3)
 
     # prepare prompt
     prompt = _prepare_prompt(doc, slice_page_count)

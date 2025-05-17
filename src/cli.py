@@ -10,6 +10,7 @@ import prepare_shots
 import extract_content
 from enum import Enum
 from sheets_introspect import sheets_introspect
+from sweep import sweep
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
@@ -36,6 +37,7 @@ class MetaCliParams:
     md5: str
     path: str
     model: str
+    tier: Tier
     
 def slice_parser(value: str):
     if value:
@@ -182,6 +184,14 @@ def meta(
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
     ] = "gemini-2.5-flash-preview-04-17",
+    tier: Annotated[
+        Tier,
+        typer.Option(
+            "--tier", "-t",
+            help="Tier in Google used interact with Gemini",
+            case_sensitive=False
+        )
+    ] = Tier.free,
 ):
     """
     Extract metadata from documents.
@@ -194,7 +204,8 @@ def meta(
     cli_params = MetaCliParams(
         md5=md5,
         path=path,
-        model=model
+        model=model,
+        tier=tier
     )
     metadata.metadata(cli_params)
 
@@ -221,3 +232,8 @@ def select(query: list[str]):
     sheets_introspect(" ".join(query)
 )
    
+   
+@app.command()
+def sweep():
+    # 1. remove
+    sweep()    
