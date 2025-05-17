@@ -1,31 +1,14 @@
-from utils import read_config
+from utils import read_config, walk_yadisk
 from yadisk_client import YaDisk
 from rich import print
 from monocorpus_models import Document
 from s3 import  create_session
 from monocorpus_models import Document, Session
 from sqlalchemy import select
-from collections import deque
+from sweep import move_to_filtered_out, not_document_types
 
 BATCH_SIZE = 20
 
-not_document_types = [
-    'application/vnd.android.package-archive',
-    'image/jpeg',
-    'application/x-zip-compressed',
-    'application/zip'
-    'application/octet',
-    'application/octet-stream',
-    'text/x-python'
-    'application/x-gzip',
-    'text-html',
-    'application/x-rar',
-    'application/x-download',
-    "application/json",
-    'audio/mpeg',
-    'text/html',
-    'text/plain'
-]
 
 def sync():
     """
@@ -38,15 +21,14 @@ def sync():
 
     skipped = []
     gsheets = Session()
-    entry = config['yandex']['disk']['entry_point']
-
+    entry_point = config['yandex']['disk']['entry_point']
     with YaDisk(config['yandex']['disk']['oauth_token']) as yaclient:
         batch = []
-        for file_res in _walk_yadisk(yaclient, entry):
+        for file_res in walk_yadisk(yaclient, entry_point):
             meta = upstream_metas.get(file_res.md5)
             doc = _process_file(
                 yaclient, file_res, all_md5s,
-                skipped, meta
+                skipped, meta, config
             )
             if doc:
                 batch.append(doc)
@@ -61,30 +43,12 @@ def sync():
         print("Skipped by MIME type files:")
         print(*skipped, sep="\n")
         
-def _walk_yadisk(client, root):
-    """Yield all file resources under `root` on Yandex Disk."""
-    queue = deque([root])
-    while queue:
-        current = queue.popleft()
-        print(f"Visiting: '{current}'")
-        for res in client.listdir(
-            current,
-            max_items=None,
-            fields=[
-                'type', 'path', 'mime_type',
-                'md5', 'public_key', 'public_url',
-                'resource_id', 'name'
-            ]
-        ):
-            if res.type == 'dir':
-                queue.append(res.path)
-            else:
-                yield res
+def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config):
 
-def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta):
-
-    if should_be_skipped(file):
-        print(f"Skipping file: '{file.path}' of type '{file.mime_type}'")
+    _should_be_skipped, mime_type = should_be_skipped(file)
+    if _should_be_skipped:
+        print(f"Moving file '{file.path}' from target folder because of mime_type type '{file.mime_type}'")
+        move_to_filtered_out(file, config, ya_client, 'nontextual')
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
         return
     
@@ -106,7 +70,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
 
     doc = Document(
         md5=file.md5,
-        mime_type=file.mime_type,
+        mime_type=mime_type,
         file_name=file.name,
         ya_public_key=ya_public_key,
         ya_public_url=ya_public_url,
@@ -154,7 +118,11 @@ def should_be_skipped(file):
     if file.mime_type in not_document_types:
         # sometimes valid PDF docs detected as octet-stream
         if file.mime_type == 'application/octet-stream' and file.path.endswith(".pdf"):
-            return False
+            return False, 'application/pdf'
+        elif file.mime_type == 'text/html' and file.path.endswith(".txt"):
+            return False, 'text/plain'
+        elif file.mime_type == 'text/html' and file.path.endswith(".doc"):
+            return False, 'text/plain'
         else:
-            return True
-    return False
+            return True, file.mime_type 
+    return False, file.mime_type 

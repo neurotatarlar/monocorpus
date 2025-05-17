@@ -6,6 +6,7 @@ from typing import Union
 import hashlib
 from monocorpus_models import Document, Session
 from sqlalchemy import select
+from collections import deque
 
 
 def pick_files(dir_path: Union[str, Dirs]):
@@ -108,3 +109,25 @@ def _find(session, predicate=None, limit=None):
     if limit:
         statement = statement.limit(limit)
     yield from session.query(statement)
+    
+    
+def walk_yadisk(client, root, fields = [
+                'type', 'path', 'mime_type',
+                'md5', 'public_key', 'public_url',
+                'resource_id', 'name'
+    ]):
+    """Yield all file resources under `root` on Yandex Disk."""
+    fields.append('type')
+    queue = deque([root])
+    while queue:
+        current = queue.popleft()
+        print(f"Visiting: '{current}'")
+        for res in client.listdir(
+            current,
+            max_items=None,
+            fields=fields
+        ):
+            if res.type == 'dir':
+                queue.append(res.path)
+            else:
+                yield res

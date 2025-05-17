@@ -10,16 +10,18 @@ import prepare_shots
 import extract_content
 from enum import Enum
 from sheets_introspect import sheets_introspect
-from sweep import sweep
+from sweep import sweep as _sweep
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
-slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
+slice_pattern = re.compile(
+    r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
+
 
 class Tier(str, Enum):
     free = "free"
     promo = "promo"
-    
-    
+
+
 @dataclass
 class ExtractCliParams:
     md5: str
@@ -29,16 +31,18 @@ class ExtractCliParams:
     batch_size: int
     model: str
     workers: int
-    limit: int 
+    limit: int
     tier: Tier
-    
+
+
 @dataclass
 class MetaCliParams:
     md5: str
     path: str
     model: str
     tier: Tier
-    
+
+
 def slice_parser(value: str):
     if value:
         match = slice_pattern.match(value)
@@ -56,7 +60,8 @@ def slice_parser(value: str):
 
         return slice(start, stop, step)
     return slice(0, None, 1)
-    
+
+
 def md5_validator(value: str):
     if value:
         if len(value) != 32:
@@ -65,6 +70,7 @@ def md5_validator(value: str):
         if not all(ch in string.hexdigits for ch in value):
             raise typer.BadParameter("MD5 should be a hex string")
     return value
+
 
 @app.command()
 def extract(
@@ -80,16 +86,16 @@ def extract(
         Optional[str],
         typer.Option(
             "--path", "-p",
-            help="Path to the document or directory in yandex disk" 
+            help="Path to the document or directory in yandex disk"
         )
     ] = None,
     force: Annotated[
-            bool,
-            typer.Option(
-                "--force", "-f",
-                help="Force the processing even if the document is already sent for annotation"
-            )
-        ] = False,
+        bool,
+        typer.Option(
+            "--force", "-f",
+            help="Force the processing even if the document is already sent for annotation"
+        )
+    ] = False,
     pages_slice: Annotated[
         Optional[str],
         typer.Option(
@@ -134,12 +140,12 @@ def extract(
             case_sensitive=False
         )
     ] = Tier.free,
-    ):
+):
     cli_params = ExtractCliParams(
         md5=md5,
         path=path,
         force=force,
-        page_slice=pages_slice, 
+        page_slice=pages_slice,
         batch_size=batch_size,
         model=model,
         workers=workers,
@@ -159,7 +165,8 @@ def sync():
     facilitating seamless integration and data management.
     """
     _sync()
-    
+
+
 @app.command()
 def meta(
     md5: Annotated[
@@ -174,7 +181,7 @@ def meta(
         Optional[str],
         typer.Option(
             "--path", "-p",
-            help="Path to the document or directory in yandex disk" 
+            help="Path to the document or directory in yandex disk"
         )
     ] = None,
     model: Annotated[
@@ -209,6 +216,7 @@ def meta(
     )
     metadata.metadata(cli_params)
 
+
 @app.command()
 def shots():
     """
@@ -219,7 +227,8 @@ def shots():
     loaded and available for subsequent processing tasks.
     """
     prepare_shots.load_inline_shots()
-    
+
+
 @app.command()
 def select(query: list[str]):
     """
@@ -230,10 +239,18 @@ def select(query: list[str]):
     based on the specified query.
     """
     sheets_introspect(" ".join(query)
-)
-   
-   
+                      )
+
+
 @app.command()
 def sweep():
-    # 1. remove
-    sweep()    
+    """
+    Sweep and clean up non-relevant documents from Yandex Disk and Google Sheets.
+
+    This command moves files in Yandex Disk to a dedicated folder, unpublishes them, and removes their records from Google Sheets.
+    The sweep targets documents that do not meet relevance criteria, such as:
+      - Documents not in the Tatar language.
+      - Documents with MIME types considered non-relevant for textual data (e.g., JSON, CSS).
+    This helps maintain a clean and focused corpus by removing or archiving unnecessary files.
+    """
+    _sweep()
