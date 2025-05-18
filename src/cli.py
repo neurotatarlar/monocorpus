@@ -33,7 +33,12 @@ class ExtractCliParams:
     workers: int
     limit: int
     tier: Tier
-
+    
+@dataclass
+class ExtractEpubParams:
+    md5: str
+    path: str
+    limit: int
 
 @dataclass
 class MetaCliParams:
@@ -241,7 +246,6 @@ def select(query: list[str]):
     sheets_introspect(" ".join(query)
                       )
 
-
 @app.command()
 def sweep():
     """
@@ -254,3 +258,37 @@ def sweep():
     This helps maintain a clean and focused corpus by removing or archiving unnecessary files.
     """
     _sweep()
+    
+
+@app.command()
+def extract_epub(
+    md5: Annotated[
+        Optional[str],
+        typer.Option(
+            "--md5",
+            callback=md5_validator,
+            help="MD5 hash of the document. If not provided, all local documents will be processed."
+        )
+    ] = None,
+    path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--path", "-p",
+            help="Path to the document or directory in yandex disk"
+        )
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit", "-l",
+            help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
+        )
+    ] = None,
+):
+    from content import extract_epub
+    cli_params = ExtractEpubParams(
+        md5=md5, 
+        path=path,
+        limit=limit
+    )
+    extract_epub.extract_structured_content(cli_params)

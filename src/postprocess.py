@@ -32,7 +32,7 @@ def postprocess(context):
     postprocessed = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', postprocessed, flags=re.DOTALL)
     
     # exctract images
-    postprocessed = _proccess_images(context, postprocessed)
+    # postprocessed = _proccess_images(context, postprocessed)
     
     postprocessed = mdformat.text(
         postprocessed,

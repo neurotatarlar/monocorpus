@@ -88,13 +88,12 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_s
         yield from _find(gsheet_session, predicate=predicate, limit=limit)
 
 def download_file_locally(ya_client, doc):
-    ext = doc.mime_type.split("/")[-1]
-    if ext == "pdf":
-        ext = "pdf"
-    elif ext == "epub":
-        ext = "epub"
-    else:
-        raise ValueError(f"Unsupported file type: {doc.mime_type}")
+    match doc.mime_type:
+        case "application/pdf":
+            ext = "pdf"
+        case "application/epub+zip":
+            ext = "epub"
+        case _: raise ValueError(f"Unsupported file type: {doc.mime_type}")
     
     local_path=get_in_workdir(Dirs.ENTRY_POINT, file=f"{doc.md5}.{ext}")
     if not (os.path.exists(local_path) and calculate_md5(local_path) == doc.md5):

@@ -24,7 +24,7 @@ def metadata(cli_params):
     attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True) & Document.mime_type.is_('application/pdf')
-        s3lient =  create_session(config)n/pdf')
+        s3lient =  create_session(config)
         gemini_client = create_client(tier=cli_params.tier, config=config)
         
         docs = obtain_documents(cli_params, ya_client, predicate=predicate)
