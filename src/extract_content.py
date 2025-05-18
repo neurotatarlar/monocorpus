@@ -117,11 +117,6 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
         exit(0)
     except Exception as e:
         context.log(f"[bold red]failed with error: {e}[/bold red]")
-        # import traceback
-        # traceback.print_exc()
-        if isinstance(e, ClientError) and e.code == 429:
-            context.log("[yellow]received 429, sleeping for 60 seconds[/yellow]")
-            time.sleep(60)
         with lock:
             failure_count.value += 1
             if context.failure_count.value >= ATTEMPTS:
@@ -143,7 +138,7 @@ def _process(context, gemini_client):
         with zipfile.ZipFile(context.local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
             zf.write(arcname=f"{context.md5}.md", filename=context.formatted_response_md)
         
-        context.extraction_method = f"{context.cli_params.model}/{context.cli_params.batch_size}/pdfinput"
+        context.extraction_method = f"gemini-2.5/{context.cli_params.batch_size}/pdfinput"
         context.doc_page_count=pdf_doc.page_count
     
 def _extract_content(context, pdf_doc, gemini_client):
@@ -161,7 +156,7 @@ def _extract_content(context, pdf_doc, gemini_client):
         for idx, chunk in enumerate(iter, start=1):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
-                    break
+                    return
             context.log(f"Extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
@@ -181,24 +176,41 @@ def _extract_content(context, pdf_doc, gemini_client):
             
                 # request gemini
                 files = {slice_file_path: "application/pdf"}
-                response = request_gemini(client=gemini_client, model=context.cli_params.model, prompt=prompt, files=files, schema=ExtractionResult, timeout_sec=6000)
-            
-                # write result into file
                 chunk_result_incomplete_path = chunk_result_complete_path + ".part"
-                with open(chunk_result_incomplete_path, "w") as f:
-                    for p in response:
-                        if text := p.text:
-                            f.write(text)
+                for model in context.config['gemini_models']:
+                    try:
+                        response = request_gemini(
+                            client=gemini_client,
+                            model=model,
+                            prompt=prompt,
+                            files=files,
+                            schema=ExtractionResult,
+                            timeout_sec=6000
+                        )
+                        # write result into file
+                        with open(chunk_result_incomplete_path, "w") as f:
+                            for p in response:
+                                if text := p.text:
+                                    f.write(text)
+                        # validating schema
+                        with open(chunk_result_incomplete_path, "r") as f:
+                            content = ExtractionResult.model_validate_json(f.read()).content
                             
-                context.log(f"Tokens count for this chunk {p.usage_metadata.total_token_count}")
-
-                # validating schema
-                with open(chunk_result_incomplete_path, "r") as f:
-                    content = ExtractionResult.model_validate_json(f.read()).content
+                        # "mark" batch as extracted by renaming file
+                        shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
+                        context.log(
+                            f"[green]Chunk {_from}-{_to} extracted with model '{model}': "
+                            f"{p.usage_metadata.total_token_count} tokens used[/green]"
+                        )
+                        break
+                    except Exception as e:
+                        context.log(f"[red]Failed to extract chunk {_from}-{_to} with model '{model}': {type(e).__name__}: {e}[/red]")
+                        if isinstance(e, ClientError) and e.code == 429:
+                            context.log("[yellow]Received status code 429, sleeping for 60 seconds[/yellow]")
+                            time.sleep(60)
+                else:
+                    raise ValueError(f"[red]Could not extract chunk {_from}-{_to} with any of the models, skipping it...")
                     
-                # "mark" batch as extracted by renaming file
-                shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
-            
             headers_hierarchy.extend(extract_markdown_headers(content))
             
             if prev_chunk_tail:

@@ -7,7 +7,7 @@ from s3 import  create_session
 from rich import print
 from sqlalchemy import delete
 
-tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab']
+tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
 
 not_document_types = [
     'application/vnd.android.package-archive',
@@ -28,6 +28,7 @@ not_document_types = [
     'application/x-shockwave-flash',
     'text/css',
     'application/x-javascript',
+    'application/x-shockwave-flash'
 ]
 
 def sweep():
@@ -53,15 +54,19 @@ def sweep():
         print("Removing objects from s3 storage")
         _remove_from_s3(docs_for_wiping.keys(), s3client, config)
         
-        print("Moving and unpublishing files, removing from google sheets")
+        print("Moving and unpublishing files")
         entry_point = config['yandex']['disk']['entry_point']
         for file in walk_yadisk(client=yaclient, root=entry_point, fields=["path", "md5"]):
             if d := docs_for_wiping.get(file.md5, None):
+                print(f"Moving file '{file.path}'")
                 if d.language not in tatar_bcp_47_codes:
                     move_to_filtered_out(file, config, yaclient, f"nontatar/{d.language}")
                 else:
                     move_to_filtered_out(file, config, yaclient, "nontextual")
-                session._get_session().execute(delete(Document).where(Document.md5.is_(d.md5)))
+                
+        print("Removing from google sheets")
+        for md5 in docs_for_wiping:
+            session._get_session().execute(delete(Document).where(Document.md5.is_(md5)))
             
 def move_to_filtered_out(file, config, ya_client, parent_dir):
     # For each file
@@ -73,10 +78,9 @@ def move_to_filtered_out(file, config, ya_client, parent_dir):
     old_path = file.path.removeprefix('disk:')
     _rel_path = os.path.relpath(old_path, entry_point)
     new_path = os.path.join(filtered_out_dir, parent_dir, _rel_path)
-    print("new path", new_path)
     if old_path != new_path:
         ya_client.create_folders(os.path.dirname(new_path))
-        ya_client.move(file.path, new_path)
+        ya_client.move(file.path, new_path, n_retries=5, retry_interval=30)
     ya_client.unpublish(new_path)
     
 def _remove_from_s3(md5s, s3client, config):

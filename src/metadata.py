@@ -1,4 +1,3 @@
-from rich.progress import track
 from rich import print
 from s3 import upload_file, create_session
 from utils import read_config, get_in_workdir, download_file_locally, obtain_documents
@@ -47,12 +46,6 @@ def metadata(cli_params):
                 attempt += 1
 
 def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session):
-    if doc.mime_type != "application/pdf":
-        print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
-        return
-
-    print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
-
     # download doc from yadisk
     start_time = time.time()
     local_doc_path = download_file_locally(ya_client, doc)
@@ -64,6 +57,12 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
     doc_key = os.path.basename(local_doc_path)
     doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
     print("uploaded file to s3", round(time.time() - start_time, 1))
+    
+    if doc.mime_type != "application/pdf":
+        print(f"Skipping file: {doc.md5} with mime-type {doc.mime_type}")
+        return
+
+    print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")

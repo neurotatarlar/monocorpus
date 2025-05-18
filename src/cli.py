@@ -29,7 +29,7 @@ class ExtractCliParams:
     force: bool
     page_slice: str
     batch_size: int
-    model: str
+    # model: str
     workers: int
     limit: int
     tier: Tier
@@ -111,13 +111,13 @@ def extract(
             help="Batch size for processing pages",
         )
     ] = 50,
-    model: Annotated[
-        str,
-        typer.Option(
-            "--model", "-m",
-            help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
-        )
-    ] = "gemini-2.5-pro-preview-05-06",
+    # model: Annotated[
+    #     str,
+    #     typer.Option(
+    #         "--model", "-m",
+    #         help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
+    #     )
+    # ] = "gemini-2.5-pro-preview-05-06",
     workers: Annotated[
         int,
         typer.Option(
@@ -147,7 +147,7 @@ def extract(
         force=force,
         page_slice=pages_slice,
         batch_size=batch_size,
-        model=model,
+        # model=model,
         workers=workers,
         limit=limit,
         tier=tier
