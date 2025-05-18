@@ -78,8 +78,7 @@ def extract_structured_content(cli_params):
         # Gracefully stop printer
         queue.put("__STOP__")
         printer_thread.join()
-        
-
+                
                 
 def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     try:
@@ -112,15 +111,16 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
             with lock:
                 failure_count.value = 0
                 
-            context.log("[bold green]Content extraction complete[/bold green]")
+            context.log("[bold green]Content extraction complete[/bold green]", complete=True)
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        context.log(f"[bold red]failed with error: {e}[/bold red]")
+        context.log(f"[bold red]failed with error: {e}[/bold red]", complete=True)
         with lock:
             failure_count.value += 1
             if context.failure_count.value >= ATTEMPTS:
                 return
+
 
 def _process(context, gemini_client):
     with pymupdf.open(context.local_doc_path) as pdf_doc:
@@ -141,6 +141,7 @@ def _process(context, gemini_client):
         context.extraction_method = f"gemini-2.5/{context.cli_params.batch_size}/pdfinput"
         context.doc_page_count=pdf_doc.page_count
     
+    
 def _extract_content(context, pdf_doc, gemini_client):
     batch_size = context.cli_params.batch_size
     iter = list(batched(range(0, pdf_doc.page_count)[context.cli_params.page_slice], batch_size))
@@ -157,7 +158,6 @@ def _extract_content(context, pdf_doc, gemini_client):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
                     return
-            context.log(f"Extracting {idx} of {len(iter)}")
             _from = chunk[0]
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
@@ -165,7 +165,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                 context.log(f"Chunk {idx}({_from}-{_to}) is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
-            else:
+            else:            
                 # create a pdf doc what will contain a slice of original pdf doc
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
                 
@@ -178,6 +178,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                 files = {slice_file_path: "application/pdf"}
                 chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                 for model in context.config['gemini_models']:
+                    context.log(f"Extracting chunk {idx}({_from}-{_to}) of {len(iter)} by model '{model}'")
                     try:
                         response = request_gemini(
                             client=gemini_client,
@@ -198,25 +199,29 @@ def _extract_content(context, pdf_doc, gemini_client):
                             
                         # "mark" batch as extracted by renaming file
                         shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
+                         
                         context.log(
-                            f"[green]Chunk {_from}-{_to} extracted with model '{model}': "
+                            f"[green]Chunk {idx}({_from}-{_to}) extracted with model '{model}': "
                             f"{p.usage_metadata.total_token_count} tokens used[/green]"
                         )
                         break
                     except Exception as e:
-                        context.log(f"[red]Failed to extract chunk {_from}-{_to} with model '{model}': {type(e).__name__}: {e}[/red]")
+                        context.log(f"[red]Failed to extract chunk {idx}({_from}-{_to}) with model '{model}': {type(e).__name__}: {e}[/red]")
                         if isinstance(e, ClientError) and e.code == 429:
                             context.log("[yellow]Received status code 429, sleeping for 60 seconds[/yellow]")
                             time.sleep(60)
                 else:
-                    raise ValueError(f"[red]Could not extract chunk {_from}-{_to} with any of the models, skipping it...")
-                    
+                    raise ValueError(f"[red]Could not extract chunk {idx}({_from}-{_to}) with any of the models, skipping it...")
+                                        
+            # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
+            content = shift_trailing_footnotes_up(content)
             headers_hierarchy.extend(extract_markdown_headers(content))
             
             if prev_chunk_tail:
                 content = continue_smoothly(prev_chunk_tail=prev_chunk_tail, content=content)
  
             prev_chunk_tail = content[-300:]
+            # important to remove hyphen after taking the chunk tail
             content = content.removesuffix('-')
             output.write(content)
             output.flush()
@@ -228,6 +233,7 @@ def _extract_content(context, pdf_doc, gemini_client):
 
             context.chunk_paths.append(chunk_result_complete_path)
 
+
 def _create_doc_clice(_from, _to, pdf_doc, md5):
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, md5, file=f"slice-{_from}-{_to}.pdf")
     if not os.path.exists(slice_file_path):
@@ -235,6 +241,7 @@ def _create_doc_clice(_from, _to, pdf_doc, md5):
         doc_slice.insert_pdf(pdf_doc, from_page=_from, to_page=_to)
         doc_slice.save(slice_file_path)
     return slice_file_path
+    
     
 def _upload_artifacts(context):
     context.log("Uploading artifacts to object storage")
@@ -261,6 +268,7 @@ def _upload_artifacts(context):
             
         doc_bucket = context.config["yandex"]["cloud"]['bucket']['content_chunks']
         upload_file(chunk_path_arc, doc_bucket, key, session)
+    
     
 def _upsert_document(context):
 
@@ -299,28 +307,62 @@ def extract_markdown_headers(content):
 
 def printer_loop(queue: Queue):
     """Continuously read messages from queue and print with rich."""
-    tables = {}
+    active_tables = {}
+    results = Table.grid(padding=(0, 1, 0, 0), collapse_padding=False, pad_edge=True)
     
     def render(style='white'):
         # This returns a Group of Panels, one for each task
         return Group(
-            *[Panel(table, title=str(id), style=style) for id, table in tables.items()]
+            *[Panel(table, title=str(id), style=style) for id, table in active_tables.items()], results,
         )
-    with Live(render(), refresh_per_second=1, screen=False) as live:        
+    with Live(render(), screen=False, auto_refresh=False) as live:        
         while True:
             msg = queue.get()
             if msg == "__STOP__":
                 break
             
             if isinstance(msg, Message):
-                if msg.id not in tables:
-                    tables[msg.id] = Table.grid()
-                    
-                log_time = datetime.now(timezone(timedelta(hours=+3))).strftime('%Y-%m-%d %H:%M:%S')
-                tables[msg.id].add_row(f"{log_time} => {msg.content}")
+                if msg.complete:
+                    del active_tables[msg.id]
+                    results.add_row(msg.id, msg.content)
+                else:
+                    if msg.id not in active_tables:
+                        active_tables[msg.id] = Table.grid()
+                    log_time = datetime.now(timezone(timedelta(hours=+3))).strftime('%Y-%m-%d %H:%M:%S')
+                    active_tables[msg.id].add_row(f"{log_time} => {msg.content}")
                 
                 # Update live display
                 live.update(render())
+                live.refresh()
                 
             else: 
-                raise ValueError("unknown message type")
+                raise ValueError(f"Unknown message type {msg}" )
+            
+
+def shift_trailing_footnotes_up(content):
+    lines = content.strip().splitlines()
+    footnote_pattern = re.compile(r'^\[\^\d+\]:')
+
+    # ✅ Early exit if the last line is not a footnote
+    if not lines or not footnote_pattern.match(lines[-1].strip()):
+        return content
+
+    footnotes = []
+    i = len(lines) - 1
+
+    # Step 1: Scan in reverse to collect trailing footnotes
+    while i >= 0:
+        line = lines[i].strip()
+        if line == '' or footnote_pattern.match(line):
+            footnotes.insert(0, lines[i])
+            i -= 1
+        else:
+            break
+
+    # Step 2: Remaining lines before footnotes
+    body_lines = lines[:i + 1]
+
+    # Step 3: Reassemble: body → blank line → footnotes → blank line → last paragraph
+    reordered = body_lines[:-1] + [''] + footnotes + [''] + body_lines[-1:]
+
+    return '\n'.join(reordered)

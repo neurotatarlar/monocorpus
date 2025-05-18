@@ -6,6 +6,7 @@ from typing import List
 class Message:
     id: str
     content: List[RenderableType]
+    complete: bool
 
 class Context():
 
@@ -48,9 +49,10 @@ class Context():
             ', '.join('%s=%s' % item for item in vars(self).items())
         )
         
-    def log(self, content):
+    def log(self, content, complete=False):
         msg = Message(
             id=self.md5,
             content=content,
+            complete=complete
         )
         self.queue.put(msg)

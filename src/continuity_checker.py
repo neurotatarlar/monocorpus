@@ -1,5 +1,4 @@
 import re
-from re import match
 
 from spacy.lang.tt import Tatar
 

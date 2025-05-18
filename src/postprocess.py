@@ -19,10 +19,13 @@ MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 
 
 def postprocess(context):
+    context.log("Postprocessing")
     with open(context.unformatted_response_md, "r") as f:
         content = f.read()
         
     postprocessed = content.replace('-\n', '')
+    # Replace hyphen + space at beginning of lines with em dash + space
+    postprocessed = re.sub(r'^- ?', '— ', postprocessed, flags=re.MULTILINE)
     
     # replace detected TOC with marker for mdformat-toc.
     # it signalizes mdformat-toc to create TOC based on headers in the document 
