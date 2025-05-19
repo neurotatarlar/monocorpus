@@ -1,6 +1,6 @@
 from yadisk_client import YaDisk
 from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
-from monocorpus_models import Document
+from monocorpus_models import Document, Session
 from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT
 from bs4 import BeautifulSoup, NavigableString
 from markdownify import markdownify as md
@@ -11,6 +11,7 @@ import re
 from s3 import upload_file, create_session
 import os
 import zipfile
+from urllib.parse import urlparse
 
 def extract_structured_content(cli_params):
     config = read_config()
@@ -18,8 +19,8 @@ def extract_structured_content(cli_params):
         Document.extraction_complete.is_not(True) 
         & Document.mime_type.is_('application/epub+zip')
     )
-    session = create_session(config)
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+    s3session = create_session(config)
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheets_session:
         docs = obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit)
         if not docs:
             print("No documents for processing...")
@@ -28,7 +29,7 @@ def extract_structured_content(cli_params):
         for doc in docs:
             print(f"Extracting content from file {doc.md5}({doc.file_name})")
             local_doc_path = download_file_locally(ya_client, doc)
-            md_content = _extract_from_epub(doc, config, local_doc_path, session) 
+            md_content = _extract_from_epub(doc, config, local_doc_path, s3session) 
             formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
             postprocessed = _postprocess(md_content)
             formatted_content = mdformat.text(
@@ -45,13 +46,14 @@ def extract_structured_content(cli_params):
             local_content_path = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}.zip")
             with zipfile.ZipFile(local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                 zf.write(arcname=f"{doc.md5}.md", filename=formatted_response_md)
-            # doc.content_url = upload_file(local_content_path, content_bucket, content_key, session)
+            doc.content_url = upload_file(local_content_path, content_bucket, content_key, s3session)
 
             document_bucket = config["yandex"]["cloud"]['bucket']['document']
             doc_key = os.path.basename(local_doc_path)
-            # doc.document_url = upload_file(local_doc_path, document_bucket, doc_key, session, skip_if_exists=True)
+            doc.document_url = upload_file(local_doc_path, document_bucket, doc_key, s3session, skip_if_exists=True)
+            doc.extraction_complete=True
             
-            # todo update doc in gsheets
+            gsheets_session.update(doc)
             
 def _postprocess(content):
     content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
@@ -76,7 +78,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         
         if item_type == ITEM_NAVIGATION:
             if item.get_content().strip():
-                outputs.append("<!-- mdformat-toc start -->\n\n")
+                outputs.append("<!-- mdformat-toc start --no-anchors -->")
                 continue
         
         # Get and validate content
@@ -100,7 +102,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
             with open(path, "wb") as f:
                 f.write(content)
             url = upload_file(path, clips_bucket, os.path.basename(path), s3session, skip_if_exists=True)
-            literal = f'<figure style="text-align: center; margin: 1em 0;"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>\n\n'
+            literal = f'<figure style="text-align: center; margin: 1em 0;"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
             outputs.append(literal)
         
         elif item_type == ITEM_DOCUMENT:
@@ -110,13 +112,18 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
                     if isinstance(content, NavigableString):
                         # Replace the content with \n removed
                         p.contents[i].replace_with(content.replace('\n', ''))
+            
+            # Remove  <a> tag with relative href but keep the text
+            for a in soup.find_all('a', href=True):
+                if _is_relative(a['href']):
+                    a.unwrap() 
 
             text_html = str(soup)
             if not text_html.strip():
                 print(f"No HTML after parsing in {item.get_name()}")
                 continue
             
-            text_md = md(text_html, bullets='*+-', strong_em_symbol='*', escape_misc=True, heading_styles='atx', table_infer_header=True)
+            text_md = md(text_html, bullets='*+-', strong_em_symbol='*', escape_misc=False, heading_styles='atx', table_infer_header=True)
             if text_md.strip():
                 outputs.append(text_md)
             else:
@@ -124,4 +131,8 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         else:
             raise ValueError(f"Unexpected type received: {item_type}")
             
-    return "".join(outputs)
+    return "\n\n".join(outputs)
+
+def _is_relative(url):
+    parsed = urlparse(url)
+    return not parsed.scheme and not parsed.netloc
