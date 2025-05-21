@@ -3,7 +3,7 @@ from utils import read_config, obtain_documents, download_file_locally, get_in_w
 from monocorpus_models import Document, Session
 from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT
 from bs4 import BeautifulSoup, NavigableString
-from markdownify import markdownify as md
+from markdownify import MarkdownConverter
 import mdformat
 from dirs import Dirs
 from rich import print
@@ -12,6 +12,11 @@ from s3 import upload_file, create_session
 import os
 import zipfile
 from urllib.parse import urlparse
+
+class CustomConverter(MarkdownConverter):
+    def convert_img(self, el, text, parent_tags):
+        pass
+
 
 def extract_structured_content(cli_params):
     config = read_config()
@@ -53,7 +58,7 @@ def extract_structured_content(cli_params):
             doc.document_url = upload_file(local_doc_path, document_bucket, doc_key, s3session, skip_if_exists=True)
             doc.extraction_complete=True
             
-            gsheets_session.update(doc)
+            # gsheets_session.update(doc)
             
 def _postprocess(content):
     content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
@@ -68,6 +73,13 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
     clips_counter = 0
     clips_dir = get_in_workdir(Dirs.CLIPS)
     clips_bucket = config["yandex"]["cloud"]['bucket']['image']
+    
+    def _convert_image():
+        pass 
+    
+    class CustomConverter(MarkdownConverter):
+        def convert_img(self, el, text, parent_tags):
+            _convert_image()
     
     for item in book.get_items():
         item_type = item.get_type()
@@ -89,6 +101,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         
         # Handle images
         if item_type == ITEM_IMAGE:
+            # print(item)
             match item.media_type:
                 case 'image/jpeg':
                     ext = "jpeg"
@@ -102,7 +115,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
             with open(path, "wb") as f:
                 f.write(content)
             url = upload_file(path, clips_bucket, os.path.basename(path), s3session, skip_if_exists=True)
-            literal = f'<figure style="text-align: center; margin: 1em 0;"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
+            literal = f'<figure style="text-align: center; margin: 1em 0;" id="{os.path.basename(item.get_name())}"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
             outputs.append(literal)
         
         elif item_type == ITEM_DOCUMENT:
@@ -117,6 +130,9 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
             for a in soup.find_all('a', href=True):
                 if _is_relative(a['href']):
                     a.unwrap() 
+                    
+            for i in soup.find_all('img'):
+                print("image in the document:", i)
 
             text_html = str(soup)
             if not text_html.strip():

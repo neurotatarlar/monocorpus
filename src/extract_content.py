@@ -283,7 +283,7 @@ def _upsert_document(context):
     doc.extraction_complete=True
         
     context.log("Updating doc details in gsheets")
-    # context.gsheets_session.update(doc)
+    context.gsheets_session.update(doc)
     
     
 

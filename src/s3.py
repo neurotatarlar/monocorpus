@@ -14,11 +14,11 @@ def create_session(config=read_config()):
     )
 
 def upload_file(path, bucket, key, session, skip_if_exists=False):
-    if not (skip_if_exists and session.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1).get("Contents", [])):
-        session.upload_file(
-            path,
-            bucket,
-            key
-        )
+    # if not (skip_if_exists and session.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1).get("Contents", [])):
+    #     session.upload_file(
+    #         path,
+    #         bucket,
+    #         key
+    #     )
     
     return f"{session._endpoint.host}/{bucket}/{key}"
