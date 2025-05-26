@@ -1,9 +1,9 @@
 from yadisk_client import YaDisk
 from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
 from monocorpus_models import Document, Session
-from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT
+from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT, ITEM_COVER, ITEM_UNKNOWN
 from bs4 import BeautifulSoup, NavigableString
-from markdownify import MarkdownConverter
+from markdownify import markdownify as md
 import mdformat
 from dirs import Dirs
 from rich import print
@@ -13,12 +13,7 @@ import os
 import zipfile
 from urllib.parse import urlparse
 
-class CustomConverter(MarkdownConverter):
-    def convert_img(self, el, text, parent_tags):
-        pass
-
-
-def extract_structured_content(cli_params):
+def extract(cli_params):
     config = read_config()
     predicate = (
         Document.content_url.is_(None) 
@@ -47,7 +42,7 @@ def extract_structured_content(cli_params):
                 f.write(formatted_content)
                 
             content_bucket = config["yandex"]["cloud"]['bucket']['content']
-            content_key = f"{doc.md5}-content.zip"
+            content_key = f"{doc.md5}.zip"
             local_content_path = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}.zip")
             with zipfile.ZipFile(local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
                 zf.write(arcname=f"{doc.md5}.md", filename=formatted_response_md)
@@ -63,6 +58,7 @@ def _postprocess(content):
     content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
     content = re.sub(r"^!\[\]\(.*?\)\s*", '', content, flags=re.MULTILINE)
     content = re.sub(r'^- ?', '— ', content, flags=re.MULTILINE)
+    content = re.sub(r'!\[.*?\]\(.*?\)', '', content, flags=re.MULTILINE)
 
     return content
         
@@ -72,27 +68,6 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
     clips_counter = 0
     clips_dir = get_in_workdir(Dirs.CLIPS)
     clips_bucket = config["yandex"]["cloud"]['bucket']['image']
-    
-    # def _convert_image():
-    #     match item.media_type:
-    #         case 'image/jpeg':
-    #             ext = "jpeg"
-    #         case 'image/png':
-    #             ext = "png"
-    #         case 'image/svg+xml':
-    #             ext = "svg"
-    #         case _: raise ValueError(f"Unsupported media type: {item.media_type}")
-    #     path = os.path.join(clips_dir, f"{doc.md5}-{clips_counter}.{ext}")
-    #     clips_counter += 1
-    #     with open(path, "wb") as f:
-    #         f.write(content)
-    #     url = upload_file(path, clips_bucket, os.path.basename(path), s3session, skip_if_exists=True)
-    #     literal = f'<figure style="text-align: center; margin: 1em 0;" id="{os.path.basename(item.get_name())}"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
-    #     outputs.append(literal) 
-    
-    # class CustomConverter(MarkdownConverter):
-    #     def convert_img(self, el, text, parent_tags):
-    #         _convert_image()
     
     for item in book.get_items():
         item_type = item.get_type()
@@ -113,7 +88,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
             continue
         
         # Handle images
-        if item_type == ITEM_IMAGE:
+        if item_type in [ITEM_IMAGE, ITEM_COVER]:
             match item.media_type:
                 case 'image/jpeg':
                     ext = "jpeg"
@@ -136,16 +111,13 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
                 for i, content in enumerate(p.contents):
                     if isinstance(content, NavigableString):
                         # Replace the content with \n removed
-                        p.contents[i].replace_with(content.replace('\n', ''))
+                        p.contents[i].replace_with(content.replace('\n', ' '))
             
-            # Remove  <a> tag with relative href but keep the text
+            # Remove <a> tag with relative href but keep the text
             for a in soup.find_all('a', href=True):
                 if _is_relative(a['href']):
                     a.unwrap() 
                     
-            for i in soup.find_all('img'):
-                print("image in the document:", i)
-
             text_html = str(soup)
             if not text_html.strip():
                 print(f"No HTML after parsing in {item.get_name()}")
@@ -156,6 +128,8 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
                 outputs.append(text_md)
             else:
                 print(f"Markdown is empty for {item.get_name()}")
+        elif item_type == ITEM_UNKNOWN:
+            print("Unknown type found")
         else:
             raise ValueError(f"Unexpected type received: {item_type}")
             

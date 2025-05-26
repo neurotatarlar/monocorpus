@@ -35,7 +35,7 @@ from datetime import timedelta, timezone, datetime
 # todo be ready for dynamic batch size
 ATTEMPTS = 10
 
-def extract_structured_content(cli_params):
+def extract(cli_params):
     print(f'About to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
     config = read_config()
     
@@ -111,7 +111,7 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
             with lock:
                 failure_count.value = 0
                 
-            context.log("[bold green]Content extraction complete[/bold green]", complete=True)
+            context.log(f"[bold green]Content extraction complete[/bold green], unmatched images: {context.unmatched_images}", complete=True)
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
@@ -249,7 +249,7 @@ def _upload_artifacts(context):
     session = create_session(context.config)
     
     if context.local_content_path:
-        content_key = f"{context.md5}-content.zip"
+        content_key = f"{context.md5}.zip"
         content_bucket = context.config["yandex"]["cloud"]['bucket']['content']
         context.remote_content_url = upload_file(context.local_content_path, content_bucket, content_key, session)
         

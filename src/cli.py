@@ -3,33 +3,29 @@ from typing_extensions import Annotated
 from typing import Optional
 import re
 from dataclasses import dataclass
-from sync import sync as _sync
-import metadata
 import string
-import prepare_shots
-import extract_content
 from enum import Enum
-from sheets_introspect import sheets_introspect
-from sweep import sweep as _sweep
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
-slice_pattern = re.compile(
-    r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
+extract_app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
+app.add_typer(extract_app, name="extract", help="Extract by format")
+meta_app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
+app.add_typer(meta_app, name="meta", help="Extract metadata")
 
+slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
 
 class Tier(str, Enum):
     free = "free"
     promo = "promo"
 
-
 @dataclass
-class ExtractCliParams:
+class ExtractPdfParams:
     md5: str
     path: str
     force: bool
     page_slice: str
     batch_size: int
-    # model: str
+    model: str
     workers: int
     limit: int
     tier: Tier
@@ -46,7 +42,6 @@ class MetaCliParams:
     path: str
     model: str
     tier: Tier
-
 
 def slice_parser(value: str):
     if value:
@@ -76,9 +71,46 @@ def md5_validator(value: str):
             raise typer.BadParameter("MD5 should be a hex string")
     return value
 
+@app.command()
+def sync():
+    """
+    Synchronize documents between Yandex Disk and Google Sheets.
+
+    This command traverses files and directories in Yandex Disk, identifies new or updated entries, 
+    and uploads them to Google Sheets. It ensures that the local and remote data are in sync, 
+    facilitating seamless integration and data management.
+    """
+    import sync
+    sync.sync()
 
 @app.command()
-def extract(
+def select(query: list[str]):
+    """
+    Execute an SQL query on the monocorpus database.
+
+    This command allows users to run custom SQL queries directly on the monocorpus database. 
+    It provides a flexible way to retrieve, filter, or analyze data stored in the database 
+    based on the specified query.
+    """
+    import sheets_introspect
+    sheets_introspect.sheets_introspect(" ".join(query))
+
+@app.command()
+def sweep():
+    """
+    Sweep and clean up non-relevant documents from Yandex Disk and Google Sheets.
+
+    This command moves files in Yandex Disk to a dedicated folder, unpublishes them, and removes their records from Google Sheets.
+    The sweep targets documents that do not meet relevance criteria, such as:
+      - Documents not in the Tatar language.
+      - Documents with MIME types considered non-relevant for textual data (e.g., JSON, CSS).
+    This helps maintain a clean and focused corpus by removing or archiving unnecessary files.
+    """
+    import sweep
+    sweep.sweep()
+    
+@extract_app.command(name="pdf")
+def extract_pdf(
     md5: Annotated[
         Optional[str],
         typer.Option(
@@ -116,13 +148,13 @@ def extract(
             help="Batch size for processing pages",
         )
     ] = 40,
-    # model: Annotated[
-    #     str,
-    #     typer.Option(
-    #         "--model", "-m",
-    #         help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
-    #     )
-    # ] = "gemini-2.5-pro-preview-05-06",
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model", "-m",
+            help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
+        )
+    ] = "gemini-2.5-pro-preview-05-06",
     workers: Annotated[
         int,
         typer.Option(
@@ -146,34 +178,55 @@ def extract(
         )
     ] = Tier.free,
 ):
-    cli_params = ExtractCliParams(
+    from content.pdf import extract
+    cli_params = ExtractPdfParams(
         md5=md5,
         path=path,
         force=force,
         page_slice=pages_slice,
         batch_size=batch_size,
-        # model=model,
+        model=model,
         workers=workers,
         limit=limit,
         tier=tier
     )
-    extract_content.extract_structured_content(cli_params)
+    extract(cli_params)
 
-
-@app.command()
-def sync():
-    """
-    Synchronize documents between Yandex Disk and Google Sheets.
-
-    This command traverses files and directories in Yandex Disk, identifies new or updated entries, 
-    and uploads them to Google Sheets. It ensures that the local and remote data are in sync, 
-    facilitating seamless integration and data management.
-    """
-    _sync()
-
-
-@app.command()
-def meta(
+@extract_app.command(name="epub")
+def extract_epub(
+    md5: Annotated[
+        Optional[str],
+        typer.Option(
+            "--md5",
+            callback=md5_validator,
+            help="MD5 hash of the document. If not provided, all local documents will be processed."
+        )
+    ] = None,
+    path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--path", "-p",
+            help="Path to the document or directory in yandex disk"
+        )
+    ] = None,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit", "-l",
+            help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
+        )
+    ] = None,
+):
+    from content.epub import extract
+    cli_params = ExtractEpubParams(
+        md5=md5, 
+        path=path,
+        limit=limit
+    )
+    extract(cli_params)
+    
+@meta_app.command(name="pdf")
+def metadata_pdf(
     md5: Annotated[
         Optional[str],
         typer.Option(
@@ -213,6 +266,7 @@ def meta(
     for further analysis or integration. If no MD5 or path is provided, all local documents 
     will be processed.
     """
+    import metadata
     cli_params = MetaCliParams(
         md5=md5,
         path=path,
@@ -220,75 +274,3 @@ def meta(
         tier=tier
     )
     metadata.metadata(cli_params)
-
-
-@app.command()
-def shots():
-    """
-    Assemble and load inline prompts for structured content extraction.
-
-    This command prepares ready-to-use prompts that can be utilized for extracting 
-    structured content from documents. It ensures that the necessary prompts are 
-    loaded and available for subsequent processing tasks.
-    """
-    prepare_shots.load_inline_shots()
-
-
-@app.command()
-def select(query: list[str]):
-    """
-    Execute an SQL query on the monocorpus database.
-
-    This command allows users to run custom SQL queries directly on the monocorpus database. 
-    It provides a flexible way to retrieve, filter, or analyze data stored in the database 
-    based on the specified query.
-    """
-    sheets_introspect(" ".join(query)
-                      )
-
-@app.command()
-def sweep():
-    """
-    Sweep and clean up non-relevant documents from Yandex Disk and Google Sheets.
-
-    This command moves files in Yandex Disk to a dedicated folder, unpublishes them, and removes their records from Google Sheets.
-    The sweep targets documents that do not meet relevance criteria, such as:
-      - Documents not in the Tatar language.
-      - Documents with MIME types considered non-relevant for textual data (e.g., JSON, CSS).
-    This helps maintain a clean and focused corpus by removing or archiving unnecessary files.
-    """
-    _sweep()
-    
-
-@app.command()
-def extract_epub(
-    md5: Annotated[
-        Optional[str],
-        typer.Option(
-            "--md5",
-            callback=md5_validator,
-            help="MD5 hash of the document. If not provided, all local documents will be processed."
-        )
-    ] = None,
-    path: Annotated[
-        Optional[str],
-        typer.Option(
-            "--path", "-p",
-            help="Path to the document or directory in yandex disk"
-        )
-    ] = None,
-    limit: Annotated[
-        int,
-        typer.Option(
-            "--limit", "-l",
-            help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
-        )
-    ] = None,
-):
-    from content import extract_epub
-    cli_params = ExtractEpubParams(
-        md5=md5, 
-        path=path,
-        limit=limit
-    )
-    extract_epub.extract_structured_content(cli_params)

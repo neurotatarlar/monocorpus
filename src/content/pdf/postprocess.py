@@ -107,7 +107,8 @@ def _proccess_images(context, content):
             _upload_to_s3(pairs, session, context)
             _compile_replacement_str(pairs)
             result.extend([(p['gemini']['html'], p['replacement']) for p in pairs])
-            context.unmatched_images =+ unmatched_images
+            context.unmatched_images += unmatched_images
+            print(f"Unmatched images: {context.unmatched_images}")
     
     return _replace_images(result, content)
 
@@ -211,7 +212,7 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
     # we still keep gemini bbox to later remove it from the document by creating empty replacement string
     for idx, gem_box in enumerate(details['gemini']):
         if idx not in matched_gemini:
-            print(f"Unmatched bbox: {gem_box}")
+            # print(f"Unmatched bbox: {gem_box}")
             unmatched_images += 1
             matches.append({'gemini': gem_box})
 
