@@ -21,7 +21,7 @@ class CustomConverter(MarkdownConverter):
 def extract_structured_content(cli_params):
     config = read_config()
     predicate = (
-        Document.extraction_complete.is_not(True) 
+        Document.content_url.is_(None) 
         & Document.mime_type.is_('application/epub+zip')
     )
     s3session = create_session(config)
@@ -56,9 +56,8 @@ def extract_structured_content(cli_params):
             document_bucket = config["yandex"]["cloud"]['bucket']['document']
             doc_key = os.path.basename(local_doc_path)
             doc.document_url = upload_file(local_doc_path, document_bucket, doc_key, s3session, skip_if_exists=True)
-            doc.extraction_complete=True
             
-            # gsheets_session.update(doc)
+            gsheets_session.update(doc)
             
 def _postprocess(content):
     content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
@@ -74,12 +73,26 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
     clips_dir = get_in_workdir(Dirs.CLIPS)
     clips_bucket = config["yandex"]["cloud"]['bucket']['image']
     
-    def _convert_image():
-        pass 
+    # def _convert_image():
+    #     match item.media_type:
+    #         case 'image/jpeg':
+    #             ext = "jpeg"
+    #         case 'image/png':
+    #             ext = "png"
+    #         case 'image/svg+xml':
+    #             ext = "svg"
+    #         case _: raise ValueError(f"Unsupported media type: {item.media_type}")
+    #     path = os.path.join(clips_dir, f"{doc.md5}-{clips_counter}.{ext}")
+    #     clips_counter += 1
+    #     with open(path, "wb") as f:
+    #         f.write(content)
+    #     url = upload_file(path, clips_bucket, os.path.basename(path), s3session, skip_if_exists=True)
+    #     literal = f'<figure style="text-align: center; margin: 1em 0;" id="{os.path.basename(item.get_name())}"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
+    #     outputs.append(literal) 
     
-    class CustomConverter(MarkdownConverter):
-        def convert_img(self, el, text, parent_tags):
-            _convert_image()
+    # class CustomConverter(MarkdownConverter):
+    #     def convert_img(self, el, text, parent_tags):
+    #         _convert_image()
     
     for item in book.get_items():
         item_type = item.get_type()
@@ -101,7 +114,6 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         
         # Handle images
         if item_type == ITEM_IMAGE:
-            # print(item)
             match item.media_type:
                 case 'image/jpeg':
                     ext = "jpeg"

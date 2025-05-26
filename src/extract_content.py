@@ -49,7 +49,7 @@ def extract_structured_content(cli_params):
         printer_thread.start()
 
         predicate = (
-            Document.extraction_complete.is_not(True) 
+            Document.content_url.is_(None)
             & Document.full.is_(True) 
             & Document.language.is_("tt-Cyrl") 
             & Document.mime_type.is_('application/pdf')
@@ -86,7 +86,7 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
         with Session() as gsheets_session, \
             Context(config, doc, cli_params, gsheets_session, failure_count, lock, queue) as context, \
             YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-            if not context.cli_params.force and doc.extraction_complete:
+            if not context.cli_params.force and doc.content_url:
                 context.log("Skipped because already processed")
                 return
                 
@@ -222,7 +222,7 @@ def _extract_content(context, pdf_doc, gemini_client):
  
             prev_chunk_tail = content[-300:]
             # important to remove hyphen after taking the chunk tail
-            content = content.removesuffix('-')
+            content = content.removesuffix('-').removesuffix('\n')
             output.write(content)
             output.flush()
             
@@ -280,7 +280,7 @@ def _upsert_document(context):
     doc.content_extraction_method=context.extraction_method
     doc.document_url = context.remote_doc_url
     doc.content_url = context.remote_content_url
-    doc.extraction_complete=True
+    doc.unmatched_images = context.unmatched_images
         
     context.log("Updating doc details in gsheets")
     context.gsheets_session.update(doc)

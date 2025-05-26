@@ -102,11 +102,12 @@ def _proccess_images(context, content):
             
             path_to_page_image_boxed = os.path.join(images_dir, f"{page.number}-boxed.png")
             boxed_image.save(path_to_page_image_boxed, format = 'png')
-            pairs = _pair_model_boxes(details, centroid_distance_threshold = (width + height) / 10)
+            pairs, unmatched_images = _pair_model_boxes(details, centroid_distance_threshold = (width + height) / 10)
             _clips(pix, pairs, page_no, clips_dir, context.md5)
             _upload_to_s3(pairs, session, context)
             _compile_replacement_str(pairs)
             result.extend([(p['gemini']['html'], p['replacement']) for p in pairs])
+            context.unmatched_images =+ unmatched_images
     
     return _replace_images(result, content)
 
@@ -168,6 +169,7 @@ def _compile_replacement_str(pairs):
             
 def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
     potential_matches = []
+    unmatched_images = 0
 
     # Step 1: Collect all potential matches with scores
     for gem_idx, gem_box in enumerate(details['gemini']):
@@ -210,9 +212,10 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
     for idx, gem_box in enumerate(details['gemini']):
         if idx not in matched_gemini:
             print(f"Unmatched bbox: {gem_box}")
+            unmatched_images += 1
             matches.append({'gemini': gem_box})
 
-    return matches
+    return matches, unmatched_images
     
 def _collect_images(content):
     pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)

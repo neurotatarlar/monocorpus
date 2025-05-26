@@ -9,7 +9,6 @@ from sweep import move_to_filtered_out, not_document_types
 
 BATCH_SIZE = 20
 
-
 def sync():
     """
     Syncs files from Yandex Disk to Google Sheets.

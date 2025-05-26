@@ -28,7 +28,8 @@ not_document_types = [
     'application/x-shockwave-flash',
     'text/css',
     'application/x-javascript',
-    'application/x-shockwave-flash'
+    'application/x-shockwave-flash',
+    'image/tiff'
 ]
 
 def sweep():
@@ -57,6 +58,8 @@ def sweep():
         print("Moving and unpublishing files")
         entry_point = config['yandex']['disk']['entry_point']
         for file in walk_yadisk(client=yaclient, root=entry_point, fields=["path", "md5"]):
+            if not docs_for_wiping:
+                break
             if d := docs_for_wiping.get(file.md5, None):
                 print(f"Moving file '{file.path}'")
                 if d.language not in tatar_bcp_47_codes:
