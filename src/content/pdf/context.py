@@ -35,6 +35,7 @@ class Context():
         # count of pages in the document, not in the book inside document
         self.doc_page_count = None
         self.unmatched_images = 0
+        self.total_images = 0
 
     def __enter__(self):
         # self.progress.__enter__()

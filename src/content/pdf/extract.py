@@ -1,27 +1,25 @@
 from utils import read_config, download_file_locally, obtain_documents, get_in_workdir
 from yadisk_client import YaDisk
 from monocorpus_models import Document, Session
-from context import Context, Message
+from content.pdf.context import Context, Message
 from s3 import upload_file, create_session
 import os
 from gemini import request_gemini, create_client
 import pymupdf
 from more_itertools import batched
 from dirs import Dirs
-from schema import ExtractionResult
 import shutil
-from postprocess import postprocess
+from content.pdf.postprocess import postprocess
 import re
 import zipfile
 from prompt import cook_extraction_prompt
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Manager
-from context import Context
 from gemini import create_client
 from utils import download_file_locally
 import json
 from rich import print
-from continuity_checker import continue_smoothly
+from content.pdf.continuity_checker import continue_smoothly
 from google.genai.errors import ClientError
 from multiprocessing import Manager, Queue
 from rich.console import Group
@@ -31,9 +29,13 @@ from rich.table import Table
 from rich.live import Live
 import time
 from datetime import timedelta, timezone, datetime
+from pydantic import BaseModel
 
 # todo be ready for dynamic batch size
 ATTEMPTS = 10
+
+class ExtractionResult(BaseModel):
+    content: str
 
 def extract(cli_params):
     print(f'About to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
@@ -64,7 +66,9 @@ def extract(cli_params):
                 in docs
             }
             for future in as_completed(futures):
-                if failure_count.value >= ATTEMPTS:
+                if _check_stop_file():
+                    break 
+                elif failure_count.value >= ATTEMPTS:
                     print("[red]Too many consecutive failures. Exiting all processing.[/red]")
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
@@ -81,6 +85,8 @@ def extract(cli_params):
                 
                 
 def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
+    if _check_stop_file():
+        return None # skip if shutdown was requested
     try:
         gemini_client = create_client(cli_params.tier)
         with Session() as gsheets_session, \
@@ -102,16 +108,13 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
             context.ya_resource_id = ya_doc_meta.resource_id
             
             _process(context, gemini_client)
-            with context.lock:
-                if context.failure_count.value >= ATTEMPTS:
-                    return
             _upload_artifacts(context)
             _upsert_document(context)
             
             with lock:
                 failure_count.value = 0
                 
-            context.log(f"[bold green]Content extraction complete[/bold green], unmatched images: {context.unmatched_images}", complete=True)
+            context.log(f"[bold green]Content extraction complete[/bold green], unmatched images: {context.unmatched_images} of {context.total_images}", complete=True)
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
@@ -123,11 +126,10 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
 
 
 def _process(context, gemini_client):
+    if _check_stop_file():
+        return None # skip if shutdown was requested
     with pymupdf.open(context.local_doc_path) as pdf_doc:
         _extract_content(context, pdf_doc, gemini_client)
-        with context.lock:
-            if context.failure_count.value >= ATTEMPTS:
-                return
         postprocessed = postprocess(context)
         
         context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-formatted.md")
@@ -178,7 +180,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                 files = {slice_file_path: "application/pdf"}
                 chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                 for model in context.config['gemini_models']:
-                    context.log(f"Extracting chunk {idx}({_from}-{_to}) of {len(iter)} by model '{model}'")
+                    # context.log(f"Extracting chunk {idx}({_from}-{_to}) of {len(iter)} by model '{model}'")
                     try:
                         response = request_gemini(
                             client=gemini_client,
@@ -280,7 +282,7 @@ def _upsert_document(context):
     doc.content_extraction_method=context.extraction_method
     doc.document_url = context.remote_doc_url
     doc.content_url = context.remote_content_url
-    doc.unmatched_images = context.unmatched_images
+    doc.unmatched_images = f"{context.unmatched_images} of {context.total_images}"
         
     context.log("Updating doc details in gsheets")
     context.gsheets_session.update(doc)
@@ -366,3 +368,8 @@ def shift_trailing_footnotes_up(content):
     reordered = body_lines[:-1] + [''] + footnotes + [''] + body_lines[-1:]
 
     return '\n'.join(reordered)
+
+def _check_stop_file():
+    if os.path.exists("stop"):
+        return True
+    return False 

@@ -147,7 +147,7 @@ def extract_pdf(
             "--batch-size", "-b",
             help="Batch size for processing pages",
         )
-    ] = 40,
+    ] = 30,
     model: Annotated[
         str,
         typer.Option(
@@ -266,11 +266,11 @@ def metadata_pdf(
     for further analysis or integration. If no MD5 or path is provided, all local documents 
     will be processed.
     """
-    import metadata
+    from metadata.pdf import extract
     cli_params = MetaCliParams(
         md5=md5,
         path=path,
         model=model,
         tier=tier
     )
-    metadata.metadata(cli_params)
+    extract(cli_params)

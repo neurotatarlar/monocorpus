@@ -19,7 +19,7 @@ from time import sleep
 from monocorpus_models import Document, Session
 import time
 
-def metadata(cli_params):
+def extract(cli_params):
     config = read_config()
     attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
