@@ -67,6 +67,8 @@ def extract(cli_params):
             }
             for future in as_completed(futures):
                 if _check_stop_file():
+                    print("[yellow]Gracefully shutdown. Stopping...[/yellow]")
+                    executor.shutdown(wait=True, cancel_futures=False)
                     break 
                 elif failure_count.value >= ATTEMPTS:
                     print("[red]Too many consecutive failures. Exiting all processing.[/red]")
@@ -118,6 +120,10 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
+        import traceback
+        print(e)
+        traceback.print_exception(e, chain=True)
+        exit()
         context.log(f"[bold red]failed with error: {e}[/bold red]", complete=True)
         with lock:
             failure_count.value += 1
@@ -126,11 +132,11 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
 
 
 def _process(context, gemini_client):
-    if _check_stop_file():
-        return None # skip if shutdown was requested
     with pymupdf.open(context.local_doc_path) as pdf_doc:
         _extract_content(context, pdf_doc, gemini_client)
         postprocessed = postprocess(context)
+        if _check_stop_file():
+            return None
         
         context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-formatted.md")
         with open(context.formatted_response_md, 'w') as f:
@@ -160,6 +166,8 @@ def _extract_content(context, pdf_doc, gemini_client):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
                     return
+            if _check_stop_file():
+                return
             _from = chunk[0]
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
@@ -203,7 +211,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                         shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                          
                         context.log(
-                            f"[green]Chunk {idx}({_from}-{_to}) extracted with model '{model}': "
+                            f"[green]Chunk {idx}({_from}-{_to}) of {len(iter)} extracted with model '{model}': "
                             f"{p.usage_metadata.total_token_count} tokens used[/green]"
                         )
                         break

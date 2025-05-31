@@ -18,6 +18,8 @@ def continue_smoothly(prev_chunk_tail, content):
     return: True if paragraphs are the same, False otherwise
     """
     content_head = content[:300]
+    if not content_head:
+        return ""
     for pattern in HEADER_PATTERNS:
         if re.match(pattern, content_head):
             return '\n\n' + content
