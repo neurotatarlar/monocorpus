@@ -82,7 +82,6 @@ def _proccess_images(context, content):
             ]
             assert all(d['class'] == 'picture' for d in detected_images), "Some of detected layouts are not pictures"
             details['yolo'] = detected_images
-                
             # draw bboxes on image
             boxed_image = pix.pil_image()
             draw = ImageDraw.Draw(boxed_image)
@@ -97,6 +96,9 @@ def _proccess_images(context, content):
                 y0 = y0 / 1000 * height
                 x1 = x1 / 1000 * width
                 y1 = y1 / 1000 * height
+                if x0 > x1 or y0 > y1:
+                    print(f"Invalid bbox coordinates: {d['bbox']}")
+                    continue
                 d['bbox'] = [x0, y0, x1, y1]
                 draw.rectangle(d['bbox'], outline="red", width = 10)
             
@@ -118,9 +120,11 @@ def _collect_images(content):
     for match in pattern.finditer(content):
         raw_html = match.group(1)
         fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
+        if not (bbox := fig_elem.get("data-bbox")):
+            raise ValueError(f"Figure element does not have 'data-bbox' attribute: '{match}'")
         details = {
             'html': raw_html,
-            'bbox': json.loads(fig_elem.get("data-bbox")),
+            'bbox': json.loads(bbox),
         }
         if caption := fig_elem.find("figcaption"):
             details['caption'] = caption.get_text(strip=True)
@@ -142,7 +146,7 @@ def _upload_to_s3(pairs, session, context):
             continue
         bucket = context.config["yandex"]["cloud"]['bucket']['image']
         key = os.path.basename(path)
-        p['url'] = upload_file(path, bucket, key, session)
+        p['url'] = upload_file(path, bucket, key, session, skip_if_exists=True)
 
 def _clips(pix, pairs, page_no, clips_dir, md5):
     image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -217,24 +221,24 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
 
     return matches, unmatched_images
     
-def _collect_images(content):
-    pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)
-    dashboard = defaultdict(dict)
-    for match in pattern.finditer(content):
-        raw_html = match.group(1)
-        fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
-        details = {
-            'html': raw_html,
-            'bbox': json.loads(fig_elem.get("data-bbox")),
-        }
-        if caption := fig_elem.find("figcaption"):
-            details['caption'] = caption.get_text(strip=True)
+# def _collect_images(content):
+#     pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)
+#     dashboard = defaultdict(dict)
+#     for match in pattern.finditer(content):
+#         raw_html = match.group(1)
+#         fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
+#         details = {
+#             'html': raw_html,
+#             'bbox': json.loads(fig_elem.get("data-bbox")),
+#         }
+#         if caption := fig_elem.find("figcaption"):
+#             details['caption'] = caption.get_text(strip=True)
             
-        page_no = int(fig_elem.get("data-page"))
-        if not dashboard[page_no].get('gemini'):
-            dashboard[page_no]['gemini'] = []
-        dashboard[page_no]['gemini'].append(details)
-    return dashboard
+#         page_no = int(fig_elem.get("data-page"))
+#         if not dashboard[page_no].get('gemini'):
+#             dashboard[page_no]['gemini'] = []
+#         dashboard[page_no]['gemini'].append(details)
+#     return dashboard
 
 def compute_iou(box1, box2):
     xa = max(box1[0], box2[0])

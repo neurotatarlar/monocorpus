@@ -32,7 +32,7 @@ from datetime import timedelta, timezone, datetime
 from pydantic import BaseModel
 
 # todo be ready for dynamic batch size
-ATTEMPTS = 10
+ATTEMPTS = 30
 
 class ExtractionResult(BaseModel):
     content: str
@@ -57,7 +57,7 @@ def extract(cli_params):
             & Document.mime_type.is_('application/pdf')
         )
         
-        docs = obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit)
+        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d not in {"1ea63090f7692dd0486f418ad0bb2b82", "518520e3e17576fa4e75cae77d5c20b9"}]
         
         with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
             futures = {
@@ -110,6 +110,8 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
             context.ya_resource_id = ya_doc_meta.resource_id
             
             _process(context, gemini_client)
+            if _check_stop_file():
+                return
             _upload_artifacts(context)
             _upsert_document(context)
             
@@ -121,8 +123,8 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
         exit(0)
     except Exception as e:
         import traceback
-        print(e)
-        traceback.print_exception(e, chain=True)
+        print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
+        print(traceback.format_exc())
         exit()
         context.log(f"[bold red]failed with error: {e}[/bold red]", complete=True)
         with lock:
@@ -134,9 +136,9 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
 def _process(context, gemini_client):
     with pymupdf.open(context.local_doc_path) as pdf_doc:
         _extract_content(context, pdf_doc, gemini_client)
-        postprocessed = postprocess(context)
         if _check_stop_file():
             return None
+        postprocessed = postprocess(context)
         
         context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-formatted.md")
         with open(context.formatted_response_md, 'w') as f:
@@ -151,18 +153,17 @@ def _process(context, gemini_client):
     
     
 def _extract_content(context, pdf_doc, gemini_client):
-    batch_size = context.cli_params.batch_size
-    iter = list(batched(range(0, pdf_doc.page_count)[context.cli_params.page_slice], batch_size))
-
+    chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
+    chunks = _get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=context.cli_params.batch_size)
+    context.log(f"Extracting chunks: {chunks}")
     prev_chunk_tail = None
     headers_hierarchy = []
     next_footnote_num = 1
-    chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
     
     context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
     prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
     with open(context.unformatted_response_md, "w") as output:
-        for idx, chunk in enumerate(iter, start=1):
+        for idx, chunk in enumerate(chunks, start=1):
             with context.lock:
                 if context.failure_count.value >= ATTEMPTS:
                     return
@@ -172,7 +173,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
             if os.path.exists(chunk_result_complete_path):
-                context.log(f"Chunk {idx}({_from}-{_to}) is already extracted")
+                context.log(f"Chunk {idx}({_from}-{_to}) of {len(chunks)} is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
             else:            
@@ -188,7 +189,6 @@ def _extract_content(context, pdf_doc, gemini_client):
                 files = {slice_file_path: "application/pdf"}
                 chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                 for model in context.config['gemini_models']:
-                    # context.log(f"Extracting chunk {idx}({_from}-{_to}) of {len(iter)} by model '{model}'")
                     try:
                         response = request_gemini(
                             client=gemini_client,
@@ -211,7 +211,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                         shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                          
                         context.log(
-                            f"[green]Chunk {idx}({_from}-{_to}) of {len(iter)} extracted with model '{model}': "
+                            f"[green]Chunk {idx}({_from}-{_to}) of {len(chunks)} extracted with model '{model}': "
                             f"{p.usage_metadata.total_token_count} tokens used[/green]"
                         )
                         break
@@ -378,6 +378,46 @@ def shift_trailing_footnotes_up(content):
     return '\n'.join(reordered)
 
 def _check_stop_file():
-    if os.path.exists("stop"):
-        return True
-    return False 
+    return os.path.exists("stop")
+
+def _get_chunks(dir, start_inc: int, end_excl: int, chunk_size: int, last_chunk_min_size=5):
+    # # Step 1: Sort existing chunks
+    existing_sorted = []
+    pattern = re.compile(r"^chunk-(\d+)-(\d+)\.json$")
+    for filename in os.listdir(dir):
+        match = pattern.match(filename)
+        if match:
+            start, end = map(int, match.groups())
+            existing_sorted.append((start, end))
+    existing_sorted = list(sorted(existing_sorted))
+    
+    # Step 2: Build list of gaps (free ranges)
+    gaps = []
+    current = start_inc
+    for start, end in sorted(existing_sorted):
+        if current < start:
+            gaps.append((current, start - 1))
+        current = max(current, end + 1)
+    if current <= end_excl:
+        gaps.append((current, end_excl))
+
+    # Step 3: Fill gaps with new chunks
+    new_chunks = []
+    for gap_start, gap_end in gaps:
+        pos = gap_start
+        while pos <= gap_end:
+            end = min(pos + chunk_size - 1, gap_end)
+            new_chunks.append((pos, end))
+            pos = end + 1
+
+    # Step 4: Merge last chunk if it's too small
+    if len(new_chunks) >= 2:
+        last_start, last_end = new_chunks[-1]
+        prev_start, prev_end = new_chunks[-2]
+        if (last_end - last_start + 1) < last_chunk_min_size:
+            # Merge small last chunk into previous
+            new_chunks[-2] = (prev_start, last_end)
+            new_chunks.pop()
+
+    # Step 5: Return sorted list of all chunks
+    return sorted(existing_sorted + new_chunks)

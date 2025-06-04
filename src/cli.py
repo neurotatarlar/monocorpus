@@ -147,7 +147,7 @@ def extract_pdf(
             "--batch-size", "-b",
             help="Batch size for processing pages",
         )
-    ] = 30,
+    ] = 20,
     model: Annotated[
         str,
         typer.Option(
@@ -274,3 +274,8 @@ def metadata_pdf(
         tier=tier
     )
     extract(cli_params)
+    
+@app.command()
+def dataset():
+    import assemble_dataset 
+    assemble_dataset.assemble_dataset()

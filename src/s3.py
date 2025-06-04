@@ -1,5 +1,7 @@
 from boto3 import Session
 from utils import read_config
+import os
+from rich import print
 
 CONFIG_FILE = "config.yaml"
 
@@ -22,3 +24,17 @@ def upload_file(path, bucket, key, session, skip_if_exists=False):
         )
     
     return f"{session._endpoint.host}/{bucket}/{key}"
+
+def download(bucket, download_dir, prefix=''):
+    s3 = create_session()
+
+    # List and download all objects under prefix
+    paginator = s3.get_paginator('list_objects_v2')
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get('Contents', []):
+            key = obj['Key']
+            local_path = os.path.join(download_dir, os.path.relpath(key, prefix))
+            if not os.path.exists(local_path):
+                print(f"Downloading {key} to {local_path}")
+                s3.download_file(bucket, key, local_path)
+            yield local_path

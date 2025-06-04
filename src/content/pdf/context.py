@@ -52,9 +52,10 @@ class Context():
         )
         
     def log(self, content, complete=False):
-        msg = Message(
-            id=self.md5,
-            content=content,
-            complete=complete
-        )
-        self.queue.put(msg)
+        # msg = Message(
+        #     id=self.md5,
+        #     content=content,
+        #     complete=complete
+        # )
+        # self.queue.put(msg)
+        pass
