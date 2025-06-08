@@ -120,6 +120,7 @@ def _collect_images(content):
     for match in pattern.finditer(content):
         raw_html = match.group(1)
         fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
+        print(f">>>>>>{match}\n<<<<<<")
         if not (bbox := fig_elem.get("data-bbox")):
             raise ValueError(f"Figure element does not have 'data-bbox' attribute: '{match}'")
         details = {
@@ -221,25 +222,6 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
 
     return matches, unmatched_images
     
-# def _collect_images(content):
-#     pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)
-#     dashboard = defaultdict(dict)
-#     for match in pattern.finditer(content):
-#         raw_html = match.group(1)
-#         fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
-#         details = {
-#             'html': raw_html,
-#             'bbox': json.loads(fig_elem.get("data-bbox")),
-#         }
-#         if caption := fig_elem.find("figcaption"):
-#             details['caption'] = caption.get_text(strip=True)
-            
-#         page_no = int(fig_elem.get("data-page"))
-#         if not dashboard[page_no].get('gemini'):
-#             dashboard[page_no]['gemini'] = []
-#         dashboard[page_no]['gemini'].append(details)
-#     return dashboard
-
 def compute_iou(box1, box2):
     xa = max(box1[0], box2[0])
     ya = max(box1[1], box2[1])

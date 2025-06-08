@@ -21,3 +21,4 @@ click<8.2
 ebooklib
 beautifulsoup4 
 markdownify
+huggingface-hub

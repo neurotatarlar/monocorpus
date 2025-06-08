@@ -248,7 +248,7 @@ def metadata_pdf(
             "--model", "-m",
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
-    ] = "gemini-2.5-flash-preview-04-17",
+    ] = "gemini-2.5-flash-preview-05-20	",
     tier: Annotated[
         Tier,
         typer.Option(

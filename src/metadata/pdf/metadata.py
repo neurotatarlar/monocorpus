@@ -7,7 +7,7 @@ import os
 from itertools import groupby
 import pymupdf
 from gemini import request_gemini, create_client
-from schema import Book
+from metadata.schema import Book
 import zipfile
 import isbnlib
 from prompt import DEFINE_META_PROMPT

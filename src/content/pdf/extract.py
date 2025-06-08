@@ -32,7 +32,15 @@ from datetime import timedelta, timezone, datetime
 from pydantic import BaseModel
 
 # todo be ready for dynamic batch size
-ATTEMPTS = 30
+ATTEMPTS = 10
+
+skipped = {
+    "1ea63090f7692dd0486f418ad0bb2b82", "518520e3e17576fa4e75cae77d5c20b9", "f9441c3795204b3165e6f7c23286f1ec",
+    "15b4893c6cd99195774548ca4276d06d", "f3e9b4311f6506f1ceb0f6f4b4de5f54", "2f974ec14f30e05954f2748899a078b2",
+    "e9eb18e8ba5f694f3de49a63f43a6255", "395e748bdd6d6bf129925a3b616610f8", "ced45598a9cc9b331e1529c89ad0c77a",
+    "d601f93e8ce2cb4e3bc7dd6feac91a00", "f0b1d8c6a2e3f4b5c7d8e9f0a1b2c3d4", "2d7b5f5732a0144fe0fcf0c44cffc926",
+    "6e631cbbe05a22d5a9f6c6772544f03a"
+}
 
 class ExtractionResult(BaseModel):
     content: str
@@ -57,7 +65,25 @@ def extract(cli_params):
             & Document.mime_type.is_('application/pdf')
         )
         
-        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d not in {"1ea63090f7692dd0486f418ad0bb2b82", "518520e3e17576fa4e75cae77d5c20b9"}]
+        # skipped2 = {
+        #     "f3e9b4311f6506f1ceb0f6f4b4de5f54", "15b4893c6cd99195774548ca4276d06d", "ced45598a9cc9b331e1529c89ad0c77a", 
+        #     "d601f93e8ce2cb4e3bc7dd6feac91a00", "2b7e8214d77032a762ec27700027bc6e", "b2faa8afcf596a983303cbbe89e54236",
+        #     "a8a84bde07beb4cf8ac839b9f31c8b0e",
+        #     "876ca1bf1a0c53155ce5aacee19dce39", "4e7281b3c773a58ed20dc2a3f1dbf612", "f2ba8c6fa7d4ea35a1b524e386da2d6b",
+        #     "3400682f08b593b539bf068a2eed1c64", "5323cc9e498427fbd2ec25a0bc0f87c3"
+    
+        # } 
+        
+        # total = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped and d.md5 not in skipped2]
+        
+        # print(f"[bold green]Total documents to process: {len(total)}[/bold green]")
+        # with open("slice.csv", "w") as f:
+        #     f.write("md5,ya_public_url\n")
+        #     for d in total[:50]:
+        #         f.write(f"{d.md5},{d.ya_public_url}\n")
+        # exit()
+        
+        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped]
         
         with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
             futures = {
@@ -122,10 +148,10 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        import traceback
-        print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
-        print(traceback.format_exc())
-        exit()
+        # import traceback
+        # print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
+        # print(traceback.format_exc())
+        # exit()
         context.log(f"[bold red]failed with error: {e}[/bold red]", complete=True)
         with lock:
             failure_count.value += 1
