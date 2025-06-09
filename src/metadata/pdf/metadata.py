@@ -35,7 +35,7 @@ def extract(cli_params):
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)
                 attempt = 1
             except KeyboardInterrupt:
-                exit(0)
+                exit()
             except BaseException as e:
                 print(e)
                 if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
@@ -66,7 +66,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")
-    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=3)
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=5)
 
     # prepare prompt
     prompt = _prepare_prompt(doc, slice_page_count)

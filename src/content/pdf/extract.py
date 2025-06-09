@@ -31,16 +31,77 @@ import time
 from datetime import timedelta, timezone, datetime
 from pydantic import BaseModel
 
-# todo be ready for dynamic batch size
 ATTEMPTS = 10
 
-skipped = {
-    "1ea63090f7692dd0486f418ad0bb2b82", "518520e3e17576fa4e75cae77d5c20b9", "f9441c3795204b3165e6f7c23286f1ec",
-    "15b4893c6cd99195774548ca4276d06d", "f3e9b4311f6506f1ceb0f6f4b4de5f54", "2f974ec14f30e05954f2748899a078b2",
-    "e9eb18e8ba5f694f3de49a63f43a6255", "395e748bdd6d6bf129925a3b616610f8", "ced45598a9cc9b331e1529c89ad0c77a",
-    "d601f93e8ce2cb4e3bc7dd6feac91a00", "f0b1d8c6a2e3f4b5c7d8e9f0a1b2c3d4", "2d7b5f5732a0144fe0fcf0c44cffc926",
-    "6e631cbbe05a22d5a9f6c6772544f03a"
+# these docs could not be extracted due to enormous output tokens count
+skipped_too_big = {
+    "f3e9b4311f6506f1ceb0f6f4b4de5f54",
+    "2d7b5f5732a0144fe0fcf0c44cffc926",
+    "e9eb18e8ba5f694f3de49a63f43a6255",
+    "15b4893c6cd99195774548ca4276d06d",
+    "ced45598a9cc9b331e1529c89ad0c77a",
+    "d601f93e8ce2cb4e3bc7dd6feac91a00",
+    "a3711d07ece399d42ec94bea4f4a7296",
+    "395e748bdd6d6bf129925a3b616610f8",
+    "2f974ec14f30e05954f2748899a078b2",
+    "f5303357ce39d8c9f66246330df03035",
 }
+
+# these docs skipped because they are processed by external contributor
+skipped_external = {
+    "7ddc45e6fa6ed4caa120b11689cf200e",
+    "23e247a5cf94523a26cef1baeca08330",
+    "31ce8173d68e9d6ad43beb520d9e9448",
+    "07cc4822f3e37effa20c74d10eff387a",
+    "a9b1da6ea3a12aedb6ed27093eca1bce",
+    "883d9c8190d42250a5081e1b7e5635d9",
+    "ecdfa76d4ca720f647c4e03969cb052b",
+    "e1e129d1fecae4ae7e97a487823d6e3b",
+    "f026fd136cfdc31146eae9627f897d0a",
+    "82c2ae6276da4ed305657700e0a3eb95",
+    "c8698eaa01752a239d5779553ba8797e",
+    "6350d3bebd8612c5d1f85d470c16f8f9",
+    "b305bbcd3644e9a0cc5e74116d444727",
+    "3996366e00a2398971f27b3d866b1f8d",
+    "94c14cf503df51ebc166100d3b156116",
+    "bb1499278121c478aff5a295f378b817",
+    "cf97d9e734afe487b405b192a2b9132a",
+    "a32a083aae191391afa1f0f0ad5612f6",
+    "28797210aad79878bfca2f36c9ceffb2",
+    "2284187654c2384c98bc2f218f4a4a31",
+    "bc3baa864c4eb5b7ee16bcc693beeb3f",
+    "fdb3ca5fec275257a473a078f5357762",
+    "49d84164271052f59047aa55059ff354",
+    "1c20250dcc2dfe2a576836209910eda2",
+    "febbc761113bbb62d53d9d44b8aae03f",
+    "85909aeddf6aad90af5e133647916a5c",
+    "bb8054f3f97e6d8c24952747896ce798",
+    "cb3a30518de60f86ac5a9320ddbc359f",
+    "566ad47e7fa9d62de1aa6e718a51eefc",
+    "9026cbbd642fe7e11263d1d93f341e46",
+    "6e4d024cc644868d8cd4b1a61e6e6e01",
+    "567e836d1d0b3e4844136298ff478e4d",
+    "0ac2b8526619d90a033f555e96824241",
+    "1aa8a0f53a6eb7d1a80fd6f277b1461b",
+    "bb36a0f7472ad8bbf042e1808059e986",
+    "a2836964850cfc7a0aa60c9d84238b67",
+    "d17e958165101c38cbe54802cbf3ccfb",
+    "33d340001666758a941f45d8e52918d1",
+    "2b74413020def6d1721d2b4cebacadc4",
+    "5bc67f299737246e0f158eda5f25613b",
+    "83fd6bbe968f6d5927ff461d09ea4bad",
+    "16f2434b740ee116ac6f634f35977345",
+    "a2aee670bcf2824596cf1a2e82f7af11",
+    "581d6547cdf1f7929541907285ddb56d",
+    "d1ac7329ea0ada8a4f9382a63a59ddec",
+    "1457cc34b6d426459b6bfcba4136a9f7",
+    "4426f343d867a49c5c8b91a1af48e7f7",
+    "57878b070e6074f42fe72bc09369b024",
+    "fec950bab89ad759a306b26e38b71259",
+    "359db1b930db12ddbd2697a119c7872e",
+}
+
+skipped = skipped_external
 
 class ExtractionResult(BaseModel):
     content: str
@@ -65,25 +126,7 @@ def extract(cli_params):
             & Document.mime_type.is_('application/pdf')
         )
         
-        # skipped2 = {
-        #     "f3e9b4311f6506f1ceb0f6f4b4de5f54", "15b4893c6cd99195774548ca4276d06d", "ced45598a9cc9b331e1529c89ad0c77a", 
-        #     "d601f93e8ce2cb4e3bc7dd6feac91a00", "2b7e8214d77032a762ec27700027bc6e", "b2faa8afcf596a983303cbbe89e54236",
-        #     "a8a84bde07beb4cf8ac839b9f31c8b0e",
-        #     "876ca1bf1a0c53155ce5aacee19dce39", "4e7281b3c773a58ed20dc2a3f1dbf612", "f2ba8c6fa7d4ea35a1b524e386da2d6b",
-        #     "3400682f08b593b539bf068a2eed1c64", "5323cc9e498427fbd2ec25a0bc0f87c3"
-    
-        # } 
-        
-        # total = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped and d.md5 not in skipped2]
-        
-        # print(f"[bold green]Total documents to process: {len(total)}[/bold green]")
-        # with open("slice.csv", "w") as f:
-        #     f.write("md5,ya_public_url\n")
-        #     for d in total[:50]:
-        #         f.write(f"{d.md5},{d.ya_public_url}\n")
-        # exit()
-        
-        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped]
+        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
         
         with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
             futures = {

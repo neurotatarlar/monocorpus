@@ -128,7 +128,7 @@ def _collect_images(content):
             'bbox': json.loads(bbox),
         }
         if caption := fig_elem.find("figcaption"):
-            details['caption'] = caption.get_text(strip=True)
+            details['caption'] = caption.get_text(strip=True).replace('\n', ' ')
             
         page_no = int(fig_elem.get("data-page")) - 1
         if not dashboard[page_no].get('gemini'):
