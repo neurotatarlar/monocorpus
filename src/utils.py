@@ -107,6 +107,9 @@ def _find(session, predicate=None, limit=None):
         statement = statement.where(predicate)
     if limit:
         statement = statement.limit(limit)
+    
+    statement = statement.offset(50)
+    
     yield from session.query(statement)
     
     

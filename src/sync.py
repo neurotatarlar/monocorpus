@@ -5,7 +5,7 @@ from monocorpus_models import Document
 from s3 import  create_session
 from monocorpus_models import Document, Session
 from sqlalchemy import select
-from sweep import move_to_filtered_out, not_document_types
+from filter import move_to_filtered_out, not_document_types
 
 BATCH_SIZE = 20
 
