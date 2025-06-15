@@ -73,7 +73,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         mime_type=mime_type,
         file_name=file.name,
         ya_public_key=ya_public_key,
-        ya_public_url=encrypt(ya_public_url) if sharing_restricted else ya_public_url,
+        ya_public_url=encrypt(ya_public_url, config) if sharing_restricted else ya_public_url,
         sharing_restricted=sharing_restricted,
         ya_resource_id=file.resource_id,
         upstream_metadata_url=upstream_meta,

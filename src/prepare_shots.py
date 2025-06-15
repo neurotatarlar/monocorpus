@@ -1,7 +1,5 @@
 import os
-from PIL import Image
 import base64
-import hashlib
 import json
 
 cooked_shots_dir = "./shots/cooked"
@@ -34,19 +32,6 @@ def _form_inline_shots(_dir = './shots/snippets'):
              
     return prompt  
 
-# def _convert():
-#     for _dir in ['./shots/snippets', './shots/triplets']:
-#         for png_img in _list_files(_dir, enswith=".png"):
-#             file_name, _ = os.path.splitext(os.path.basename(png_img))
-#             jpg_img = os.path.join(_dir, f"{file_name}.png")
-#             with Image.open(png_img) as im:
-#                 rgb_im = im.convert("RGB")
-#                 rgb_im.save(jpg_img, quality=95, format="jpeg")
-#             total_ratio = []
-#             total_ratio.append(os.stat(png_img).st_size / os.stat(jpg_img).st_size)
-#         print("compression result: ",  round(sum(total_ratio) / len(total_ratio), 2))
-
-    
 def _list_files(dir, endswith):
     return [os.path.join(dir, f) for f in os.listdir(dir) if f.endswith(endswith)]
             

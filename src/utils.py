@@ -124,7 +124,7 @@ def walk_yadisk(client, root, fields = [
     queue = deque([root])
     while queue:
         current = queue.popleft()
-        print(f"Visiting: '{current}'")
+        print(f"Visiting '{current}'")
         for res in client.listdir(
             current,
             max_items=None,

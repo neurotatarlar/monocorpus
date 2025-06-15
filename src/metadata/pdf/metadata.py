@@ -1,6 +1,6 @@
 from rich import print
 from s3 import upload_file, create_session
-from utils import read_config, get_in_workdir, download_file_locally, obtain_documents
+from utils import read_config, get_in_workdir, download_file_locally, obtain_documents, encrypt
 from dirs import Dirs
 from yadisk_client import YaDisk
 import os
@@ -23,6 +23,7 @@ def extract(cli_params):
     attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True) & Document.mime_type.is_('application/pdf')
+        
         s3lient =  create_session(config)
         gemini_client = create_client(tier=cli_params.tier, config=config)
         
@@ -54,7 +55,8 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
     start_time = time.time()
     doc_bucket = config["yandex"]["cloud"]['bucket']['document']
     doc_key = os.path.basename(local_doc_path)
-    doc.document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
+    remote_doc_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
+    doc.document_url = encrypt(remote_doc_url, config) if doc.sharing_restricted else remote_doc_url
     print("Uploaded file to s3", round(time.time() - start_time, 1))
     
     if doc.mime_type != "application/pdf":

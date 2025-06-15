@@ -122,6 +122,7 @@ def extract(cli_params):
             & Document.full.is_(True) 
             & Document.language.is_("tt-Cyrl") 
             & Document.mime_type.is_('application/pdf')
+            & Document.isbn.is_not(None)
         )
         
         docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
@@ -215,7 +216,7 @@ def _process(context, gemini_client):
         with zipfile.ZipFile(context.local_content_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
             zf.write(arcname=f"{context.md5}.md", filename=context.formatted_response_md)
         
-        context.extraction_method = f"gemini-2.5/{context.cli_params.batch_size}/pdfinput"
+        context.extraction_method = f"gemini-2.5/pdfinput"
         context.doc_page_count=pdf_doc.page_count
     
     
@@ -239,11 +240,13 @@ def _extract_content(context, pdf_doc, gemini_client):
             _from = chunk[0]
             _to = chunk[-1]
             chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
+            content = None
             if os.path.exists(chunk_result_complete_path):
                 context.log(f"Chunk {idx}({_from}-{_to}) of {len(chunks)} is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
-                    content = ExtractionResult.model_validate_json(f.read()).content
-            else:      
+                    content = validate_chunk(f.read())
+            
+            if not content:
                 # create a pdf doc what will contain a slice of original pdf doc
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
                 
@@ -272,7 +275,10 @@ def _extract_content(context, pdf_doc, gemini_client):
                                     f.write(text)
                         # validating schema
                         with open(chunk_result_incomplete_path, "r") as f:
-                            content = ExtractionResult.model_validate_json(f.read()).content
+                            content = validate_chunk(f.read())
+                            
+                        if not content:
+                            raise ValueError("Could not extract chunk")
                             
                         # "mark" batch as extracted by renaming file
                         shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
@@ -310,6 +316,9 @@ def _extract_content(context, pdf_doc, gemini_client):
 
             context.chunk_paths.append(chunk_result_complete_path)
 
+def validate_chunk(raw_content):
+    content = ExtractionResult.model_validate_json(raw_content).content
+    return content
 
 def _create_doc_clice(_from, _to, pdf_doc, md5):
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, md5, file=f"slice-{_from}-{_to}.pdf")
@@ -348,14 +357,13 @@ def _upload_artifacts(context):
     
     
 def _upsert_document(context):
-
     doc = context.doc
     doc.file_name = context.ya_file_name
     doc.ya_public_key=context.ya_public_key
     doc.ya_resource_id=context.ya_resource_id
 
     doc.content_extraction_method=context.extraction_method
-    doc.document_url = context.remote_doc_url
+    doc.document_url = encrypt(context.remote_doc_url, context.config) if doc.sharing_restricted else context.remote_doc_url
     doc.content_url = encrypt(context.remote_content_url) if doc.sharing_restricted else context.remote_content_url
     doc.unmatched_images = f"{context.unmatched_images} of {context.total_images}"
         
