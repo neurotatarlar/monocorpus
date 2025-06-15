@@ -34,7 +34,7 @@ def download(bucket, download_dir, prefix=''):
         for obj in page.get('Contents', []):
             key = obj['Key']
             local_path = os.path.join(download_dir, os.path.relpath(key, prefix))
-            # if not os.path.exists(local_path):
-            #     print(f"Downloading {key} to {local_path}")
-            #     s3.download_file(bucket, key, local_path)
+            if not os.path.exists(local_path):
+                print(f"Downloading {key} to {local_path}")
+                s3.download_file(bucket, key, local_path)
             yield local_path
