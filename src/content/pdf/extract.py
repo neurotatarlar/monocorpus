@@ -364,7 +364,7 @@ def _upsert_document(context):
 
     doc.content_extraction_method=context.extraction_method
     doc.document_url = encrypt(context.remote_doc_url, context.config) if doc.sharing_restricted else context.remote_doc_url
-    doc.content_url = encrypt(context.remote_content_url) if doc.sharing_restricted else context.remote_content_url
+    doc.content_url = context.remote_content_url
     doc.unmatched_images = f"{context.unmatched_images} of {context.total_images}"
         
     context.log("Updating doc details in gsheets")

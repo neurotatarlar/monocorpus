@@ -23,3 +23,5 @@ beautifulsoup4
 markdownify
 huggingface-hub
 cryptography
+pyarrow
+fastparquet

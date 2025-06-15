@@ -276,6 +276,6 @@ def metadata_pdf(
     extract(cli_params)
     
 @app.command()
-def dataset():
-    import assemble_dataset 
-    assemble_dataset.assemble_dataset()
+def hf():
+    import hf 
+    hf.assemble_dataset()
