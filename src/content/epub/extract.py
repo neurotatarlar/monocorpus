@@ -28,7 +28,7 @@ def extract(cli_params):
         
         for doc in docs:
             print(f"Extracting content from file {doc.md5}({doc.file_name})")
-            local_doc_path = download_file_locally(ya_client, doc)
+            local_doc_path = download_file_locally(ya_client, doc, config)
             md_content = _extract_from_epub(doc, config, local_doc_path, s3session) 
             formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
             postprocessed = _postprocess(md_content)

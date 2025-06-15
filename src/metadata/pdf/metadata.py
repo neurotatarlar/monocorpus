@@ -15,7 +15,6 @@ import requests
 import json
 import re
 from google.genai.errors import ClientError, ServerError
-from time import sleep
 from monocorpus_models import Document, Session
 import time
 
@@ -40,7 +39,7 @@ def extract(cli_params):
                 print(e)
                 if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
                     print("Sleeping for 60 seconds")
-                    sleep(60)
+                    time.sleep(60)
                 if attempt >= 10:
                     raise e
                 attempt += 1
@@ -48,7 +47,7 @@ def extract(cli_params):
 def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session):
     # download doc from yadisk
     start_time = time.time()
-    local_doc_path = download_file_locally(ya_client, doc)
+    local_doc_path = download_file_locally(ya_client, doc, config)
     print("Downloaded file", round(time.time() - start_time, 1))
 
     # upload doc to s3
@@ -138,14 +137,10 @@ def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
     doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
     doc.author =  ", ".join([a.name for a in meta.author if a.name.lower() != 'unknown' ]) if meta.author else None
     doc.title = meta.name if meta.name and meta.name.lower() != 'unknown' else None
-    doc.age_limit = f"{meta.suggestedMinAge}+" if meta.suggestedMinAge else None
-    doc.summary = meta.description.replace('\n', ' ') if meta.description and meta.description.lower() != 'unknown' else None
     doc.language=meta.inLanguage
     doc.genre=", ".join([g.lower() for g in meta.genre if g.lower() != 'unknown']) if meta.genre else None
     doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
     doc.page_count=meta.numberOfPages or None
-    doc.edition = meta.bookEdition
-    doc.audience = meta.audience.lower() if meta.audience and meta.audience.lower() != 'unknown' else None
     if (_publish_date := meta.datePublished) and meta.datePublished.lower() != 'unknown':
         if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
             doc.publish_date = res.group(1)

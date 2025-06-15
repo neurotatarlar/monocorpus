@@ -1,4 +1,4 @@
-from utils import read_config, download_file_locally, obtain_documents, get_in_workdir
+from utils import read_config, download_file_locally, obtain_documents, get_in_workdir, encrypt
 from yadisk_client import YaDisk
 from monocorpus_models import Document, Session
 from content.pdf.context import Context, Message
@@ -6,7 +6,6 @@ from s3 import upload_file, create_session
 import os
 from gemini import request_gemini, create_client
 import pymupdf
-from more_itertools import batched
 from dirs import Dirs
 import shutil
 from content.pdf.postprocess import postprocess
@@ -16,7 +15,6 @@ from prompt import cook_extraction_prompt
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Manager
 from gemini import create_client
-from utils import download_file_locally
 import json
 from rich import print
 from content.pdf.continuity_checker import continue_smoothly
@@ -169,7 +167,7 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
                 
             context.log("Downloading file from yadisk")
         
-            context.local_doc_path = download_file_locally(ya_client, context.doc)
+            context.local_doc_path = download_file_locally(ya_client, context.doc, config)
             
             # request latest metadata of the doc in yandex disk
             ya_doc_meta = ya_client.get_public_meta(context.doc.ya_public_url, fields=['md5', 'name', 'public_key', 'resource_id', 'sha256'])
@@ -245,7 +243,7 @@ def _extract_content(context, pdf_doc, gemini_client):
                 context.log(f"Chunk {idx}({_from}-{_to}) of {len(chunks)} is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = ExtractionResult.model_validate_json(f.read()).content
-            else:            
+            else:      
                 # create a pdf doc what will contain a slice of original pdf doc
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
                 
@@ -358,7 +356,7 @@ def _upsert_document(context):
 
     doc.content_extraction_method=context.extraction_method
     doc.document_url = context.remote_doc_url
-    doc.content_url = context.remote_content_url
+    doc.content_url = encrypt(context.remote_content_url) if doc.sharing_restricted else context.remote_content_url
     doc.unmatched_images = f"{context.unmatched_images} of {context.total_images}"
         
     context.log("Updating doc details in gsheets")

@@ -1,4 +1,4 @@
-from utils import read_config, walk_yadisk
+from utils import read_config, walk_yadisk, encrypt
 from yadisk_client import YaDisk
 from rich import print
 from monocorpus_models import Document
@@ -67,12 +67,14 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     
     print(f"Processing file: '{file.path}' with md5 '{file.md5}'")
 
+    sharing_restricted = config["yandex"]["disk"]["hidden"] in file.path 
     doc = Document(
         md5=file.md5,
         mime_type=mime_type,
         file_name=file.name,
         ya_public_key=ya_public_key,
-        ya_public_url=ya_public_url,
+        ya_public_url=encrypt(ya_public_url) if sharing_restricted else ya_public_url,
+        sharing_restricted=sharing_restricted,
         ya_resource_id=file.resource_id,
         upstream_metadata_url=upstream_meta,
         full=False if "милли.китапханә/limited" in file.path else True,

@@ -7,7 +7,10 @@ import hashlib
 from monocorpus_models import Document, Session
 from sqlalchemy import select
 from collections import deque
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import base64
 
+prefix = "enc:"
 
 def pick_files(dir_path: Union[str, Dirs]):
     return [
@@ -17,7 +20,6 @@ def pick_files(dir_path: Union[str, Dirs]):
         for f
         in files
     ]
-
 
 def calculate_md5(file_path: str):
     """
@@ -87,7 +89,7 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_s
         print("Traversing all unprocessed documents")
         yield from _find(gsheet_session, predicate=predicate, limit=limit)
 
-def download_file_locally(ya_client, doc):
+def download_file_locally(ya_client, doc, config):
     match doc.mime_type:
         case "application/pdf":
             ext = "pdf"
@@ -97,8 +99,9 @@ def download_file_locally(ya_client, doc):
     
     local_path=get_in_workdir(Dirs.ENTRY_POINT, file=f"{doc.md5}.{ext}")
     if not (os.path.exists(local_path) and calculate_md5(local_path) == doc.md5):
+        url = decrypt(doc.ya_public_url, config) if doc.sharing_restricted else doc.ya_public_url
         with open(local_path, "wb") as f:
-            ya_client.download_public(doc.ya_public_url, f)
+            ya_client.download_public(url, f)
     return local_path
 
 def _find(session, predicate=None, limit=None):
@@ -107,8 +110,6 @@ def _find(session, predicate=None, limit=None):
         statement = statement.where(predicate)
     if limit:
         statement = statement.limit(limit)
-    
-    statement = statement.offset(50)
     
     yield from session.query(statement)
     
@@ -133,3 +134,19 @@ def walk_yadisk(client, root, fields = [
                 queue.append(res.path)
             else:
                 yield res
+                
+def encrypt(url, config):
+    key = base64.urlsafe_b64decode(config["encryption_key"])
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
+    encrypted = aesgcm.encrypt(nonce, url.encode(), None)
+    chiphercode = base64.urlsafe_b64encode(nonce + encrypted).decode()
+    return f"{prefix}{chiphercode}"
+
+def decrypt(ciphertext, config):
+    encrypted_url = ciphertext.removeprefix(prefix)
+    data = base64.urlsafe_b64decode(encrypted_url)
+    nonce, ct = data[:12], data[12:]
+    key = base64.urlsafe_b64decode(config["encryption_key"])
+    aesgcm = AESGCM(key)
+    return aesgcm.decrypt(nonce, ct, None).decode()

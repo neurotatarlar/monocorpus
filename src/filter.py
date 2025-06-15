@@ -11,6 +11,7 @@ import json
 from collections import defaultdict
 from dirs import Dirs
 from sqlalchemy import text, select
+import pymupdf
 
 
 tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
@@ -44,21 +45,21 @@ def filter():
         
     with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
         if not docs_for_wiping:
-            # print("Querying non tatar documents")
-            # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-            # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-            # print(f"Found {len(non_tatar_docs)} nontatar docs")
-            # docs_for_wiping.update(non_tatar_docs)
-            # flush(docs_for_wiping)
+            print("Querying non tatar documents")
+            non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+            non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+            print(f"Found {len(non_tatar_docs)} nontatar docs")
+            docs_for_wiping.update(non_tatar_docs)
+            flush(docs_for_wiping)
             
-            # print("Querying non textual docs")
-            # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
-            # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-            # print(f"Found {len(nontextual_docs)} nontextual docs")
-            # docs_for_wiping.update(non_tatar_docs)
-            # flush(docs_for_wiping)
+            print("Querying non textual docs")
+            nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+            nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+            print(f"Found {len(nontextual_docs)} nontextual docs")
+            docs_for_wiping.update(non_tatar_docs)
+            flush(docs_for_wiping)
             
-            dedup_by_isbn(docs_for_wiping, session, yaclient)
+            dedup_by_isbn(docs_for_wiping, session, yaclient, config)
         
         if not docs_for_wiping:
             print("No docs for wiping found, exiting...")
@@ -71,50 +72,61 @@ def filter():
         print("Moving and unpublishing files")
         entry_point = config['yandex']['disk']['entry_point']
         for file in walk_yadisk(client=yaclient, root=entry_point, fields=["path", "md5"]):
-            if not docs_for_wiping:
-                print("No more files to wipe, exiting...")
-                break
             if dir_to_move := docs_for_wiping.get(file.md5, None):
                 print(f"Moving file '{file.path}' and removing from Google Sheets")
                 move_to_filtered_out(file, config, yaclient, dir_to_move)
                 session._get_session().execute(delete(Document).where(Document.md5.is_(file.md5)))
                 del docs_for_wiping[file.md5]
                 flush(docs_for_wiping)
+            if not docs_for_wiping:
+                print("No more files to wipe, exiting...")
+                break
 
-def dedup_by_isbn(plan, session, yaclient, limit=10):
+def dedup_by_isbn(plan, session, yaclient, config, limit=100):
     print("Deduplicating by ISBN")
     res = session._get_session().execute(select(text(f"""
         md5, isbn FROM '{Document.__tablename__}' WHERE isbn IN (SELECT isbn FROM '{Document.__tablename__}' WHERE isbn IS NOT NULL GROUP BY isbn HAVING COUNT(*) > 1 LIMIT {limit})
     """)))
-    duplicates = defaultdict(list)
+    duplicates = defaultdict(set)
 
+    all_md5s = []
     for d in res:
         md5, isbn = d
-        duplicates[isbn].append(md5)
+        duplicates[isbn].add(md5)
+        all_md5s.append(md5)
         print(f"Found duplicate ISBN: '{isbn}' with md5 '{md5}'")
         
-    print(f"Found {len(duplicates)} duplicate ISBNs")
+    print(f"Downloading books with {len(duplicates)} duplicate ISBNs")
+    all_docs = {doc.md5: (doc, download_file_locally(yaclient, doc, config)) for doc in set(session.query(select(Document).where(Document.md5.in_(all_md5s))))}
+        
     for isbn, md5s in duplicates.items():
-        docs_same_isbn = set(session.query(select(Document).where(Document.md5.in_(md5s))))
+        docs_same_isbn = set(v[0] for _,v in all_docs.items() if v[0].md5 in md5s)
         extracted_docs = set([d for d in docs_same_isbn if d.content_url is not None])
         if len(extracted_docs) == 1:
             docs_for_wiping = docs_same_isbn - extracted_docs
         else:
-            # ask user to choose which document to keep
             choices = {idx: doc for idx, doc in enumerate(sorted(docs_same_isbn, key=lambda d: d.ya_public_url), start=1)}
             hint = []
-            print("Downloading files locally")
+            params = set()
             for idx, doc in choices.items():
-                local_path = download_file_locally(yaclient, doc)
-                hint.append(f"{idx}: {doc.md5} '{local_path}'{f' {doc.content_url}' if doc.content_url else ''}")
-                
-            hint = "\n".join(hint)
-            res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep:\n{hint}\n", prompt_suffix="> ")
-            if res.isdigit() and int(res) in choices:
-                docs_for_wiping = docs_same_isbn - {choices[int(res)]}
+                local_path = all_docs[doc.md5][1]
+                with pymupdf.open(local_path) as pdf_doc:
+                    pages_count = pdf_doc.page_count
+                size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
+                hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {f' {doc.content_url}' if doc.content_url else ''}")
+                params.add(f"{pages_count}-{size}")
+            if len(params) == 1:
+                # all files have same size and pages count, just pick the first
+                docs_for_wiping = docs_same_isbn - {choices[1]}
             else:
-                print(f"Invalid choice '{res}', skipping ISBN {isbn}")
-                continue
+                # ask user to choose which document to keep
+                hint = "\n".join(hint)
+                res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep:\n{hint}\n", prompt_suffix="> ")
+                if res.isdigit() and int(res) in choices:
+                    docs_for_wiping = docs_same_isbn - {choices[int(res)]}
+                else:
+                    print(f"Invalid choice '{res}', skipping ISBN {isbn}")
+                    continue
         plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
         flush(plan)
         
