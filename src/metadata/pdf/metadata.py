@@ -27,8 +27,7 @@ def extract(cli_params):
         s3lient =  create_session(config)
         gemini_client = create_client(tier=cli_params.tier, config=config)
         
-        docs = obtain_documents(cli_params, ya_client, predicate=predicate)
-        for doc in docs:
+        for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
             if doc.file_name and doc.file_name.startswith("Кызыл Татарстан: иҗтимагый-сәяси газета"):
                 continue
             try:

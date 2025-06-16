@@ -82,7 +82,7 @@ def filter():
                 print("No more files to wipe, exiting...")
                 break
 
-def dedup_by_isbn(plan, session, yaclient, config, limit=100):
+def dedup_by_isbn(plan, session, yaclient, config, limit=1000):
     print("Deduplicating by ISBN")
     res = session._get_session().execute(select(text(f"""
         md5, isbn FROM '{Document.__tablename__}' WHERE isbn IN (SELECT isbn FROM '{Document.__tablename__}' WHERE isbn IS NOT NULL GROUP BY isbn HAVING COUNT(*) > 1 LIMIT {limit})
