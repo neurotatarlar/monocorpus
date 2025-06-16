@@ -1,4 +1,3 @@
-from string import Template
 from google.genai.errors import ClientError
 from google.genai import types
 import io
@@ -225,10 +224,24 @@ EXTRACT_CONTENT_PROMPT_NO_TITLE = """
 16. Document does not have a title page, so never use a single #. Always preserve the heading hierarchy based on the document's logical structure. Continue the structure above consistently in this chunk. Do not restart or re-level headings. If a new chapter begins, continue from the next logical chapter number.
 """.strip()
 
-DEFINE_META_PROMPT=Template("""
+DEFINE_META_PROMPT_PDF_HEADER = """
 # TASK: METADATA_EXTRACTION
 
-You are given a PDF document that contains the first ${n} and last ${n} pages of a book.
+You are an expert in extracting bibliographic metadata using Schema.org in compact JSON-LD format.
+
+
+You are given a PDF document that contains the first {n} and last {n} pages of a book.
+""" 
+
+DEFINE_META_PROMPT_NON_PDF_HEADER = """
+# TASK: METADATA EXTRACTION FROM PARTIAL TEXT
+
+You are an expert in extracting bibliographic metadata using Schema.org in compact JSON-LD format.
+
+You are given the **first {n} characters** of the extracted text from a book or document. This may include the title page, legal page, preface, table of contents, or other early parts of the book.
+""" 
+
+DEFINE_META_PROMPT_BODY="""
 
 Text may appear in different scripts:
 - Tatar in Cyrillic script → use `"tt-Cyrl"`
@@ -291,7 +304,7 @@ REMINDERS:
 
 📌 Output only the final clean JSON-LD object.  
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
-""")
+"""
 
 def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy):
    if headers_hierarchy:

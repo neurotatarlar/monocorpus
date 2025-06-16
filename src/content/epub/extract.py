@@ -12,12 +12,13 @@ from s3 import upload_file, create_session
 import os
 import zipfile
 from urllib.parse import urlparse
+from rich import print
 
 def extract(cli_params):
     config = read_config()
     predicate = (
-        Document.content_url.is_(None) 
-        & Document.mime_type.is_('application/epub+zip')
+        Document.content_url.is_(None) &
+        Document.mime_type.is_('application/epub+zip')
     )
     s3session = create_session(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheets_session:
@@ -26,10 +27,12 @@ def extract(cli_params):
             print("No documents for processing...")
             return
         
+        image_content_ratio = {}
         for doc in docs:
             print(f"Extracting content from file {doc.md5}({doc.file_name})")
             local_doc_path = download_file_locally(ya_client, doc, config)
-            md_content = _extract_from_epub(doc, config, local_doc_path, s3session) 
+            md_content, icr = _extract_from_epub(doc, config, local_doc_path, s3session) 
+            image_content_ratio[doc.md5] = icr
             formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
             postprocessed = _postprocess(md_content)
             formatted_content = mdformat.text(
@@ -53,6 +56,13 @@ def extract(cli_params):
             doc.document_url = upload_file(local_doc_path, document_bucket, doc_key, s3session, skip_if_exists=True)
             
             gsheets_session.update(doc)
+        
+        print("Image/content ratios:")
+        for md5, (images_count, documents_count) in sorted(image_content_ratio.items(), key=lambda x : x[1][0] / x[1][1]):
+            message = f"{md5} => images: {images_count}, other content: {documents_count}"
+            if images_count > documents_count:
+                message = f"[yellow]{message}[/yellow]"
+            print(message)
             
 def _postprocess(content):
     content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
@@ -68,6 +78,8 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
     clips_counter = 0
     clips_dir = get_in_workdir(Dirs.CLIPS)
     clips_bucket = config["yandex"]["cloud"]['bucket']['image']
+    image_items = 0
+    document_items = 0
     
     for item in book.get_items():
         item_type = item.get_type()
@@ -89,6 +101,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         
         # Handle images
         if item_type in [ITEM_IMAGE, ITEM_COVER]:
+            image_items += 1
             match item.media_type:
                 case 'image/jpeg':
                     ext = "jpeg"
@@ -106,6 +119,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
             outputs.append(literal)
         
         elif item_type == ITEM_DOCUMENT:
+            document_items += 1
             soup = BeautifulSoup(content, 'html.parser').html
             for p in soup.find_all('p'):
                 for i, content in enumerate(p.contents):
@@ -133,7 +147,7 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         else:
             raise ValueError(f"Unexpected type received: {item_type}")
             
-    return "\n\n".join(outputs)
+    return "\n\n".join(outputs), (image_items, document_items)
 
 def _is_relative(url):
     parsed = urlparse(url)

@@ -10,7 +10,7 @@ from gemini import request_gemini, create_client
 from metadata.schema import Book
 import zipfile
 import isbnlib
-from prompt import DEFINE_META_PROMPT
+from prompt import DEFINE_META_PROMPT_PDF_HEADER, DEFINE_META_PROMPT_BODY
 import requests
 import json
 import re
@@ -100,8 +100,9 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
     _update_document(doc, metadata, original_doc_page_count, gsheet_session)
             
 def _prepare_prompt(doc, slice_page_count):
-    prompt = DEFINE_META_PROMPT.substitute(n=int(slice_page_count / 2),)
+    prompt = DEFINE_META_PROMPT_PDF_HEADER.format(n=int(slice_page_count / 2),)
     prompt = [{'text': prompt}]
+    prompt.append({'text': DEFINE_META_PROMPT_BODY})
     if raw_input_metadata := _load_upstream_metadata(doc):
         prompt.append({
             "text": "📌 In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
@@ -110,6 +111,7 @@ def _prepare_prompt(doc, slice_page_count):
             "text": raw_input_metadata
         })
     prompt.append({"text": "Now, extract metadata from the following document"})
+    print(prompt)
     return prompt
             
 def _prepare_slices(pdf_doc, dest_path, n):

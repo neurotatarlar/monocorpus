@@ -275,6 +275,11 @@ def metadata_pdf(
     )
     extract(cli_params)
     
+@meta_app.command(name="nonpdf")
+def metadata_nonpdf():
+    from metadata.nonpdf import extract
+    extract()
+
 @app.command()
 def hf():
     import hf 
