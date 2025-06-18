@@ -225,6 +225,11 @@ def extract_epub(
     )
     extract(cli_params)
     
+@extract_app.command(name="docx")
+def extract_docx():
+    from content.docx import extract
+    extract()
+    
 @meta_app.command(name="pdf")
 def metadata_pdf(
     md5: Annotated[
@@ -248,7 +253,7 @@ def metadata_pdf(
             "--model", "-m",
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
-    ] = "gemini-2.5-flash-preview-05-20",
+    ] = "gemini-2.5-flash",
     tier: Annotated[
         Tier,
         typer.Option(

@@ -40,7 +40,7 @@ def extract(cli_params):
                 if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
                     print("Sleeping for 60 seconds")
                     time.sleep(60)
-                if attempt >= 10:
+                if attempt >= 20:
                     raise e
                 attempt += 1
 
@@ -74,7 +74,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
     # send to gemini
     files = {slice_file_path: doc.mime_type}
     start_time = time.time()
-    response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book, timeout_sec=60)
+    response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
 
     # validate response
     if not (raw_response := "".join([ch.text for ch in response if ch.text])):
@@ -111,7 +111,6 @@ def _prepare_prompt(doc, slice_page_count):
             "text": raw_input_metadata
         })
     prompt.append({"text": "Now, extract metadata from the following document"})
-    print(prompt)
     return prompt
             
 def _prepare_slices(pdf_doc, dest_path, n):

@@ -1,1 +1,1 @@
-from .extract import extract
+from .extract_epub import extract

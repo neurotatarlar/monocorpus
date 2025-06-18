@@ -25,3 +25,4 @@ huggingface-hub
 cryptography
 pyarrow
 fastparquet
+markitdown[pptx, docx]

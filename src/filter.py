@@ -22,7 +22,6 @@ not_document_types = [
     'application/x-zip-compressed',
     'application/zip'
     'application/octet',
-    'application/octet-stream',
     'text/x-python'
     'application/x-gzip',
     'application/x-rar',
@@ -37,6 +36,7 @@ not_document_types = [
     'application/x-javascript',
     'application/x-shockwave-flash',
     'image/tiff'
+    'text/x-python-script'
 ]
 
 def filter():
@@ -113,8 +113,8 @@ def dedup_by_isbn(plan, session, yaclient, config, limit=1000):
                 with pymupdf.open(local_path) as pdf_doc:
                     pages_count = pdf_doc.page_count
                 size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
-                hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {f' {doc.content_url}' if doc.content_url else ''}")
-                params.add(f"{pages_count}-{size}")
+                hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
+                params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}")
             if len(params) == 1:
                 # all files have same size and pages count, just pick the first
                 docs_for_wiping = docs_same_isbn - {choices[1]}

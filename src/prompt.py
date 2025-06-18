@@ -229,7 +229,6 @@ DEFINE_META_PROMPT_PDF_HEADER = """
 
 You are an expert in extracting bibliographic metadata using Schema.org in compact JSON-LD format.
 
-
 You are given a PDF document that contains the first {n} and last {n} pages of a book.
 """ 
 
@@ -238,11 +237,10 @@ DEFINE_META_PROMPT_NON_PDF_HEADER = """
 
 You are an expert in extracting bibliographic metadata using Schema.org in compact JSON-LD format.
 
-You are given the **first {n} characters** of the extracted text from a book or document. This may include the title page, legal page, preface, table of contents, or other early parts of the book.
+You are given the **first {n} characters** of the extracted text from a book or document in Markdown format. This may include the title page, legal page, preface, table of contents, or other early parts of the book.
 """ 
 
 DEFINE_META_PROMPT_BODY="""
-
 Text may appear in different scripts:
 - Tatar in Cyrillic script → use `"tt-Cyrl"`
 - Tatar in Zamanalif Latin script → use `"tt-Latn-x-zamanalif"`

@@ -15,50 +15,61 @@ import re
 from monocorpus_models import Document, Session
 import time
 
-
-model = 'gemini-2.5-flash-preview-05-20'
+model = 'gemini-2.5-flash'
 
 def extract():
     config = read_config()
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as write_session, Session() as read_session:
         predicate = Document.metadata_url.is_(None) & \
             Document.full.is_(True) & \
             Document.mime_type.is_not('application/pdf') & \
             Document.content_url.is_not(None)
-        s3lient =  create_session(config)
         gemini_client = create_client(tier="free", config=config)
-        docs = gsheet_session.query(select(Document).where(predicate))
-        for doc in docs:
-            print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
-            slice = _load_extracted_content(doc, config)
-            # prepare prompt
-            prompt = _prepare_prompt(slice)
-            start_time = time.time()
-            response = request_gemini(client=gemini_client, model=model, prompt=prompt, schema=Book, timeout_sec=60)
-            # validate response
-            if not (raw_response := "".join([ch.text for ch in response if ch.text])):
-                print(f"No metadata was extracted from document {doc.md5}")
-                continue
-            else:
-                metadata = Book.model_validate_json(raw_response)
-            print("queried gemini", round(time.time() - start_time, 1))
-            
-            # write metadata to zip
-            local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
-            with zipfile.ZipFile(local_meta_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True)
-                zf.writestr("metadata.json", meta_json)
-
-            # upload metadata to s3
-            meta_key = f"{doc.md5}-meta.zip"
-            meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
-            doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
-            doc.metadata_extraction_method = model
-
-            # update metadata in gsheet
-            _update_document(doc, metadata, gsheet_session)
+        docs = read_session.query(select(Document).where(predicate))
+        if not docs:
+            print("No documents for processing...")
+            return
         
-def _load_extracted_content(doc, config, first_N=5000):
+        s3lient =  create_session(config)
+        for doc in docs:
+            try:
+                metadata = _extract_metadata(doc, config, gemini_client)
+                
+                # write metadata to zip
+                local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
+                with zipfile.ZipFile(local_meta_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+                    meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True)
+                    zf.writestr("metadata.json", meta_json)
+
+                # upload metadata to s3
+                meta_key = f"{doc.md5}-meta.zip"
+                meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
+                doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
+                doc.metadata_extraction_method = model
+                _update_document(doc, metadata, write_session)
+            except KeyboardInterrupt:
+                exit()
+            except BaseException as e:
+                print(f"Could not extract metadata from doc {doc.md5}: {e}")
+
+            
+def _extract_metadata(doc, config, gemini_client):
+    print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
+    slice = _load_extracted_content(doc, config)
+    # prepare prompt
+    prompt = _prepare_prompt(slice)
+    start_time = time.time()
+    response = request_gemini(client=gemini_client, model=model, prompt=prompt, schema=Book, timeout_sec=120)
+    # validate response
+    if not (raw_response := "".join([ch.text for ch in response if ch.text])):
+        print(f"No metadata was extracted from document {doc.md5}")
+        return
+    else:
+        metadata = Book.model_validate_json(raw_response)
+    print("Queried gemini", round(time.time() - start_time, 1))
+    return metadata
+        
+def _load_extracted_content(doc, config, first_N=30_000):
     content_zip = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}.zip")
     content_url = decrypt(doc.content_url, config) if doc.sharing_restricted else doc.content_url
     
@@ -82,7 +93,6 @@ def _prepare_prompt(slice):
     prompt.append({"text": "Now, extract metadata from the following extraction from the document"})
     prompt.append({"text": slice})
     prompt.append({"text": "End of the extraction from the document"})
-    print(prompt)
     return prompt
         
 def _update_document(doc, meta, gsheet_session):
@@ -92,7 +102,6 @@ def _update_document(doc, meta, gsheet_session):
     doc.language=meta.inLanguage
     doc.genre=", ".join([g.lower() for g in meta.genre if g.lower() != 'unknown']) if meta.genre else None
     doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
-    doc.page_count=meta.numberOfPages or None
     if (_publish_date := meta.datePublished) and meta.datePublished.lower() != 'unknown':
         if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
             doc.publish_date = res.group(1)
@@ -119,4 +128,4 @@ def _update_document(doc, meta, gsheet_session):
         
     start_time = time.time()
     gsheet_session.update(doc)
-    print("updating doc in gsheets", round(time.time() - start_time, 1))
+    print("Updating doc in gsheets", round(time.time() - start_time, 1))
