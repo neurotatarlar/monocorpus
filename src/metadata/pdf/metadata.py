@@ -94,7 +94,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
     meta_key = f"{doc.md5}-meta.zip"
     meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
     doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
-    doc.metadata_extraction_method = cli_params.model
+    doc.metadata_extraction_method = f"{cli_params.model}/prompt.v2"
 
     # update metadata in gsheet
     _update_document(doc, metadata, original_doc_page_count, gsheet_session)
@@ -147,6 +147,9 @@ def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
         if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
             doc.publish_date = res.group(1)
     
+    if meta.isbn:
+        print(meta)
+        exit()
     if meta.isbn and len(scraped_isbns := isbnlib.get_isbnlike(meta.isbn)) == 1:
         doc.isbn = isbnlib.canonical(scraped_isbns[0])
         

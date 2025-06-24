@@ -14,11 +14,13 @@ import requests
 import re
 from monocorpus_models import Document, Session
 import time
+from google.genai.errors import ClientError, ServerError
 
 model = 'gemini-2.5-flash'
 
 def extract():
     config = read_config()
+    attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as write_session, Session() as read_session:
         predicate = Document.metadata_url.is_(None) & \
             Document.full.is_(True) & \
@@ -45,12 +47,19 @@ def extract():
                 meta_key = f"{doc.md5}-meta.zip"
                 meta_bucket = config["yandex"]["cloud"]['bucket']['metadata']
                 doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
-                doc.metadata_extraction_method = model
+                doc.metadata_extraction_method = f"{model}/prompt.v2"
                 _update_document(doc, metadata, write_session)
+                attempt = 1
             except KeyboardInterrupt:
                 exit()
             except BaseException as e:
                 print(f"Could not extract metadata from doc {doc.md5}: {e}")
+                if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
+                    print("Sleeping for 60 seconds")
+                    time.sleep(60)
+                if attempt >= 20:
+                    raise e
+                attempt += 1
 
             
 def _extract_metadata(doc, config, gemini_client):
@@ -92,7 +101,6 @@ def _prepare_prompt(slice):
     prompt.append({'text': DEFINE_META_PROMPT_BODY})
     prompt.append({"text": "Now, extract metadata from the following extraction from the document"})
     prompt.append({"text": slice})
-    prompt.append({"text": "End of the extraction from the document"})
     return prompt
         
 def _update_document(doc, meta, gsheet_session):
@@ -105,9 +113,12 @@ def _update_document(doc, meta, gsheet_session):
     if (_publish_date := meta.datePublished) and meta.datePublished.lower() != 'unknown':
         if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
             doc.publish_date = res.group(1)
-    
-    if meta.isbn and len(scraped_isbns := isbnlib.get_isbnlike(meta.isbn)) == 1:
-        doc.isbn = isbnlib.canonical(scraped_isbns[0])
+            
+    if meta.isbn:
+        print(meta)
+        exit()
+    # if meta.isbn and len(scraped_isbns := isbnlib.get_isbnlike(meta.isbn)) == 1:
+        # doc.isbn = isbnlib.canonical(scraped_isbns[0])
         
     def _extract_classification(_properties, _expected_names):
         if _properties:
