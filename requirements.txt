@@ -25,4 +25,5 @@ huggingface-hub
 cryptography
 pyarrow
 fastparquet
-markitdown[pptx, docx]
+chardet
+markitdown[pptx, docx, epub]

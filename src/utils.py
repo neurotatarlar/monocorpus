@@ -90,7 +90,21 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_s
         yield from _find(gsheet_session, predicate=predicate, limit=limit)
 
 def download_file_locally(ya_client, doc, config):
-    ext = f"{os.path.splitext(doc.file_name)[1]}" if doc.file_name else ""
+    def _extension_by_mime_type(mime_type):
+        if mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+            return '.docx'
+        elif mime_type == 'text/plain':
+            return '.txt'
+        elif mime_type == 'text/html':
+            return '.html'
+        else:
+            raise ValueError("Unexpected mime type")
+        
+    _, ext = os.path.splitext(doc.file_name)
+    if not ext:
+        # If the file has no extension, we try to guess it by mime type
+        # or use a default extension if mime type is unknown
+        ext = _extension_by_mime_type(doc.mime_type)
     local_path=get_in_workdir(Dirs.ENTRY_POINT, file=f"{doc.md5}{ext}")
     if not (os.path.exists(local_path) and calculate_md5(local_path) == doc.md5):
         url = decrypt(doc.ya_public_url, config) if doc.sharing_restricted else doc.ya_public_url

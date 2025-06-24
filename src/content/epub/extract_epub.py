@@ -17,8 +17,9 @@ from rich import print
 def extract(cli_params):
     config = read_config()
     predicate = (
-        Document.content_url.is_(None) &
-        Document.mime_type.is_('application/epub+zip')
+        # Document.content_url.is_(None) &
+        Document.mime_type.is_('application/epub+zip') 
+        & Document.content_extraction_method.isnot("ebooklib")
     )
     s3session = create_session(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheets_session:
@@ -54,15 +55,16 @@ def extract(cli_params):
             document_bucket = config["yandex"]["cloud"]['bucket']['document']
             doc_key = os.path.basename(local_doc_path)
             doc.document_url = upload_file(local_doc_path, document_bucket, doc_key, s3session, skip_if_exists=True)
+            doc.content_extraction_method = "ebooklib"
             
             gsheets_session.update(doc)
         
-        print("Image/content ratios:")
-        for md5, (images_count, documents_count) in sorted(image_content_ratio.items(), key=lambda x : x[1][0] / x[1][1]):
-            message = f"{md5} => images: {images_count}, other content: {documents_count}"
-            if images_count > documents_count:
-                message = f"[yellow]{message}[/yellow]"
-            print(message)
+        # print("Image/content ratios:")
+        # for md5, (images_count, documents_count) in sorted(image_content_ratio.items(), key=lambda x : x[1][0] / x[1][1]):
+        #     message = f"{md5} => images: {images_count}, other content: {documents_count}"
+        #     if images_count > documents_count:
+        #         message = f"[yellow]{message}[/yellow]"
+        #     print(message)
             
 def _postprocess(content):
     content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
@@ -71,7 +73,7 @@ def _postprocess(content):
     content = re.sub(r'!\[.*?\]\(.*?\)', '', content, flags=re.MULTILINE)
 
     return content
-        
+
 def _extract_from_epub(doc, config, local_doc_path, s3session):
     outputs = []
     book = epub.read_epub(local_doc_path)
@@ -101,22 +103,23 @@ def _extract_from_epub(doc, config, local_doc_path, s3session):
         
         # Handle images
         if item_type in [ITEM_IMAGE, ITEM_COVER]:
-            image_items += 1
-            match item.media_type:
-                case 'image/jpeg':
-                    ext = "jpeg"
-                case 'image/png':
-                    ext = "png"
-                case 'image/svg+xml':
-                    ext = "svg"
-                case _: raise ValueError(f"Unsupported media type: {item.media_type}")
-            path = os.path.join(clips_dir, f"{doc.md5}-{clips_counter}.{ext}")
-            clips_counter += 1
-            with open(path, "wb") as f:
-                f.write(content)
-            url = upload_file(path, clips_bucket, os.path.basename(path), s3session, skip_if_exists=True)
-            literal = f'<figure style="text-align: center; margin: 1em 0;" id="{os.path.basename(item.get_name())}"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
-            outputs.append(literal)
+            continue
+            # image_items += 1
+            # match item.media_type:
+            #     case 'image/jpeg':
+            #         ext = "jpeg"
+            #     case 'image/png':
+            #         ext = "png"
+            #     case 'image/svg+xml':
+            #         ext = "svg"
+            #     case _: raise ValueError(f"Unsupported media type: {item.media_type}")
+            # path = os.path.join(clips_dir, f"{doc.md5}-{clips_counter}.{ext}")
+            # clips_counter += 1
+            # with open(path, "wb") as f:
+            #     f.write(content)
+            # url = upload_file(path, clips_bucket, os.path.basename(path), s3session, skip_if_exists=True)
+            # literal = f'<figure style="text-align: center; margin: 1em 0;" id="{os.path.basename(item.get_name())}"><img alt="" src="{url}" style="max-width: 800px; width: 50%; height: auto;"></figure>'
+            # outputs.append(literal)
         
         elif item_type == ITEM_DOCUMENT:
             document_items += 1
