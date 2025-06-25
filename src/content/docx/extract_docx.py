@@ -20,16 +20,41 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.discovery import build
 import io
 
+to_docx_mime_types = set([
+    'text/rtf',
+    'application/rtf',
+    'application/rtf+xml',
+    'application/msword',
+    'text/rtf',
+    'application/x-rtf',
+    'application/vnd.oasis.opendocument.text',
+])
+
+check_encoding_mime_types = set([
+    "text/plain",
+    "text/csv",
+    "text/tab-separated-values",
+    "text/html",
+    "application/xml",
+    "text/xml",
+    "text/markdown",
+    "application/x-tex",
+    "text/x-tex",
+    "application/x-subrip",
+    "application/json",
+    "application/x-yaml",
+    "text/yaml",
+    "text/x-ini"
+])
+
+all_mime_types = to_docx_mime_types | check_encoding_mime_types
+
 def extract():
     config = read_config()
     predicate = (
         Document.content_url.is_(None) &
-        Document.mime_type.in_([
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain',
-            'text/html',
-            'application/msword',
-        ])
+        Document.mime_type.in_(all_mime_types) & 
+        Document.full.is_(True)
     )
     s3session = create_session(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as write_session, Session() as read_session:
@@ -95,7 +120,7 @@ def _preprocess_if_required(doc, path):
     return path
     
 def convert_to_docx_if_required(doc, path):
-    if doc.mime_type in ['text/rtf', 'application/rtf', 'application/rtf+xml', 'application/msword']:
+    if doc.mime_type in to_docx_mime_types:
         creds = get_credentials()
         service = build('drive', 'v3', credentials=creds)
         file_metadata = {'name': os.path.basename(path), 'mimeType': 'application/vnd.google-apps.document'}
@@ -118,22 +143,7 @@ def convert_to_docx_if_required(doc, path):
     return path
     
 def _encode_if_required(doc, path):
-    if doc.mime_type in [   
-        "text/plain",
-        "text/csv",
-        "text/tab-separated-values",
-        "text/html",
-        "application/xml",
-        "text/xml",
-        "text/markdown",
-        "application/x-tex",
-        "text/x-tex",
-        "application/x-subrip",
-        "application/json",
-        "application/x-yaml",
-        "text/yaml",
-        "text/x-ini"
-    ]:
+    if doc.mime_type in check_encoding_mime_types:
         # Step 1: Detect encoding
         with open(path, 'rb') as f:
             raw_data = f.read()

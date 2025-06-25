@@ -28,7 +28,7 @@ class Book(BaseModel):
     contributor: Optional[List[PersonOrOrganization]]
     publisher: Optional[PersonOrOrganization]
     datePublished: Optional[str]
-    isbn: Optional[str]
+    isbn: Optional[List[str]]
     inLanguage: Optional[str]
     description: Optional[str]
     numberOfPages: Optional[int]
