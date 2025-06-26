@@ -57,7 +57,7 @@ def extract():
                 if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
                     print("Sleeping for 60 seconds")
                     time.sleep(60)
-                if attempt >= 20:
+                if attempt >= 10:
                     raise e
                 attempt += 1
 

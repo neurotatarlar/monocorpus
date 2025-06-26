@@ -82,25 +82,43 @@ def filter():
                 print("No more files to wipe, exiting...")
                 break
 
-def dedup_by_isbn(plan, session, yaclient, config, limit=1000):
+def dedup_by_isbn(plan, session, yaclient, config):
     print("Deduplicating by ISBN")
-    res = session._get_session().execute(select(text(f"""
-        md5, isbn FROM '{Document.__tablename__}' WHERE isbn IN (SELECT isbn FROM '{Document.__tablename__}' WHERE isbn IS NOT NULL GROUP BY isbn HAVING COUNT(*) > 1 LIMIT {limit})
-    """)))
-    duplicates = defaultdict(set)
-
-    all_md5s = []
-    for d in res:
-        md5, isbn = d
-        duplicates[isbn].add(md5)
-        all_md5s.append(md5)
-        print(f"Found duplicate ISBN: '{isbn}' with md5 '{md5}'")
+    # Get all docs that have ISBNs
+    md5s_to_docs = { doc.md5 : doc for doc in  Session().query(select(Document).where(Document.isbn.is_not(None)))}
+    
+    # Group them by ISBN
+    isbns_to_docs = defaultdict(set)
+    for doc in md5s_to_docs.values():
+        isbns = doc.isbn.strip().split(',')
+        for isbn in isbns:
+            isbns_to_docs[isbn].add(doc.md5)
+            
+    # Find duplicates
+    duplicated_isbn_to_md5s = defaultdict(set)
+    duplicated_docs_md5s = set()
+    for isbn, md5s in isbns_to_docs.items():
+        if len(md5s) > 1:
+            print(f"Found duplicate ISBN: '{isbn}' with md5s {md5s}")
+            duplicated_isbn_to_md5s[isbn].update(md5s)
+            duplicated_docs_md5s.update(md5s)
+    del isbns_to_docs
         
-    print(f"Downloading books with {len(duplicates)} duplicate ISBNs")
-    all_docs = {doc.md5: (doc, download_file_locally(yaclient, doc, config)) for doc in set(session.query(select(Document).where(Document.md5.in_(all_md5s))))}
+    if not duplicated_isbn_to_md5s:
+        print("No duplicate ISBNs found, exiting...")
+        return
+    
+    print(f"Downloading books with {len(duplicated_docs_md5s)} duplicate ISBNs")
+    md5_to_local_path = {
+        doc_md5: download_file_locally(yaclient, doc, config)
+        for doc_md5
+        in duplicated_docs_md5s
+    }
+    del duplicated_docs_md5s
         
-    for isbn, md5s in duplicates.items():
-        docs_same_isbn = set(v[0] for _,v in all_docs.items() if v[0].md5 in md5s)
+    for isbn, md5s in duplicated_isbn_to_md5s.items():
+        # docs_same_isbn = set(doc for doc in docs_with_isbn if doc.md5 in md5s)
+        docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
         extracted_docs = set([d for d in docs_same_isbn if d.content_url is not None])
         if len(extracted_docs) == 1:
             docs_for_wiping = docs_same_isbn - extracted_docs
@@ -109,7 +127,7 @@ def dedup_by_isbn(plan, session, yaclient, config, limit=1000):
             hint = []
             params = set()
             for idx, doc in choices.items():
-                local_path = all_docs[doc.md5][1]
+                local_path = md5_to_local_path[doc.md5]
                 with pymupdf.open(local_path) as pdf_doc:
                     pages_count = pdf_doc.page_count
                 size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
@@ -151,13 +169,16 @@ def move_to_filtered_out(file, config, ya_client, parent_dir):
     filtered_out_dir = config['yandex']['disk']['filtered_out']
     entry_point = config['yandex']['disk']['entry_point']
     
-    old_path = file.path.removeprefix('disk:')
-    _rel_path = os.path.relpath(old_path, entry_point)
-    new_path = os.path.join(filtered_out_dir, parent_dir, _rel_path)
-    if old_path != new_path:
-        ya_client.create_folders(os.path.dirname(new_path))
-        ya_client.move(file.path, new_path, n_retries=5, retry_interval=30)
-    ya_client.unpublish(new_path)
+    if parent_dir == 'void':
+        ya_client.remove(file.path, n_retries=5, retry_interval=30)
+    else:
+        old_path = file.path.removeprefix('disk:')
+        _rel_path = os.path.relpath(old_path, entry_point)
+        new_path = os.path.join(filtered_out_dir, parent_dir, _rel_path)
+        if old_path != new_path:
+            ya_client.create_folders(os.path.dirname(new_path))
+            ya_client.move(file.path, new_path, n_retries=5, retry_interval=30)
+        ya_client.unpublish(new_path)
     
 def _remove_from_s3(md5s, s3client, config):
     if not md5s:
