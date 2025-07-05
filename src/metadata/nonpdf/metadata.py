@@ -54,13 +54,15 @@ def extract():
                 exit()
             except BaseException as e:
                 print(f"Could not extract metadata from doc {doc.md5}: {e}")
-                if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
-                    print("Sleeping for 60 seconds")
+                if (isinstance(e, ClientError) and e.code == 429):
+                    print("Rate limit exceeded, exiting...")
+                    return
+                if isinstance(e, ServerError):
+                    print("Server error, sleeping for 60 seconds")
                     time.sleep(60)
                 if attempt >= 10:
                     raise e
                 attempt += 1
-
             
 def _extract_metadata(doc, config, gemini_client):
     print(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")

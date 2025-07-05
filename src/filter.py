@@ -44,30 +44,30 @@ def filter():
     docs_for_wiping = get_plan()
         
     with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
-        if not docs_for_wiping:
-            print("Querying non tatar documents")
-            non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-            non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-            print(f"Found {len(non_tatar_docs)} nontatar docs")
-            docs_for_wiping.update(non_tatar_docs)
-            flush(docs_for_wiping)
-            
-            print("Querying non textual docs")
-            nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
-            nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-            print(f"Found {len(nontextual_docs)} nontextual docs")
-            docs_for_wiping.update(non_tatar_docs)
-            flush(docs_for_wiping)
-            
-            dedup_by_isbn(docs_for_wiping, session, yaclient, config)
+        session.query(text("select 1"))
+        # print("Querying non tatar documents")
+        # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+        # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+        # print(f"Found {len(non_tatar_docs)} nontatar docs")
+        # docs_for_wiping.update(non_tatar_docs)
+        # flush(docs_for_wiping)
+        
+        # print("Querying non textual docs")
+        # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+        # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+        # print(f"Found {len(nontextual_docs)} nontextual docs")
+        # docs_for_wiping.update(non_tatar_docs)
+        # flush(docs_for_wiping)
+        
+        # dedup_by_isbn(docs_for_wiping, session, yaclient, config)
         
         if not docs_for_wiping:
             print("No docs for wiping found, exiting...")
             return
         
-        s3client = create_session(config)
-        print("Removing objects from s3 storage")
-        _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        # s3client = create_session(config)
+        # print("Removing objects from s3 storage")
+        # _remove_from_s3(docs_for_wiping.keys(), s3client, config)
         
         print("Moving and unpublishing files")
         entry_point = config['yandex']['disk']['entry_point']
