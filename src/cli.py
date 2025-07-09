@@ -42,6 +42,7 @@ class MetaCliParams:
     path: str
     model: str
     tier: Tier
+    key: str
 
 def slice_parser(value: str):
     if value:
@@ -262,6 +263,13 @@ def metadata_pdf(
             case_sensitive=False
         )
     ] = Tier.free,
+    key: Annotated[
+        str, 
+        typer.Option(
+            "--key", "-k",
+            help="Key to extract metadata for non-PDF documents"
+        )
+    ] = None
 ):
     """
     Extract metadata from documents.
@@ -276,14 +284,15 @@ def metadata_pdf(
         md5=md5,
         path=path,
         model=model,
-        tier=tier
+        tier=tier,
+        key=key
     )
     extract(cli_params)
     
 @meta_app.command(name="nonpdf")
-def metadata_nonpdf():
+def metadata_nonpdf(key: str):
     from metadata.nonpdf import extract
-    extract()
+    extract(key)
 
 @app.command()
 def hf():

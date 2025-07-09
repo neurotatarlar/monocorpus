@@ -34,7 +34,6 @@ check_encoding_mime_types = set([
     "text/plain",
     "text/csv",
     "text/tab-separated-values",
-    "text/html",
     "application/xml",
     "text/xml",
     "text/markdown",
@@ -47,7 +46,7 @@ check_encoding_mime_types = set([
     "text/x-ini"
 ])
 
-all_mime_types = to_docx_mime_types | check_encoding_mime_types
+all_mime_types = to_docx_mime_types | check_encoding_mime_types | set(['application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
 
 def extract():
     config = read_config()

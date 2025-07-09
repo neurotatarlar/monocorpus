@@ -5,7 +5,6 @@ from rich import print
 from s3 import upload_file, create_session
 from utils import read_config, get_in_workdir
 from dirs import Dirs
-from yadisk_client import YaDisk
 from gemini import request_gemini, create_client
 from metadata.schema import Book
 import zipfile
@@ -18,20 +17,20 @@ from google.genai.errors import ClientError, ServerError
 
 model = 'gemini-2.5-flash'
 
-def extract():
-    config = read_config()
+def extract(key):
     attempt = 1
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as write_session, Session() as read_session:
+    with Session() as write_session, Session() as read_session:
         predicate = Document.metadata_url.is_(None) & \
             Document.full.is_(True) & \
             Document.mime_type.is_not('application/pdf') & \
             Document.content_url.is_not(None)
-        gemini_client = create_client(tier="free", config=config)
+        gemini_client = create_client(key)
         docs = read_session.query(select(Document).where(predicate))
         if not docs:
             print("No documents for processing...")
             return
         
+        config = read_config()
         s3lient =  create_session(config)
         for doc in docs:
             try:
@@ -124,7 +123,7 @@ def _update_document(doc, meta, gsheet_session):
                     isbns.add(isbnlib.canonical(scraped_isbn))
         if isbns:
             doc.isbn = ", ".join(isbns)
-        print(f"Extracted isbns: '{doc.isbn}'")
+            print(f"Extracted isbns: '{doc.isbn}'")
     
     def _extract_classification(_properties, _expected_names):
         if _properties:

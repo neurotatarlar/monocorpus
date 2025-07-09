@@ -3,10 +3,10 @@ from google import genai
 from google.genai import types
 import time
 
-def create_client(tier='free', config=read_config()):
-    return genai.Client(api_key=config['google_api_key'][tier])
+def create_client(api_key):
+    return genai.Client(api_key=api_key)
 
-def request_gemini(prompt, model, files = {}, client=create_client(), temperature=0.1, schema=None, timeout_sec=60*10):
+def request_gemini(prompt, model, client, files = {}, temperature=0.1, schema=None, timeout_sec=60*10):
     for path, mime_type in files.items():
         _f = client.files.upload(
             file=path,

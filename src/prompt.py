@@ -288,7 +288,7 @@ Use the `Book` schema where appropriate, but apply a more specific `@type` if a 
 - `genre`: Book genre, expressed in English
 - `audience`: Target audience, expressed in English
 - `bookEdition`: Edition information
-- `description`: Preface, abstract, or annotation in the books's primary language. Use 1–3 sentences only. Summarize the core purpose or content of the text in plain language. Do not include long quotations or excessive legal/formal language. Avoid repeating the title.
+- `description`: Preface, abstract, or annotation in Tatar language. Use 1–3 sentences only. Summarize the core purpose or content of the text. Do not include long quotations or excessive legal/formal language. Avoid repeating the title.
 
 ## Input language
 Text may appear in different scripts. Automatically detect the **primary language and script** used in the document, and return the correct `inLanguage` BCP 47 tag.

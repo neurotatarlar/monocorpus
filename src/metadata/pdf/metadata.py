@@ -18,6 +18,25 @@ from google.genai.errors import ClientError, ServerError
 from monocorpus_models import Document, Session
 import time
 
+# todo fix me
+excluded_md5s = set([
+    '15a6f709f8aef44b642f1cb0891f1a7e', '15d43435deccffe68148e8a1c8e8b45e', '2d8b64bde70efb705a7fbc279b1de214','d05ea94454e87892fba90cbbc81c45e1', '676f0f28c8efef5093e4b0288eaa2db0', 'fa93b9ebacc1680264e945f052549954', '0573113f0a022976d5381d2cec8ab305', '6b46d99568fad3168e2640dea63208db', 'f65985c3f183fdced6adcf57fb1b4b52', '223f363346ae4d3eaefd92241046ae29', '37fcdc1cc9dca80ee1b866fbe8c3acf7', 'e7f4e2e472fc2282fbf495cba90b67a3', '8ea99cbbd07fa3268b4879d69647d633', '346204bed567c1d69ab534b87cbaac29', '32ee190a64eed258eccbe4c8541d7adf',
+    '62adcc106dcda1a3ffebc261bfc8f013',
+    '392bd422b99fbb33306708bc656b6e06',
+    '9380b355fe584bc8f3cad2f5083f173d',
+    '1c7a438e1846086eae58b902a2d8f863',
+    '29f138e944271d620641cb9be3e2eddb',
+    'd7d4e15f89c552a0cf6ba4010db52292',
+    'bafc66fc36ca3be69c0442f3738ecf23',
+    '80a25ed65edf38dddb785012acff4be1',
+    'ace4b159ac53af6b65aad3f378a40c1e',
+    'e1c06d85ae7b8b032bef47e42e4c08f9',
+    '216ae45bced61af1a2a210c8883c4855',
+    'e1c06d85ae7b8b032bef47e42e4c08f9',
+    '216ae45bced61af1a2a210c8883c4855',
+    '917602d8a123acfd715fd41323cadf14'
+])
+
 def extract(cli_params):
     config = read_config()
     attempt = 1
@@ -25,10 +44,10 @@ def extract(cli_params):
         predicate = Document.metadata_url.is_(None) & Document.full.is_(True) & Document.mime_type.is_('application/pdf')
         
         s3lient =  create_session(config)
-        gemini_client = create_client(tier=cli_params.tier, config=config)
+        gemini_client = create_client(cli_params.key)
         
         for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
-            if doc.file_name and doc.file_name.startswith("Кызыл Татарстан: иҗтимагый-сәяси газета"):
+            if (doc.file_name and doc.file_name.startswith("Кызыл Татарстан: иҗтимагый-сәяси газета")) or doc.md5 in excluded_md5s:
                 continue
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)
@@ -36,9 +55,13 @@ def extract(cli_params):
             except KeyboardInterrupt:
                 exit()
             except BaseException as e:
-                print(e)
-                if (isinstance(e, ClientError) and e.code == 429) or isinstance(e, ServerError):
-                    print("Sleeping for 60 seconds")
+                print(f"Could not extract metadata from doc {doc.md5}: {e}")
+                
+                if (isinstance(e, ClientError) and e.code == 429):
+                    print("Rate limit exceeded, exiting...")
+                    return
+                if isinstance(e, ServerError):
+                    print("Server error, sleeping for 60 seconds")
                     time.sleep(60)
                 if attempt >= 10:
                     raise e
@@ -148,10 +171,14 @@ def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
             doc.publish_date = res.group(1)
     
     if meta.isbn:
-        print(meta)
-        exit()
-    if meta.isbn and len(scraped_isbns := isbnlib.get_isbnlike(meta.isbn)) == 1:
-        doc.isbn = isbnlib.canonical(scraped_isbns[0])
+        isbns = set()
+        for isbn in meta.isbn:
+            if scraped_isbn := isbnlib.get_isbnlike(isbn):
+                for scraped_isbn in scraped_isbn:
+                    isbns.add(isbnlib.canonical(scraped_isbn))
+        if isbns:
+            doc.isbn = ", ".join(sorted(isbns))
+            print(f"Extracted isbns: '{doc.isbn}'")
         
     def _extract_classification(_properties, _expected_names):
         if _properties:

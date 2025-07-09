@@ -158,7 +158,7 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     if _check_stop_file():
         return None # skip if shutdown was requested
     try:
-        gemini_client = create_client(cli_params.tier)
+        gemini_client = create_client(config[cli_params.tier])
         with Session() as gsheets_session, \
             Context(config, doc, cli_params, gsheets_session, failure_count, lock, queue) as context, \
             YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
