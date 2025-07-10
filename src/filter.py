@@ -22,7 +22,7 @@ not_document_types = [
     'application/x-zip-compressed',
     'application/zip'
     'application/octet',
-    'text/x-python'
+    'text/x-python',
     'application/x-gzip',
     'application/x-rar',
     'application/x-download',
@@ -35,10 +35,17 @@ not_document_types = [
     'text/css',
     'application/x-javascript',
     'application/x-shockwave-flash',
-    'image/tiff'
+    'image/tiff',
     'text/x-python-script',
     'audio/mp3',
-    'audio/x-wav'
+    'audio/x-wav',
+    'image/gif',
+    'audio/mp3',
+    'audio/midi',
+    'image/vnd.adobe.photoshop',
+    'video/3gpp',
+    'application/x-7z-compressed'
+    
 ]
 
 def filter():
@@ -61,7 +68,7 @@ def filter():
         docs_for_wiping.update(non_tatar_docs)
         flush(docs_for_wiping)
         
-        # dedup_by_isbn(docs_for_wiping, session, yaclient, config)
+        dedup_by_isbn(docs_for_wiping, yaclient, config)
         
         if not docs_for_wiping:
             print("No docs for wiping found, exiting...")
@@ -84,7 +91,7 @@ def filter():
                 print("No more files to wipe, exiting...")
                 break
 
-def dedup_by_isbn(plan, session, yaclient, config):
+def dedup_by_isbn(plan, yaclient, config):
     print("Deduplicating by ISBN")
     # Get all docs that have ISBNs
     md5s_to_docs = { doc.md5 : doc for doc in  Session().query(select(Document).where(Document.isbn.is_not(None)))}
@@ -94,13 +101,13 @@ def dedup_by_isbn(plan, session, yaclient, config):
     for doc in md5s_to_docs.values():
         isbns = doc.isbn.strip().split(',')
         for isbn in isbns:
-            isbns_to_docs[isbn].add(doc.md5)
+            isbns_to_docs[isbn.strip()].add(doc.md5)
             
     # Find duplicates
     duplicated_isbn_to_md5s = defaultdict(set)
     duplicated_docs_md5s = set()
     for isbn, md5s in isbns_to_docs.items():
-        if len(md5s) > 1:
+        if len(md5s) > 1 and isbn:
             print(f"Found duplicate ISBN: '{isbn}' with md5s {md5s}")
             duplicated_isbn_to_md5s[isbn].update(md5s)
             duplicated_docs_md5s.update(md5s)
@@ -112,26 +119,28 @@ def dedup_by_isbn(plan, session, yaclient, config):
     
     print(f"Downloading books with {len(duplicated_docs_md5s)} duplicate ISBNs")
     md5_to_local_path = {
-        doc_md5: download_file_locally(yaclient, doc, config)
+        doc_md5: download_file_locally(yaclient, md5s_to_docs[doc_md5], config)
         for doc_md5
         in duplicated_docs_md5s
     }
     del duplicated_docs_md5s
         
     for isbn, md5s in duplicated_isbn_to_md5s.items():
-        # docs_same_isbn = set(doc for doc in docs_with_isbn if doc.md5 in md5s)
         docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
-        extracted_docs = set([d for d in docs_same_isbn if d.content_url is not None])
-        if len(extracted_docs) == 1:
-            docs_for_wiping = docs_same_isbn - extracted_docs
+        extracted_pdf_docs = set([d for d in docs_same_isbn if d.content_url is not None and d.mime_type in ['application/pdf', 'application/x-pdf']])
+        if len(extracted_pdf_docs) == 1:
+            docs_for_wiping = docs_same_isbn - extracted_pdf_docs
         else:
             choices = {idx: doc for idx, doc in enumerate(sorted(docs_same_isbn, key=lambda d: d.ya_public_url), start=1)}
             hint = []
             params = set()
             for idx, doc in choices.items():
                 local_path = md5_to_local_path[doc.md5]
-                with pymupdf.open(local_path) as pdf_doc:
-                    pages_count = pdf_doc.page_count
+                if doc.mime_type in ['application/pdf', 'application/x-pdf']:
+                    with pymupdf.open(local_path) as pdf_doc:
+                        pages_count = str(pdf_doc.page_count)
+                else:
+                    pages_count = "N/A"
                 size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
                 hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
                 params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}")

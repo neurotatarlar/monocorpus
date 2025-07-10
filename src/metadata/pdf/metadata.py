@@ -34,20 +34,22 @@ excluded_md5s = set([
     '216ae45bced61af1a2a210c8883c4855',
     'e1c06d85ae7b8b032bef47e42e4c08f9',
     '216ae45bced61af1a2a210c8883c4855',
-    '917602d8a123acfd715fd41323cadf14'
+    '917602d8a123acfd715fd41323cadf14',
+    '7dbf0472f43ba285b41dff65fff3f9f5',
+    '2513f3c6e08dcebf38ee7f1e80b192e9',
 ])
 
 def extract(cli_params):
     config = read_config()
     attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
-        predicate = Document.metadata_url.is_(None) & Document.full.is_(True) & Document.mime_type.is_('application/pdf')
+        predicate = Document.metadata_url.is_(None) & Document.mime_type.is_('application/pdf')
         
         s3lient =  create_session(config)
         gemini_client = create_client(cli_params.key)
         
         for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
-            if (doc.file_name and doc.file_name.startswith("Кызыл Татарстан: иҗтимагый-сәяси газета")) or doc.md5 in excluded_md5s:
+            if doc.md5 in excluded_md5s:
                 continue
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)

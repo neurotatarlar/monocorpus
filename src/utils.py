@@ -97,6 +97,8 @@ def download_file_locally(ya_client, doc, config):
             return '.txt'
         elif mime_type == 'text/html':
             return '.html'
+        elif mime_type == 'application/pdf':
+            return '.pdf'
         else:
             raise ValueError("Unexpected mime type")
         
