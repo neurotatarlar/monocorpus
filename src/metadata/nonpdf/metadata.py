@@ -21,7 +21,6 @@ def extract(key):
     attempt = 1
     with Session() as write_session, Session() as read_session:
         predicate = Document.metadata_url.is_(None) & \
-            Document.full.is_(True) & \
             Document.mime_type.is_not('application/pdf') & \
             Document.content_url.is_not(None)
         gemini_client = create_client(key)

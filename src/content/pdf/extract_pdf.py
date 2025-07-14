@@ -31,18 +31,19 @@ from pydantic import BaseModel
 
 ATTEMPTS = 10
 
-# these docs could not be extracted due to enormous output tokens count
-skipped_too_big = {
-    "f3e9b4311f6506f1ceb0f6f4b4de5f54",
+too_expensive = {
+    "7e18fc2e65badafaeacd3503fcb8df46",
     "2d7b5f5732a0144fe0fcf0c44cffc926",
-    "e9eb18e8ba5f694f3de49a63f43a6255",
-    "15b4893c6cd99195774548ca4276d06d",
     "ced45598a9cc9b331e1529c89ad0c77a",
-    "d601f93e8ce2cb4e3bc7dd6feac91a00",
-    "a3711d07ece399d42ec94bea4f4a7296",
-    "395e748bdd6d6bf129925a3b616610f8",
+    "e9eb18e8ba5f694f3de49a63f43a6255",
     "2f974ec14f30e05954f2748899a078b2",
-    "f5303357ce39d8c9f66246330df03035",
+    "f3e9b4311f6506f1ceb0f6f4b4de5f54",
+    "395e748bdd6d6bf129925a3b616610f8",
+    "6efdfcdbee76e39b1f947642e0ae0a11",
+    "ad03cef6565ad757d6c2d47f159d5a5d",
+    "15b4893c6cd99195774548ca4276d06d",
+    "d601f93e8ce2cb4e3bc7dd6feac91a00",
+    "a2b2ff6423020c31dfc3e85940f24255",  
 }
 
 # these docs skipped because they are processed by external contributor
@@ -99,7 +100,7 @@ skipped_external = {
     "359db1b930db12ddbd2697a119c7872e",
 }
 
-skipped = skipped_external
+skipped = skipped_external | too_expensive
 
 class ExtractionResult(BaseModel):
     content: str
@@ -109,7 +110,6 @@ def extract(cli_params):
     config = read_config()
     
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Manager() as manager:
-        
         failure_count = manager.Value('i', 0)
         lock = manager.Lock()
         queue = manager.Queue()
@@ -158,7 +158,7 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     if _check_stop_file():
         return None # skip if shutdown was requested
     try:
-        gemini_client = create_client(config[cli_params.tier])
+        gemini_client = create_client(config['google_api_key'][cli_params.tier])
         with Session() as gsheets_session, \
             Context(config, doc, cli_params, gsheets_session, failure_count, lock, queue) as context, \
             YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
@@ -245,6 +245,10 @@ def _extract_content(context, pdf_doc, gemini_client):
                 context.log(f"Chunk {idx}({_from}-{_to}) of {len(chunks)} is already extracted")
                 with open(chunk_result_complete_path, "r") as f:
                     content = validate_chunk(f.read())
+                    
+            if not content and idx == 1:
+                # here if we are not processed first chunk yet
+                return
             
             if not content:
                 # create a pdf doc what will contain a slice of original pdf doc

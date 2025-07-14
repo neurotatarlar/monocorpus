@@ -53,30 +53,30 @@ def filter():
     docs_for_wiping = get_plan()
         
     with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
-        session.query(text("select 1"))
-        print("Querying non tatar documents")
-        non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-        non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-        print(f"Found {len(non_tatar_docs)} nontatar docs")
-        docs_for_wiping.update(non_tatar_docs)
-        flush(docs_for_wiping)
+        # session.query(text("select 1"))
+        # print("Querying non tatar documents")
+        # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+        # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+        # print(f"Found {len(non_tatar_docs)} nontatar docs")
+        # docs_for_wiping.update(non_tatar_docs)
+        # flush(docs_for_wiping)
         
-        print("Querying non textual docs")
-        nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
-        nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-        print(f"Found {len(nontextual_docs)} nontextual docs")
-        docs_for_wiping.update(non_tatar_docs)
-        flush(docs_for_wiping)
+        # print("Querying non textual docs")
+        # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+        # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+        # print(f"Found {len(nontextual_docs)} nontextual docs")
+        # docs_for_wiping.update(non_tatar_docs)
+        # flush(docs_for_wiping)
         
-        dedup_by_isbn(docs_for_wiping, yaclient, config)
+        # dedup_by_isbn(docs_for_wiping, yaclient, config)
         
         if not docs_for_wiping:
             print("No docs for wiping found, exiting...")
             return
         
-        s3client = create_session(config)
-        print("Removing objects from s3 storage")
-        _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        # s3client = create_session(config)
+        # print("Removing objects from s3 storage")
+        # _remove_from_s3(docs_for_wiping.keys(), s3client, config)
         
         print("Moving and unpublishing files")
         entry_point = config['yandex']['disk']['entry_point']
@@ -100,8 +100,8 @@ def dedup_by_isbn(plan, yaclient, config):
     isbns_to_docs = defaultdict(set)
     for doc in md5s_to_docs.values():
         isbns = doc.isbn.strip().split(',')
-        for isbn in isbns:
-            isbns_to_docs[isbn.strip()].add(doc.md5)
+        isbns = "-".join(sorted([isbn.strip() for isbn in isbns if isbn.strip()]))
+        isbns_to_docs[isbns].add(doc.md5)
             
     # Find duplicates
     duplicated_isbn_to_md5s = defaultdict(set)
@@ -128,8 +128,11 @@ def dedup_by_isbn(plan, yaclient, config):
     for isbn, md5s in duplicated_isbn_to_md5s.items():
         docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
         extracted_pdf_docs = set([d for d in docs_same_isbn if d.content_url is not None and d.mime_type in ['application/pdf', 'application/x-pdf']])
+        full_docs = set([d for d in docs_same_isbn if d.full])
         if len(extracted_pdf_docs) == 1:
             docs_for_wiping = docs_same_isbn - extracted_pdf_docs
+        elif len(full_docs) == 1:
+            docs_for_wiping = docs_same_isbn - full_docs
         else:
             choices = {idx: doc for idx, doc in enumerate(sorted(docs_same_isbn, key=lambda d: d.ya_public_url), start=1)}
             hint = []
@@ -142,8 +145,8 @@ def dedup_by_isbn(plan, yaclient, config):
                 else:
                     pages_count = "N/A"
                 size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
-                hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
-                params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}")
+                hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.full} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
+                params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}-{doc.full}")
             if len(params) == 1:
                 # all files have same size and pages count, just pick the first
                 docs_for_wiping = docs_same_isbn - {choices[1]}
@@ -188,7 +191,7 @@ def move_to_filtered_out(file, config, ya_client, parent_dir):
         new_path = os.path.join(filtered_out_dir, parent_dir, _rel_path)
         if old_path != new_path:
             ya_client.create_folders(os.path.dirname(new_path))
-            ya_client.move(file.path, new_path, n_retries=5, retry_interval=30)
+            ya_client.move(file.path, new_path, n_retries=5, retry_interval=30, overwrite=True)
         ya_client.unpublish(new_path)
     
 def _remove_from_s3(md5s, s3client, config):
