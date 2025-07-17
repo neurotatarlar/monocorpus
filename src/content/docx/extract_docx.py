@@ -19,6 +19,8 @@ import subprocess
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.discovery import build
 import io
+import shutil
+
 
 to_docx_mime_types = set([
     'text/rtf',
@@ -46,7 +48,7 @@ check_encoding_mime_types = set([
     "text/x-ini"
 ])
 
-all_mime_types = to_docx_mime_types | check_encoding_mime_types | set(['application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+all_mime_types = to_docx_mime_types | check_encoding_mime_types | set(['application/vnd.openxmlformats-officedocument.wordprocessingml.document']) | set(["text/markdown"])
 
 def extract():
     config = read_config()
@@ -76,21 +78,24 @@ def _extract_content(doc, config, ya_client, s3session, gsheet_session):
     # content = md.convert(local_doc_path)
     response_path = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
     # clips_dir = get_in_workdir(Dirs.CLIPS, doc.md5)
-
-    local_doc_path = _preprocess_if_required(doc, local_doc_path)
     
-    cmd = [
-        "pandoc",
-        local_doc_path,
-        "-o", response_path,
-        "-t", "markdown_mmd",
-        # "--extract-media", clips_dir,
-        "--wrap=preserve"
-    ]
+    if doc.mime_type == 'text/markdown':
+        shutil.copyfile(local_doc_path, response_path)
+    else:
+        local_doc_path = _preprocess_if_required(doc, local_doc_path)
     
-    subprocess.run(cmd, check=True)
+        cmd = [
+            "pandoc",
+            local_doc_path,
+            "-o", response_path,
+            "-t", "markdown_mmd",
+            # "--extract-media", clips_dir,
+            "--wrap=preserve"
+        ]
     
-    _postprocess(response_path)
+        subprocess.run(cmd, check=True)
+    
+        _postprocess(response_path)
     
     mdformat.file(
         response_path,

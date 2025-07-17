@@ -1,8 +1,6 @@
-from huggingface_hub import hf_hub_download
 from rich import print 
-import boto3
 import os
-from utils import read_config, get_in_workdir, obtain_documents
+from utils import read_config, get_in_workdir
 from s3 import download
 from dirs import Dirs
 import pandas as pd
@@ -16,9 +14,8 @@ def assemble_dataset():
     output_dir = get_in_workdir(Dirs.CONTENT)
     rows = []
     with Session() as gsheet_session:
-        docs = {doc.md5 :doc for doc in gsheet_session.query(select(Document).where(Document.content_url.is_not(None)))}
+        docs = {doc.md5 : doc for doc in gsheet_session.query(select(Document).where(Document.content_url.is_not(None)))}
         for content_file in download(bucket=config['yandex']['cloud']['bucket']['content'], download_dir=output_dir):
-            # print(f"Processing file {content_file}")
             md5, _ = os.path.splitext(os.path.basename(content_file))
             if not (doc := docs.get(md5)):
                 print(f"No matching document with md5 {md5}, skipping it...")
@@ -30,6 +27,9 @@ def assemble_dataset():
                     raise ValueError(f"Expected exactly one markdown file in the zip, found {len(_md_files)}")
                 md_file = _md_files[0]
                 content = zf.read(md_file)
+                if not content:
+                    print(f"Content is empty for document {doc.md5}, skipping it...")
+                    continue
                 rows.append({
                     "id": md5,
                     "publish_year": str(doc.publish_date),

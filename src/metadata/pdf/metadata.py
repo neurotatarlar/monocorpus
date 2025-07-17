@@ -177,7 +177,8 @@ def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
         for isbn in meta.isbn:
             if scraped_isbn := isbnlib.get_isbnlike(isbn):
                 for scraped_isbn in scraped_isbn:
-                    isbns.add(isbnlib.canonical(scraped_isbn))
+                    if scraped_isbn := scraped_isbn.strip():
+                        isbns.add(isbnlib.canonical(scraped_isbn))
         if isbns:
             doc.isbn = ", ".join(sorted(isbns))
             print(f"Extracted isbns: '{doc.isbn}'")

@@ -53,7 +53,7 @@ def filter():
     docs_for_wiping = get_plan()
         
     with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
-        # session.query(text("select 1"))
+        session.query(text("select 1"))
         # print("Querying non tatar documents")
         # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
         # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
@@ -65,7 +65,7 @@ def filter():
         # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
         # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
         # print(f"Found {len(nontextual_docs)} nontextual docs")
-        # docs_for_wiping.update(non_tatar_docs)
+        # docs_for_wiping.update(nontextual_docs)
         # flush(docs_for_wiping)
         
         # dedup_by_isbn(docs_for_wiping, yaclient, config)
@@ -100,7 +100,7 @@ def dedup_by_isbn(plan, yaclient, config):
     isbns_to_docs = defaultdict(set)
     for doc in md5s_to_docs.values():
         isbns = doc.isbn.strip().split(',')
-        isbns = "-".join(sorted([isbn.strip() for isbn in isbns if isbn.strip()]))
+        isbns = ", ".join(sorted([isbn.strip() for isbn in isbns if isbn.strip()]))
         isbns_to_docs[isbns].add(doc.md5)
             
     # Find duplicates
@@ -126,18 +126,25 @@ def dedup_by_isbn(plan, yaclient, config):
     del duplicated_docs_md5s
         
     for isbn, md5s in duplicated_isbn_to_md5s.items():
-        docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
-        extracted_pdf_docs = set([d for d in docs_same_isbn if d.content_url is not None and d.mime_type in ['application/pdf', 'application/x-pdf']])
-        full_docs = set([d for d in docs_same_isbn if d.full])
-        if len(extracted_pdf_docs) == 1:
-            docs_for_wiping = docs_same_isbn - extracted_pdf_docs
-        elif len(full_docs) == 1:
-            docs_for_wiping = docs_same_isbn - full_docs
-        else:
-            choices = {idx: doc for idx, doc in enumerate(sorted(docs_same_isbn, key=lambda d: d.ya_public_url), start=1)}
-            hint = []
-            params = set()
-            for idx, doc in choices.items():
+        
+        def _define_docs_to_move(_docs):
+            _full_docs = set([d for d in _docs if d.full == True])
+            # if we have only one full document among duplicates then keep it and move anothers
+            if len(_full_docs) == 1:
+                return _docs - _full_docs
+            _pdf_docs = set([d for d in _docs if d.mime_type in ['application/pdf', 'application/x-pdf'] and d.full == True])
+            # if we have exactly one full pdf among duplicates then keep it and move anothers
+            if len(_pdf_docs) == 1:
+                return _docs - _pdf_docs
+            _extracted_pdf_docs = set([d for d in _pdf_docs if d.content_url])
+            #  if we have multiple pdf docs, but only one of them already extracted then keep it and move anothers
+            if len(_extracted_pdf_docs):
+                return _docs - _extracted_pdf_docs
+            
+            _choices = {idx: doc for idx, doc in enumerate(sorted(_docs, key=lambda d: d.ya_public_url), start=1)}
+            _hint = []
+            _params = set()
+            for idx, doc in _choices.items():
                 local_path = md5_to_local_path[doc.md5]
                 if doc.mime_type in ['application/pdf', 'application/x-pdf']:
                     with pymupdf.open(local_path) as pdf_doc:
@@ -145,22 +152,26 @@ def dedup_by_isbn(plan, yaclient, config):
                 else:
                     pages_count = "N/A"
                 size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
-                hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.full} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
-                params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}-{doc.full}")
-            if len(params) == 1:
+                _hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.full} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
+                _params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}-{doc.full}")
+            if len(_params) == 1:
                 # all files have same size and pages count, just pick the first
-                docs_for_wiping = docs_same_isbn - {choices[1]}
+                return _docs - {_choices[1]}
             else:
                 # ask user to choose which document to keep
-                hint = "\n".join(hint)
-                res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep:\n{hint}\n", prompt_suffix="> ")
-                if res.isdigit() and int(res) in choices:
-                    docs_for_wiping = docs_same_isbn - {choices[int(res)]}
+                _hint = "\n".join(_hint)
+                res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep:\n{_hint}\n", prompt_suffix="> ")
+                if res.isdigit() and int(res) in _choices:
+                    return _docs - {_choices[int(res)]}
                 else:
                     print(f"Invalid choice '{res}', skipping ISBN {isbn}")
-                    continue
-        plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
-        flush(plan)
+                    return None
+
+        docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
+        docs_for_wiping = _define_docs_to_move(docs_same_isbn)
+        if docs_for_wiping:
+            plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
+            flush(plan)
         
 def get_plan():
     marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")

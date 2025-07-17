@@ -15,12 +15,12 @@ from monocorpus_models import Document, Session
 import time
 from google.genai.errors import ClientError, ServerError
 
-model = 'gemini-2.5-flash'
+model = 'gemini-2.5-pro'
 
 def extract(key):
     attempt = 1
     with Session() as write_session, Session() as read_session:
-        predicate = Document.metadata_url.is_(None) & \
+        predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & \
             Document.mime_type.is_not('application/pdf') & \
             Document.content_url.is_not(None)
         gemini_client = create_client(key)
@@ -118,8 +118,8 @@ def _update_document(doc, meta, gsheet_session):
         isbns = set()
         for isbn in meta.isbn:
             if scraped_isbn := isbnlib.get_isbnlike(isbn):
-                for scraped_isbn in scraped_isbn:
-                    isbns.add(isbnlib.canonical(scraped_isbn))
+                if scraped_isbn := scraped_isbn.strip():
+                    isbns.add(isbnlib.canonical(scraped_isbn).strip())
         if isbns:
             doc.isbn = ", ".join(isbns)
             print(f"Extracted isbns: '{doc.isbn}'")

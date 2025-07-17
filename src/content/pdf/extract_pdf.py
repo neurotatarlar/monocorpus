@@ -44,6 +44,47 @@ too_expensive = {
     "15b4893c6cd99195774548ca4276d06d",
     "d601f93e8ce2cb4e3bc7dd6feac91a00",
     "a2b2ff6423020c31dfc3e85940f24255",  
+    "914632a4bbf6c6c663a77b0e9e9d7bfa",
+    "29b3429e9f1e1e31c2a89ebc24f9a073",
+    "2d153f45e769759a8a75742c34bda846",
+    "de06112b86863a0696ce7486d920efe4",
+    "c3f1358a7d04d8efc051d94c5943c946",
+    "81b2b8e133d6f61adf6dd3023da686ae",
+    "5d39267ba7f82ad8ba813067dd2e14d6",  
+    "acaf023d731e6f46627f34b291103f8d",
+    "35e278f0b4cdb38c350dad01ccc915c3", 
+    "c47a47587ad50b26317232486a9150a6",
+    "d8e154dee7ae0ca66c44dfca5e0c6b6e", 
+    "66fb1f7c96aea07e4431ff5fe55ab476",
+    "3388c2aa2ca2d219af9211fce849d815",
+    "bbd9f7f9571224e8e2e2abd6e9beb7d5",
+    "490cd5879ea5a7dacbbcd41630633ec7",    
+    "9099fc243084336a3d4a5bcd1b06b571",
+    "12e94fe079fdf11f9414aa3c59a807dc",
+    "aaa2556dd51b33e95f476837b6effe79",
+    "ccda7afd6ad404ff7d352fa9d204d58c", 
+    'ec9ef0cdc988d2cb8b49f95ea0d1201b',
+    '1fa8ab2b88f7249375fcb612f5046e05',
+    '962a1464b3399e9e6f5b5cd69693e670',
+    '54b44249d1ea90a279e4ab0cdd9752c6',
+    'fa2fbb8c5f8e1f1650df7606b07aba2d',
+    '7bee22a24d3d08eb985255abcad73f9a',
+    'f7445cd9403c1d44e042cc4e815941a2',
+    '602d02ced4d0b2aa8bcd34e26dcbfc58',
+    '993abe6cfd09b40afdcf4b39eddec115',
+    '6767031d9b0a44dbc051a7857011490f',
+    "c74e15c342cd45bd877e0b6fb0bc2af8",
+    '107984a814779344aefd65410b9c1e84',
+    'a76477128a14422d45383dda39477912',
+    '91a0c3ac41c48c4cf6776a67e62d1f24',
+    '893bcc71b541cebb269c2f154bd95baf',
+    '1120f5cb71de4cf7b6f8b80b2f9ca8c7',
+    'e56b6a4119b75b33c5320e60c1867249',
+    'aebaa8474695ea06429537584419c1ec',
+    '56443fb769237020851bc5ccfa234cca',
+    '95d0e85bcbe2f0da25e13dd49729fd31',
+    '22a8af0eabc269d41e6d22e3646da9e8',
+    '4bde1a9aabb6f6c7f5ead82aa51f8d27'
 }
 
 # these docs skipped because they are processed by external contributor
@@ -101,6 +142,7 @@ skipped_external = {
 }
 
 skipped = skipped_external | too_expensive
+skipped = skipped_external
 
 class ExtractionResult(BaseModel):
     content: str
@@ -125,7 +167,8 @@ def extract(cli_params):
             & Document.isbn.is_not(None)
         )
         
-        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
+        # docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
+        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 in too_expensive ]
         
         with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
             futures = {
@@ -246,10 +289,6 @@ def _extract_content(context, pdf_doc, gemini_client):
                 with open(chunk_result_complete_path, "r") as f:
                     content = validate_chunk(f.read())
                     
-            if not content and idx == 1:
-                # here if we are not processed first chunk yet
-                return
-            
             if not content:
                 # create a pdf doc what will contain a slice of original pdf doc
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
