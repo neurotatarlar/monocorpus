@@ -6,7 +6,7 @@ from yadisk_client import YaDisk
 import os
 from itertools import groupby
 import pymupdf
-from gemini import request_gemini, create_client
+from gemini import gemini_api, create_client
 from metadata.schema import Book
 import zipfile
 import isbnlib
@@ -99,7 +99,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
     # send to gemini
     files = {slice_file_path: doc.mime_type}
     start_time = time.time()
-    response = request_gemini(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
+    response = gemini_api(client=gemini_client, model=cli_params.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
 
     # validate response
     if not (raw_response := "".join([ch.text for ch in response if ch.text])):

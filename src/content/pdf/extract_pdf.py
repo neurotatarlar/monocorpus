@@ -4,7 +4,7 @@ from monocorpus_models import Document, Session
 from content.pdf.context import Context, Message
 from s3 import upload_file, create_session
 import os
-from gemini import request_gemini, create_client
+from gemini import gemini_api, create_client
 import pymupdf
 from dirs import Dirs
 import shutil
@@ -29,7 +29,7 @@ import time
 from datetime import timedelta, timezone, datetime
 from pydantic import BaseModel
 
-ATTEMPTS = 10
+ATTEMPTS = 30
 
 too_expensive = {
     "7e18fc2e65badafaeacd3503fcb8df46",
@@ -142,7 +142,6 @@ skipped_external = {
 }
 
 skipped = skipped_external | too_expensive
-skipped = skipped_external
 
 class ExtractionResult(BaseModel):
     content: str
@@ -167,8 +166,7 @@ def extract(cli_params):
             & Document.isbn.is_not(None)
         )
         
-        # docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
-        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 in too_expensive ]
+        docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
         
         with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
             futures = {
@@ -233,7 +231,7 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        # import traceback
+        # import tracebackgemini_api
         # print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
         # print(traceback.format_exc())
         # exit()
@@ -303,7 +301,9 @@ def _extract_content(context, pdf_doc, gemini_client):
                 chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                 for model in context.config['gemini_models']:
                     try:
-                        response = request_gemini(
+                        # todo as much workers as keys
+                        # update prompt by adding location of input and ouput
+                        response = gemini_api(
                             client=gemini_client,
                             model=model,
                             prompt=prompt,

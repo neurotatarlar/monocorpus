@@ -5,7 +5,7 @@ from rich import print
 from s3 import upload_file, create_session
 from utils import read_config, get_in_workdir
 from dirs import Dirs
-from gemini import request_gemini, create_client
+from gemini import gemini_api, create_client
 from metadata.schema import Book
 import zipfile
 import isbnlib
@@ -68,7 +68,7 @@ def _extract_metadata(doc, config, gemini_client):
     # prepare prompt
     prompt = _prepare_prompt(slice)
     start_time = time.time()
-    response = request_gemini(client=gemini_client, model=model, prompt=prompt, schema=Book, timeout_sec=120)
+    response = gemini_api(client=gemini_client, model=model, prompt=prompt, schema=Book, timeout_sec=120)
     # validate response
     if not (raw_response := "".join([ch.text for ch in response if ch.text])):
         print(f"No metadata was extracted from document {doc.md5}")
@@ -115,11 +115,12 @@ def _update_document(doc, meta, gsheet_session):
             doc.publish_date = res.group(1)
             
     if meta.isbn:
+        print(meta.isbn)
         isbns = set()
         for isbn in meta.isbn:
-            if scraped_isbn := isbnlib.get_isbnlike(isbn):
-                if scraped_isbn := scraped_isbn.strip():
-                    isbns.add(isbnlib.canonical(scraped_isbn).strip())
+            if scraped_isbns := isbnlib.get_isbnlike(isbn):
+                for _isbn in scraped_isbns:
+                    isbns.add(isbnlib.canonical(_isbn.stip()))
         if isbns:
             doc.isbn = ", ".join(isbns)
             print(f"Extracted isbns: '{doc.isbn}'")

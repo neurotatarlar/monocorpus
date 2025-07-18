@@ -1,12 +1,41 @@
-from utils import read_config
 from google import genai
 from google.genai import types
-import time
+import subprocess
+import os
+from utils import workdir
+    
+def gemini_cli(config, prompt):
+    env = os.environ.copy()
+    env["GEMINI_API_KEY"] = config['google_api_key']['promo']
+    
+    command = [
+        "gemini",
+        "--model", "gemini-2.5-pro",
+        "--prompt", prompt,
+        "--yolo",
+    ]
+    try:
+        output = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+            cwd=workdir
+        )
+        output = output.stdout.strip()
+        print("Gemini cli output ==> ", output)
+        if "gemini-2.5-flash" in output:
+            raise ValueError("Request was executed by flash model")
+        elif "overloaded" in output:
+            raise ValueError("Model is overloaded")
+    except subprocess.CalledProcessError as e:
+        print(f"Error: {e.stderr.strip()}")
 
 def create_client(api_key):
     return genai.Client(api_key=api_key)
 
-def request_gemini(prompt, model, client, files = {}, temperature=0.1, schema=None, timeout_sec=60*10):
+def gemini_api(prompt, model, client, files = {}, temperature=0.1, schema=None, timeout_sec=60*10):
     for path, mime_type in files.items():
         _f = client.files.upload(
             file=path,

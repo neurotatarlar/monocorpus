@@ -12,6 +12,13 @@ import base64
 
 prefix = "enc:"
 
+workdir = "~/.monocorpus"
+
+
+def read_config(config_file: str = "config.yaml"):
+    with open(get_in_workdir(file=config_file, prefix="."), 'r') as file:
+        return yaml.safe_load(file)
+
 def pick_files(dir_path: Union[str, Dirs]):
     return [
         os.path.normpath(os.path.join(dir_name, f))
@@ -34,13 +41,7 @@ def calculate_md5(file_path: str):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
-
-def read_config(config_file: str = "config.yaml"):
-    with open(get_in_workdir(file=config_file, prefix="."), 'r') as file:
-        return yaml.safe_load(file)
-
-
-def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str = '~/.monocorpus'):
+def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str = workdir):
     dir_names = [i.value if isinstance(i, Dirs) else i for i in dir_names]
     script_parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
     path = [script_parent_dir, '..', os.path.expanduser(prefix), *dir_names]
@@ -135,15 +136,20 @@ def walk_yadisk(client, root, fields = [
     while queue:
         current = queue.popleft()
         print(f"Visiting '{current}'")
+        empty = True
         for res in client.listdir(
             current,
             max_items=None,
             fields=fields
         ):
+            empty = False
             if res.type == 'dir':
                 queue.append(res.path)
             else:
                 yield res
+        if empty:
+            print(f"Removing folder `{current}` because it is empty")
+            client.remove(current, force_async=True, wait=False)
                 
 def encrypt(url, config):
     key = base64.urlsafe_b64decode(config["encryption_key"])
