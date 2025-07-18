@@ -96,20 +96,6 @@ def select(query: list[str]):
     import sheets_introspect
     sheets_introspect.sheets_introspect(" ".join(query))
 
-@app.command()
-def filter():
-    """
-    Sweep and clean up non-relevant documents from Yandex Disk and Google Sheets.
-
-    This command moves files in Yandex Disk to a dedicated folder, unpublishes them, and removes their records from Google Sheets.
-    The sweep targets documents that do not meet relevance criteria, such as:
-      - Documents not in the Tatar language.
-      - Documents with MIME types considered non-relevant for textual data (e.g., JSON, CSS).
-    This helps maintain a clean and focused corpus by removing or archiving unnecessary files.
-    """
-    import filter
-    filter.filter()
-    
 @extract_app.command(name="pdf")
 def extract_pdf(
     md5: Annotated[
