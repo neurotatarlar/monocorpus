@@ -22,7 +22,7 @@ def extract(cli_params):
     config = read_config()
     attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
-        predicate = Document.metadata_url.is_(None) & Document.mime_type.is_('application/pdf')
+        predicate = (Document.metadata_url.is_(None) | Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2")) & Document.mime_type.is_('application/pdf')
         
         s3lient =  create_session(config)
         gemini_client = create_client(cli_params.key)
