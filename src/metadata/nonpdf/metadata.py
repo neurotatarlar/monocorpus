@@ -107,13 +107,14 @@ def _update_document(doc, meta, gsheet_session):
     doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
     doc.author =  ", ".join([a.name for a in meta.author if a.name.lower() != 'unknown' ]) if meta.author else None
     doc.title = meta.name if meta.name and meta.name.lower() != 'unknown' else None
-    doc.language=meta.inLanguage
+    doc.language=", ".join(sorted([i.strip() for i in meta.inLanguage.split(",") if i.strip()])) if meta.inLanguage else None
     doc.genre=", ".join([g.lower() for g in meta.genre if g.lower() != 'unknown']) if meta.genre else None
     doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
     if (_publish_date := meta.datePublished) and meta.datePublished.lower() != 'unknown':
         if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
             doc.publish_date = res.group(1)
-            
+        
+    doc.isbn = ''
     if meta.isbn:
         print(meta.isbn)
         isbns = set()
