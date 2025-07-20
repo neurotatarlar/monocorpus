@@ -118,11 +118,12 @@ def _update_document(doc, meta, gsheet_session):
         print(meta.isbn)
         isbns = set()
         for isbn in meta.isbn:
-            if scraped_isbns := isbnlib.get_isbnlike(isbn):
+            if scraped_isbns := isbnlib.get_isbnlike(isbn, level="strict"):
                 for _isbn in scraped_isbns:
-                    isbns.add(isbnlib.canonical(_isbn.stip()))
-        if isbns:
-            doc.isbn = ", ".join(isbns)
+                    if _isbn := _isbn.strip():
+                        isbns.add(isbnlib.canonical(_isbn))
+        if joined_isbn := ", ".join([isbn.strip() for isbn in sorted(isbns) if isbn.strip()]):
+            doc.isbn = joined_isbn
             print(f"Extracted isbns: '{doc.isbn}'")
     
     def _extract_classification(_properties, _expected_names):

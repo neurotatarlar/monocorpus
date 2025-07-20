@@ -175,13 +175,18 @@ def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
     if meta.isbn:
         isbns = set()
         for isbn in meta.isbn:
-            if scraped_isbn := isbnlib.get_isbnlike(isbn):
-                for scraped_isbn in scraped_isbn:
-                    if scraped_isbn := scraped_isbn.strip():
-                        isbns.add(isbnlib.canonical(scraped_isbn))
+            print("111", isbn)
+            if scraped_isbns := isbnlib.get_isbnlike(isbn, level="strict"):
+                print("222", scraped_isbns)
+                for _isbn in scraped_isbns:
+                    print("333", _isbn)
+                    if _isbn := _isbn.strip():
+                        print("444", _isbn)
+                        isbns.add(isbnlib.canonical(_isbn))
         if isbns:
             doc.isbn = ", ".join(sorted(isbns))
             print(f"Extracted isbns: '{doc.isbn}'")
+    exit()
         
     def _extract_classification(_properties, _expected_names):
         if _properties:
