@@ -18,27 +18,6 @@ from google.genai.errors import ClientError, ServerError
 from monocorpus_models import Document, Session
 import time
 
-# todo fix me
-excluded_md5s = set([
-    '15a6f709f8aef44b642f1cb0891f1a7e', '15d43435deccffe68148e8a1c8e8b45e', '2d8b64bde70efb705a7fbc279b1de214','d05ea94454e87892fba90cbbc81c45e1', '676f0f28c8efef5093e4b0288eaa2db0', 'fa93b9ebacc1680264e945f052549954', '0573113f0a022976d5381d2cec8ab305', '6b46d99568fad3168e2640dea63208db', 'f65985c3f183fdced6adcf57fb1b4b52', '223f363346ae4d3eaefd92241046ae29', '37fcdc1cc9dca80ee1b866fbe8c3acf7', 'e7f4e2e472fc2282fbf495cba90b67a3', '8ea99cbbd07fa3268b4879d69647d633', '346204bed567c1d69ab534b87cbaac29', '32ee190a64eed258eccbe4c8541d7adf',
-    '62adcc106dcda1a3ffebc261bfc8f013',
-    '392bd422b99fbb33306708bc656b6e06',
-    '9380b355fe584bc8f3cad2f5083f173d',
-    '1c7a438e1846086eae58b902a2d8f863',
-    '29f138e944271d620641cb9be3e2eddb',
-    'd7d4e15f89c552a0cf6ba4010db52292',
-    'bafc66fc36ca3be69c0442f3738ecf23',
-    '80a25ed65edf38dddb785012acff4be1',
-    'ace4b159ac53af6b65aad3f378a40c1e',
-    'e1c06d85ae7b8b032bef47e42e4c08f9',
-    '216ae45bced61af1a2a210c8883c4855',
-    'e1c06d85ae7b8b032bef47e42e4c08f9',
-    '216ae45bced61af1a2a210c8883c4855',
-    '917602d8a123acfd715fd41323cadf14',
-    '7dbf0472f43ba285b41dff65fff3f9f5',
-    '2513f3c6e08dcebf38ee7f1e80b192e9',
-])
-
 def extract(cli_params):
     config = read_config()
     attempt = 1
@@ -49,8 +28,6 @@ def extract(cli_params):
         gemini_client = create_client(cli_params.key)
         
         for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
-            if doc.md5 in excluded_md5s:
-                continue
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)
                 attempt = 1
@@ -91,7 +68,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")
-    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=5)
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=10)
 
     # prepare prompt
     prompt = _prepare_prompt(doc, slice_page_count)
@@ -138,7 +115,7 @@ def _prepare_prompt(doc, slice_page_count):
     prompt.append({"text": "Now, extract metadata from the following document"})
     return prompt
             
-def _prepare_slices(pdf_doc, dest_path, n):
+def _prepare_slices(pdf_doc, dest_path, n, target_dpi=300):
     """
     Prepare aux PDF doc with slices of pages of the original document for metadata extraction.
     :param pdf_doc: The PDF document to slice.
@@ -149,8 +126,21 @@ def _prepare_slices(pdf_doc, dest_path, n):
         pages = list(range(0, pdf_doc.page_count))
         pages = set(pages[:n] + pages[-n:])
         for start, end in list(_ranges(pages)):
-            doc_slice.insert_pdf(pdf_doc, from_page=start, to_page=end)
-        doc_slice.save(dest_path)
+            for page_num in range(start, end):
+                page = pdf_doc.load_page(page_num)
+                dpi = _estimate_page_dpi(page)
+                zoom = _choose_zoom_from_dpi(dpi, target_dpi)
+
+                # Render at reduced resolution
+                mat = pymupdf.Matrix(zoom, zoom)  # e.g., zoom=2.0 for 144 DPI
+                pix = page.get_pixmap(matrix=mat, colorspace="rgb")
+
+                # Add image as a new page to the output PDF
+                rect = pymupdf.Rect(0, 0, pix.width, pix.height)
+                img_page = doc_slice.new_page(width=rect.width, height=rect.height)
+                img_page.insert_image(rect, pixmap=pix)
+
+        doc_slice.save(dest_path, deflate=True)
         return doc_slice.page_count, pdf_doc.page_count
 
 
@@ -159,6 +149,24 @@ def _ranges(_i):
         _b = list(_b)
         yield _b[0][1], _b[-1][1]
         
+def _estimate_page_dpi(page):
+    """
+    Estimate DPI of a single PDF page by comparing pixel width to physical width in inches.
+    """
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(1, 1))  # Render at 72 DPI
+    width_inches = page.rect.width / 72  # 1 inch = 72 pt
+    dpi = pix.width / width_inches
+    return dpi
+
+def _choose_zoom_from_dpi(dpi, target_dpi):
+    """
+    Choose a zoom factor to match or modestly downscale to target DPI.
+    Prevents upscaling if original DPI is lower than target.
+    """
+    if dpi <= target_dpi:
+        return dpi / 72  # Render at original DPI, no upscaling
+    else:
+        return target_dpi / 72  # Downscale to target DPI
 
 def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
     doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
@@ -175,18 +183,13 @@ def _update_document(doc, meta, pdf_doc_page_count, gsheet_session):
     if meta.isbn:
         isbns = set()
         for isbn in meta.isbn:
-            print("111", isbn)
             if scraped_isbns := isbnlib.get_isbnlike(isbn, level="strict"):
-                print("222", scraped_isbns)
                 for _isbn in scraped_isbns:
-                    print("333", _isbn)
                     if _isbn := _isbn.strip():
-                        print("444", _isbn)
                         isbns.add(isbnlib.canonical(_isbn))
         if isbns:
             doc.isbn = ", ".join(sorted(isbns))
             print(f"Extracted isbns: '{doc.isbn}'")
-    exit()
         
     def _extract_classification(_properties, _expected_names):
         if _properties:
