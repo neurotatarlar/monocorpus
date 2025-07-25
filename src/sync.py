@@ -60,11 +60,13 @@ def sync():
         all_md5s = get_all_md5s()
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
+        
         # if docs_for_wiping:
         #     print("Removing objects from s3 storage")
         #     _remove_from_s3(docs_for_wiping.keys(), s3client, config)
         # else:
         #     print("No docs for wiping found")
+        #     return
             
         print("Syncing yadisk with Google sheets")
         entry_point = config['yandex']['disk']['entry_point']
@@ -73,7 +75,6 @@ def sync():
             try:
                 if dir_to_move := docs_for_wiping.get(file.md5, None):
                     # the file marked for wiping
-                    print(f"[yellow]Moving file '{file.path}' and removing from Google Sheets\[yellow]")
                     _move_to_filtered_out(file, config, yaclient, dir_to_move)
                     session._get_session().execute(delete(Document).where(Document.md5.is_(file.md5)))
                     del docs_for_wiping[file.md5]
@@ -86,7 +87,8 @@ def sync():
                     ):
                         session.upsert([doc])
             except Exception as e:
-                print("[red]Error during syncing\[red]")
+                import traceback
+                print(f"[red]Error during syncing: {type(e).__name__}: {e} {traceback.format_exc()}[/red]")
         if skipped:
             print("Skipped by MIME type files:")
             print(*skipped, sep="\n")
@@ -99,12 +101,13 @@ def _move_to_filtered_out(file, config, ya_client, parent_dir):
     entry_point = config['yandex']['disk']['entry_point']
     
     if parent_dir == 'void':
+        print(f"[magenta]Removing file '{file.md5}'('{file.path}')[/magenta]")
         ya_client.remove(file.path, n_retries=5, retry_interval=30)
     else:
         old_path = file.path.removeprefix('disk:')
         _rel_path = os.path.relpath(old_path, entry_point)
         new_path = os.path.join(filtered_out_dir, parent_dir, _rel_path)
-        print(f"Moving file {file.md5} from '{old_path} to '{new_path}'")
+        print(f"[cyan]Moving file '{file.md5}' from '{old_path} to '{new_path}'[/cyan]")
         ya_client.create_folders(os.path.dirname(new_path))
         ya_client.move(file.path, new_path, n_retries=5, retry_interval=30, overwrite=True)
         ya_client.unpublish(new_path)
@@ -261,7 +264,6 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
 
     _should_be_skipped, mime_type = should_be_skipped(file)
     if _should_be_skipped:
-        print(f"Moving file '{file.path}' from target folder because of mime_type type '{file.mime_type}'")
         _move_to_filtered_out(file, config, ya_client, 'nontextual')
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
         return
@@ -280,7 +282,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
             ya_client.remove(file.path, md5=file.md5)
         return
     
-    print(f"Processing file: '{file.path}' with md5 '{file.md5}'")
+    print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[\green]")
 
     sharing_restricted = config["yandex"]["disk"]["hidden"] in file.path 
     doc = Document(

@@ -1,8 +1,6 @@
 from yadisk_client import YaDisk
 from utils import read_config, download_file_locally, get_in_workdir
 from monocorpus_models import Document, Session, get_credentials
-from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT, ITEM_COVER, ITEM_UNKNOWN
-from markdownify import markdownify as md
 import mdformat
 from dirs import Dirs
 from rich import print
@@ -10,7 +8,6 @@ import re
 from s3 import upload_file, create_session
 import os
 import zipfile
-from urllib.parse import urlparse
 from rich import print
 from sqlalchemy import select
 import subprocess
@@ -74,10 +71,7 @@ def extract():
 def _extract_content(doc, config, ya_client, s3session, gsheet_session):
     print(f"Extracting content from file {doc.md5}({doc.file_name})")
     local_doc_path = download_file_locally(ya_client, doc, config)
-    # md = MarkItDown(enable_plugins=False) # Set to True to enable plugins
-    # content = md.convert(local_doc_path)
     response_path = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
-    # clips_dir = get_in_workdir(Dirs.CLIPS, doc.md5)
     
     if doc.mime_type == 'text/markdown':
         shutil.copyfile(local_doc_path, response_path)
@@ -125,7 +119,7 @@ def _preprocess_if_required(doc, path):
     
 def convert_to_docx_if_required(doc, path):
     if doc.mime_type in to_docx_mime_types:
-        creds = get_credentials()
+        creds = get_credentials(token_file="token.json")
         service = build('drive', 'v3', credentials=creds)
         file_metadata = {'name': os.path.basename(path), 'mimeType': 'application/vnd.google-apps.document'}
         media = MediaFileUpload(path, resumable=True)

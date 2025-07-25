@@ -34,7 +34,7 @@ def extract(cli_params):
             except KeyboardInterrupt:
                 exit()
             except BaseException as e:
-                print(f"Could not extract metadata from doc {doc.md5}: {e}")
+                print(f"Could not extract metadata from doc {doc.md5} key {cli_params.key}: {e}")
                 
                 if (isinstance(e, ClientError) and e.code == 429):
                     print("Rate limit exceeded, exiting...")
@@ -115,7 +115,7 @@ def _prepare_prompt(doc, slice_page_count):
     prompt.append({"text": "Now, extract metadata from the following document"})
     return prompt
             
-def _prepare_slices(pdf_doc, dest_path, n, target_dpi=300):
+def _prepare_slices(pdf_doc, dest_path, n):
     """
     Prepare aux PDF doc with slices of pages of the original document for metadata extraction.
     :param pdf_doc: The PDF document to slice.
@@ -126,21 +126,8 @@ def _prepare_slices(pdf_doc, dest_path, n, target_dpi=300):
         pages = list(range(0, pdf_doc.page_count))
         pages = set(pages[:n] + pages[-n:])
         for start, end in list(_ranges(pages)):
-            for page_num in range(start, end):
-                page = pdf_doc.load_page(page_num)
-                dpi = _estimate_page_dpi(page)
-                zoom = _choose_zoom_from_dpi(dpi, target_dpi)
-
-                # Render at reduced resolution
-                mat = pymupdf.Matrix(zoom, zoom)  # e.g., zoom=2.0 for 144 DPI
-                pix = page.get_pixmap(matrix=mat, colorspace="rgb")
-
-                # Add image as a new page to the output PDF
-                rect = pymupdf.Rect(0, 0, pix.width, pix.height)
-                img_page = doc_slice.new_page(width=rect.width, height=rect.height)
-                img_page.insert_image(rect, pixmap=pix)
-
-        doc_slice.save(dest_path, deflate=True)
+            doc_slice.insert_pdf(pdf_doc, from_page=start, to_page=end)
+        doc_slice.save(dest_path)
         return doc_slice.page_count, pdf_doc.page_count
 
 

@@ -13,7 +13,7 @@ def load_inline_shots():
     return shots_file
 
 def _form_inline_shots(_dir = './shots/snippets'):
-    prompt = [{"text": "Here are examples of how to extract content from a document:"}]
+    prompt = ["Here are examples of how to extract content from a document:"]
     gt = _list_files(_dir, endswith='.md')
     for idx, ground_truth_path in enumerate(gt, start=1):
         _id, _ = os.path.splitext(os.path.basename(ground_truth_path))
@@ -21,14 +21,14 @@ def _form_inline_shots(_dir = './shots/snippets'):
         
         with open(os.path.join(_dir, f"{_id}1.jpeg"), 'rb') as f:
             img = base64.b64encode(f.read()).decode("utf-8")
-            prompt.append({"text": f"Example {idx} Image:"})
+            prompt.append(f"Example {idx} Image:")
             prompt.append({"inline_data": {
                 "data": img,
                 "mime_type": "image/jpeg",
             }})
             
         with open(ground_truth_path, 'r', encoding='utf-8') as f:
-            prompt.append({"text": f"✅ Example {idx} Ground Truth: ```markdown\n{f.read()}\n```"})
+            prompt.append(f"✅ Example {idx} Ground Truth: ```markdown\n{f.read()}\n```")
              
     return prompt  
 

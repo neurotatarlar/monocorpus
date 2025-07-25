@@ -4,7 +4,7 @@ from monocorpus_models import Document, Session
 from content.pdf.context import Context, Message
 from s3 import upload_file, create_session
 import os
-from gemini import gemini_api, create_client
+from gemini import gemini_cli, create_client
 import pymupdf
 from dirs import Dirs
 import shutil
@@ -29,7 +29,14 @@ import time
 from datetime import timedelta, timezone, datetime
 from pydantic import BaseModel
 
-ATTEMPTS = 30
+ATTEMPTS = 10
+
+# todo check 7ddc45e6fa6ed4caa120b11689cf200e extracted content does not match the original pdf 
+
+# add gitignore in monocorpus
+# add context file
+
+# [INFO] Your configured model (gemini-2.5-pro) was temporarily unavailable. Switched to gemini-2.5-flash for this session.
 
 too_expensive = {
     "7e18fc2e65badafaeacd3503fcb8df46",
@@ -163,7 +170,6 @@ def extract(cli_params):
             & Document.full.is_(True) 
             & Document.language.is_("tt-Cyrl") 
             & Document.mime_type.is_('application/pdf')
-            & Document.isbn.is_not(None)
         )
         
         docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
@@ -199,7 +205,6 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     if _check_stop_file():
         return None # skip if shutdown was requested
     try:
-        gemini_client = create_client(config['google_api_key'][cli_params.tier])
         with Session() as gsheets_session, \
             Context(config, doc, cli_params, gsheets_session, failure_count, lock, queue) as context, \
             YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
@@ -218,7 +223,8 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
             context.ya_public_key = ya_doc_meta.public_key
             context.ya_resource_id = ya_doc_meta.resource_id
             
-            _process(context, gemini_client)
+            if not _process(context):
+                return
             if _check_stop_file():
                 return
             _upload_artifacts(context)
@@ -231,20 +237,22 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        # import tracebackgemini_api
+        import traceback
         # print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
         # print(traceback.format_exc())
         # exit()
-        context.log(f"[bold red]failed with error: {e}[/bold red]", complete=True)
+        context.log(f"[bold red]failed with error: {e} {traceback.format_exc()}[/bold red]", complete=False)
         with lock:
             failure_count.value += 1
             if context.failure_count.value >= ATTEMPTS:
                 return
 
 
-def _process(context, gemini_client):
+def _process(context):
     with pymupdf.open(context.local_doc_path) as pdf_doc:
-        _extract_content(context, pdf_doc, gemini_client)
+        if not _extract_content(context, pdf_doc):
+            return None
+            
         if _check_stop_file():
             return None
         postprocessed = postprocess(context)
@@ -261,7 +269,7 @@ def _process(context, gemini_client):
         context.doc_page_count=pdf_doc.page_count
     
     
-def _extract_content(context, pdf_doc, gemini_client):
+def _extract_content(context, pdf_doc):
     chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
     chunks = _get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=context.cli_params.batch_size)
     context.log(f"Extracting chunks: {chunks}")
@@ -290,54 +298,66 @@ def _extract_content(context, pdf_doc, gemini_client):
             if not content:
                 # create a pdf doc what will contain a slice of original pdf doc
                 slice_file_path = _create_doc_clice(_from, _to, pdf_doc, context.md5)
+            
+                chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                 
                 # prepare prompt
-                prompt = cook_extraction_prompt(_from, _to, next_footnote_num, headers_hierarchy)
-                with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}"), "w") as f:
+                prompt = cook_extraction_prompt(
+                    _from,
+                    _to,
+                    next_footnote_num,
+                    headers_hierarchy,
+                    source_path=slice_file_path,
+                    result_path=chunk_result_incomplete_path
+                )
+                
+                with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}.json"), "w") as f:
                     json.dump(prompt, f, indent=4, ensure_ascii=False)
-            
-                # request gemini
-                files = {slice_file_path: "application/pdf"}
-                chunk_result_incomplete_path = chunk_result_complete_path + ".part"
-                for model in context.config['gemini_models']:
-                    try:
-                        # todo as much workers as keys
-                        # update prompt by adding location of input and ouput
-                        response = gemini_api(
-                            client=gemini_client,
-                            model=model,
-                            prompt=prompt,
-                            files=files,
-                            schema=ExtractionResult,
-                            timeout_sec=6000
-                        )
-                        # write result into file
-                        with open(chunk_result_incomplete_path, "w") as f:
-                            for p in response:
-                                if text := p.text:
-                                    f.write(text)
-                        # validating schema
-                        with open(chunk_result_incomplete_path, "r") as f:
-                            content = validate_chunk(f.read())
-                            
-                        if not content:
-                            raise ValueError("Could not extract chunk")
-                            
-                        # "mark" batch as extracted by renaming file
-                        shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
-                         
-                        context.log(
-                            f"[green]Chunk {idx}({_from}-{_to}) of {len(chunks)} extracted with model '{model}': "
-                            f"{p.usage_metadata.total_token_count} tokens used[/green]"
-                        )
-                        break
-                    except Exception as e:
-                        context.log(f"[red]Failed to extract chunk {idx}({_from}-{_to}) with model '{model}': {type(e).__name__}: {e}[/red]")
-                        if isinstance(e, ClientError) and e.code == 429:
-                            context.log("[yellow]Received status code 429, sleeping for 60 seconds[/yellow]")
-                            time.sleep(60)
-                else:
-                    raise ValueError(f"[red]Could not extract chunk {idx}({_from}-{_to}) with any of the models, skipping it...")
+                    
+                exit()
+                
+                prompt = json.dumps(prompt, ensure_ascii=False, indent=0, separators=(',', ':'))
+                
+                try:
+                    # todo as much workers as keys
+                    # update prompt by adding location of input and ouput
+                    # response = gemini_api(
+                    #     client=gemini_client,
+                    #     model=model,
+                    #     prompt=prompt,
+                    #     files=files,
+                    #     schema=ExtractionResult,
+                    #     timeout_sec=6000
+                    # )
+                    output = gemini_cli(
+                        config=context.config, prompt=prompt
+                    )
+                    context.log(f"Chunk {idx}({_from}-{_to}) extraction result: {output}")
+                    with open(get_in_workdir(Dirs.GEMINI_CLI_OUTPUT, context.md5, file=f"chunk-{_from}-{_to}.txt"), "w") as f:
+                        f.write(output)
+                    # write result into file
+                    # with open(chunk_result_incomplete_path, "w") as f:
+                    #     for p in response:
+                    #         if text := p.text:
+                    #             f.write(text)
+                    # validating schema
+                    with open(chunk_result_incomplete_path, "r") as f:
+                        content = validate_chunk(f.read())
+                        
+                    if not content:
+                        raise ValueError("Could not extract chunk")
+                        
+                    # "mark" batch as extracted by renaming file
+                    shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
+                        
+                    context.log(f"[bold green]Chunk {idx}({_from}-{_to}) extracted successfully[/bold green]")
+                except Exception as e:
+                    import traceback
+                    context.log(f"[bold red]Chunk {idx}({_from}-{_to}) extraction failed: {e}\n{traceback.format_exc()}[/bold red]")
+                    if isinstance(e, ClientError) and e.code == 429:
+                        context.log("[yellow]Received status code 429, sleeping for 60 seconds[/yellow]")
+                        time.sleep(60)
+                    return False    
                                         
             # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
             content = shift_trailing_footnotes_up(content)
@@ -358,6 +378,7 @@ def _extract_content(context, pdf_doc, gemini_client):
             next_footnote_num = max(next_footnote_num, last_footnote_num + 1)            
 
             context.chunk_paths.append(chunk_result_complete_path)
+    return True
 
 def validate_chunk(raw_content):
     content = ExtractionResult.model_validate_json(raw_content).content

@@ -216,12 +216,7 @@ EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE = """
 """.strip()
 
 EXTRACT_CONTENT_PROMPT_NO_TITLE = """
-[Context: The heading structure so far is:
-
-{headers_hierarchy}
-]
-
-16. Document does not have a title page, so never use a single #. Always preserve the heading hierarchy based on the document's logical structure. Continue the structure above consistently in this chunk. Do not restart or re-level headings. If a new chapter begins, continue from the next logical chapter number.
+16. Document does not have a title page, so never use a single #. Always preserve the heading hierarchy based on the document's logical structure. Current headers hierarchy you can find in the `headers_hierarchy` value. Continue the structure above consistently in this chunk. Do not restart or re-level headings. If a new chapter begins, continue from the next logical chapter number.
 """.strip()
 
 DEFINE_META_PROMPT_PDF_HEADER = """
@@ -328,7 +323,7 @@ Text may appear in different scripts. Automatically detect the **primary languag
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """
 
-def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy):
+def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy, source_path, result_path):
    if headers_hierarchy:
       headers_hierarchy = "\n".join(headers_hierarchy)
       headers_hierarchy =  f"headers_hierarchy = ```\n{headers_hierarchy}\n```"
@@ -349,9 +344,8 @@ def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, he
    with open(path_to_shots, "r") as f:
       prompt.extend(json.load(f))
 
-   prompt.append({"text" : "Now, extract structured content from the following document"})
+   prompt.append({"text": f"Now, extract structured content from the following document `{source_path}` and save the output to `{result_path}`."})
    return prompt
-
 
 def _get_remote_file_or_upload(client, name, content=None, path=None):
    file = None

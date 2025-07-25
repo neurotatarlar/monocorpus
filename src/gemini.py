@@ -6,10 +6,10 @@ from utils import workdir
     
 def gemini_cli(config, prompt):
     env = os.environ.copy()
-    env["GEMINI_API_KEY"] = config['google_api_key']['promo']
+    env["GEMINI_API_KEY"] = config['google_api_key']['free']
     
     command = [
-        "gemini",
+        os.path.abspath(os.path.join(os.path.expanduser("~"), ".npm-global/bin/gemini")),
         "--model", "gemini-2.5-pro",
         "--prompt", prompt,
         "--yolo",
@@ -21,7 +21,7 @@ def gemini_cli(config, prompt):
             text=True,
             check=True,
             env=env,
-            cwd=workdir
+            cwd=os.path.abspath(os.path.expanduser(workdir))
         )
         output = output.stdout.strip()
         print("Gemini cli output ==> ", output)
@@ -29,8 +29,10 @@ def gemini_cli(config, prompt):
             raise ValueError("Request was executed by flash model")
         elif "overloaded" in output:
             raise ValueError("Model is overloaded")
+        return output
     except subprocess.CalledProcessError as e:
         print(f"Error: {e.stderr.strip()}")
+        raise e
 
 def create_client(api_key):
     return genai.Client(api_key=api_key)

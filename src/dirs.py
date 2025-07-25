@@ -12,3 +12,4 @@ class Dirs(Enum):
     CHUNKED_RESULTS = "misc/chunked_result"
     PROMPTS = "misc/prompts"
     WIPING_PLAN = "misc/wiping_plan"
+    GEMINI_CLI_OUTPUT = "misc/gemini_cli_output"
