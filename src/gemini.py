@@ -15,7 +15,7 @@ def gemini_cli(config, prompt):
         "--yolo",
     ]
     try:
-        output = subprocess.run(
+        return subprocess.run(
             command,
             capture_output=True,
             text=True,
@@ -23,13 +23,6 @@ def gemini_cli(config, prompt):
             env=env,
             cwd=os.path.abspath(os.path.expanduser(workdir))
         )
-        output = output.stdout.strip()
-        print("Gemini cli output ==> ", output)
-        if "gemini-2.5-flash" in output:
-            raise ValueError("Request was executed by flash model")
-        elif "overloaded" in output:
-            raise ValueError("Model is overloaded")
-        return output
     except subprocess.CalledProcessError as e:
         print(f"Error: {e.stderr.strip()}")
         raise e

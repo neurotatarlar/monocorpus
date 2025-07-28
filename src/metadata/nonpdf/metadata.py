@@ -20,7 +20,10 @@ model = 'gemini-2.5-pro'
 def extract(key):
     attempt = 1
     with Session() as write_session, Session() as read_session:
-        predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & \
+        # Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & \
+        
+        predicate = \
+            Document.metadata_url.is_(None) & \
             Document.mime_type.is_not('application/pdf') & \
             Document.content_url.is_not(None)
         gemini_client = create_client(key)

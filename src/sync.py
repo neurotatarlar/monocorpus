@@ -282,7 +282,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
             ya_client.remove(file.path, md5=file.md5)
         return
     
-    print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[\green]")
+    print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[/green]")
 
     sharing_restricted = config["yandex"]["disk"]["hidden"] in file.path 
     doc = Document(

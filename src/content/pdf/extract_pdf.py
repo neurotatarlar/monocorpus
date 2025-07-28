@@ -4,7 +4,7 @@ from monocorpus_models import Document, Session
 from content.pdf.context import Context, Message
 from s3 import upload_file, create_session
 import os
-from gemini import gemini_cli, create_client
+from gemini import gemini_cli
 import pymupdf
 from dirs import Dirs
 import shutil
@@ -14,7 +14,6 @@ import zipfile
 from prompt import cook_extraction_prompt
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Manager
-from gemini import create_client
 import json
 from rich import print
 from content.pdf.continuity_checker import continue_smoothly
@@ -31,14 +30,10 @@ from pydantic import BaseModel
 
 ATTEMPTS = 10
 
-# todo check 7ddc45e6fa6ed4caa120b11689cf200e extracted content does not match the original pdf 
-
-# add gitignore in monocorpus
-# add context file
-
 # [INFO] Your configured model (gemini-2.5-pro) was temporarily unavailable. Switched to gemini-2.5-flash for this session.
 
 too_expensive = {
+    "7ddc45e6fa6ed4caa120b11689cf200e",
     "7e18fc2e65badafaeacd3503fcb8df46",
     "2d7b5f5732a0144fe0fcf0c44cffc926",
     "ced45598a9cc9b331e1529c89ad0c77a",
@@ -238,14 +233,14 @@ def __task_wrapper(config, doc, cli_params, failure_count, lock, queue):
         exit(0)
     except Exception as e:
         import traceback
-        # print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
-        # print(traceback.format_exc())
-        # exit()
-        context.log(f"[bold red]failed with error: {e} {traceback.format_exc()}[/bold red]", complete=False)
-        with lock:
-            failure_count.value += 1
-            if context.failure_count.value >= ATTEMPTS:
-                return
+        print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
+        print(traceback.format_exc())
+        return
+        # context.log(f"[bold red]failed with error: {e} {traceback.format_exc()}[/bold red]", complete=False)
+        # with lock:
+        #     failure_count.value += 1
+        #     if context.failure_count.value >= ATTEMPTS:
+        #         return
 
 
 def _process(context):
@@ -278,7 +273,6 @@ def _extract_content(context, pdf_doc):
     next_footnote_num = 1
     
     context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
-    prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
     with open(context.unformatted_response_md, "w") as output:
         for idx, chunk in enumerate(chunks, start=1):
             with context.lock:
@@ -310,36 +304,19 @@ def _extract_content(context, pdf_doc):
                     source_path=slice_file_path,
                     result_path=chunk_result_incomplete_path
                 )
-                
-                with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}.json"), "w") as f:
-                    json.dump(prompt, f, indent=4, ensure_ascii=False)
-                    
-                exit()
-                
-                prompt = json.dumps(prompt, ensure_ascii=False, indent=0, separators=(',', ':'))
-                
+                prompt = r"Given instructions in the file 'GEMINI.json', extract structured content from the following document @/home/tans1q/.monocorpus/misc/doc_slices/0b0df1ae1bb11471130d24042a29584c/slice-0-12.pdf and save the output to @/home/tans1q/.monocorpus/misc/chunked_result/0b0df1ae1bb11471130d24042a29584c/chunk-0-12.json.part."
                 try:
-                    # todo as much workers as keys
-                    # update prompt by adding location of input and ouput
-                    # response = gemini_api(
-                    #     client=gemini_client,
-                    #     model=model,
-                    #     prompt=prompt,
-                    #     files=files,
-                    #     schema=ExtractionResult,
-                    #     timeout_sec=6000
-                    # )
-                    output = gemini_cli(
-                        config=context.config, prompt=prompt
-                    )
-                    context.log(f"Chunk {idx}({_from}-{_to}) extraction result: {output}")
-                    with open(get_in_workdir(Dirs.GEMINI_CLI_OUTPUT, context.md5, file=f"chunk-{_from}-{_to}.txt"), "w") as f:
-                        f.write(output)
-                    # write result into file
-                    # with open(chunk_result_incomplete_path, "w") as f:
-                    #     for p in response:
-                    #         if text := p.text:
-                    #             f.write(text)
+                    output = gemini_cli(config=context.config, prompt=prompt).__dict__
+                    with open(get_in_workdir(Dirs.GEMINI_CLI_IO, context.md5, file=f"chunk-{_from}-{_to}.json"), "w") as f:
+                        json.dump(output, f, indent=4, ensure_ascii=False)
+                    context.log(f"Chunk {idx}({_from}-{_to}) extraction result: {output['stdout'].replace('\\n', ' ')}")
+                    output = "\n".join([output['stdout'], output['stderr']]).strip()
+
+                    if "gemini-2.5-flash" in output:
+                        raise ValueError("Request was executed by flash model")
+                    elif "overloaded" in output:
+                        raise ValueError("Model is overloaded")
+                    
                     # validating schema
                     with open(chunk_result_incomplete_path, "r") as f:
                         content = validate_chunk(f.read())

@@ -28,7 +28,6 @@ class ExtractPdfParams:
     model: str
     workers: int
     limit: int
-    tier: Tier
     
 @dataclass
 class ExtractEpubParams:
@@ -156,14 +155,6 @@ def extract_pdf(
             help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
         )
     ] = None,
-    tier: Annotated[
-        Tier,
-        typer.Option(
-            "--tier", "-t",
-            help="Tier in Google used interact with Gemini",
-            case_sensitive=False
-        )
-    ] = Tier.free,
 ):
     from content.pdf import extract
     cli_params = ExtractPdfParams(
@@ -175,7 +166,6 @@ def extract_pdf(
         model=model,
         workers=workers,
         limit=limit,
-        tier=tier
     )
     extract(cli_params)
 

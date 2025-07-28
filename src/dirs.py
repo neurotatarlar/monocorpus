@@ -10,6 +10,5 @@ class Dirs(Enum):
     PAGE_IMAGES = "misc/page_images"
     CLIPS = "misc/clips"
     CHUNKED_RESULTS = "misc/chunked_result"
-    PROMPTS = "misc/prompts"
     WIPING_PLAN = "misc/wiping_plan"
-    GEMINI_CLI_OUTPUT = "misc/gemini_cli_output"
+    GEMINI_CLI_IO = "misc/gemini_cli_io"
