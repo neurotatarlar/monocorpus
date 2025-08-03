@@ -1,6 +1,6 @@
 from yadisk_client import YaDisk
 from utils import read_config, download_file_locally, get_in_workdir
-from monocorpus_models import Document, Session, get_credentials
+from monocorpus_models import Document, Session, SCOPES
 import mdformat
 from dirs import Dirs
 from rich import print
@@ -17,6 +17,8 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from googleapiclient.discovery import build
 import io
 import shutil
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 
 to_docx_mime_types = set([
@@ -55,6 +57,8 @@ def extract():
         Document.full.is_(True)
     )
     s3session = create_session(config)
+    creds = _get_credentials()
+    
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as write_session, Session() as read_session:
         docs = read_session.query(select(Document).where(predicate))
         if not docs:
@@ -62,13 +66,25 @@ def extract():
             return
         for doc in docs:
             try:
-                _extract_content(doc, config, ya_client, s3session, write_session)
+                _extract_content(doc, config, ya_client, s3session, write_session, creds)
             except KeyboardInterrupt:
                 exit()
             except BaseException as e:
                 print(f"Could not extract content from doc {doc.md5}: {e}")
+            
+def _get_credentials():
+    token_file = "personal_token.json"
+    
+    if os.path.exists(token_file):
+        return Credentials.from_authorized_user_file(token_file, SCOPES)
+    
+    flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+    creds = flow.run_local_server(port=0)
+    with open(token_file, 'w') as f:
+        f.write(creds.to_json())
+    return Credentials.from_authorized_user_file(token_file, SCOPES)
                     
-def _extract_content(doc, config, ya_client, s3session, gsheet_session):
+def _extract_content(doc, config, ya_client, s3session, gsheet_session, creds):
     print(f"Extracting content from file {doc.md5}({doc.file_name})")
     local_doc_path = download_file_locally(ya_client, doc, config)
     response_path = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
@@ -76,7 +92,7 @@ def _extract_content(doc, config, ya_client, s3session, gsheet_session):
     if doc.mime_type == 'text/markdown':
         shutil.copyfile(local_doc_path, response_path)
     else:
-        local_doc_path = _preprocess_if_required(doc, local_doc_path)
+        local_doc_path = _preprocess_if_required(doc, local_doc_path, creds)
     
         cmd = [
             "pandoc",
@@ -112,16 +128,19 @@ def _extract_content(doc, config, ya_client, s3session, gsheet_session):
 
     gsheet_session.update(doc)
     
-def _preprocess_if_required(doc, path):
+def _preprocess_if_required(doc, path, creds):
     _encode_if_required(doc, path)
-    path = convert_to_docx_if_required(doc, path)
+    path = convert_to_docx_if_required(doc, path, creds)
     return path
     
-def convert_to_docx_if_required(doc, path):
+def convert_to_docx_if_required(doc, path, creds):
     if doc.mime_type in to_docx_mime_types:
-        creds = get_credentials(token_file="token.json")
         service = build('drive', 'v3', credentials=creds)
-        file_metadata = {'name': os.path.basename(path), 'mimeType': 'application/vnd.google-apps.document'}
+        file_metadata = {
+            'name': os.path.basename(path), 
+            'mimeType': 'application/vnd.google-apps.document',
+            'parents': ['1WFYCcbrtKGv3KTwyKdcKHKxXwmr9iFHE']  # Use a specific folder for conversion,
+        }
         media = MediaFileUpload(path, resumable=True)
         uploaded = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         file_id = uploaded.get('id')

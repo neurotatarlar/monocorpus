@@ -61,12 +61,12 @@ def sync():
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
         
-        # if docs_for_wiping:
-        #     print("Removing objects from s3 storage")
-        #     _remove_from_s3(docs_for_wiping.keys(), s3client, config)
-        # else:
-        #     print("No docs for wiping found")
-        #     return
+        if docs_for_wiping:
+            print("Removing objects from s3 storage")
+            _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        else:
+            print("No docs for wiping found")
+            return
             
         print("Syncing yadisk with Google sheets")
         entry_point = config['yandex']['disk']['entry_point']
@@ -144,21 +144,21 @@ def _remove_from_s3(md5s, s3client, config):
 def _define_docs_for_wiping(yaclient, config):
     docs_for_wiping = _get_wiping_plan()
 
-    # print("Querying non tatar documents")
-    # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-    # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-    # print(f"Found {len(non_tatar_docs)} nontatar docs")
-    # docs_for_wiping.update(non_tatar_docs)
-    # flush(docs_for_wiping)
+    print("Querying non tatar documents")
+    non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+    non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+    print(f"Found {len(non_tatar_docs)} nontatar docs")
+    docs_for_wiping.update(non_tatar_docs)
+    flush(docs_for_wiping)
     
-    # print("Querying non textual docs")
-    # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
-    # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-    # print(f"Found {len(nontextual_docs)} nontextual docs")
-    # docs_for_wiping.update(nontextual_docs)
-    # flush(docs_for_wiping)
+    print("Querying non textual docs")
+    nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+    nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+    print(f"Found {len(nontextual_docs)} nontextual docs")
+    docs_for_wiping.update(nontextual_docs)
+    flush(docs_for_wiping)
     
-    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    _dedup_by_isbn(docs_for_wiping, yaclient, config)
     
     return docs_for_wiping
     
