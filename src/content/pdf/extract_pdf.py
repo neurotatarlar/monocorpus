@@ -27,10 +27,13 @@ from rich.live import Live
 import time
 from datetime import timedelta, timezone, datetime
 from pydantic import BaseModel
+from context import prepare as prepare_context
 
 ATTEMPTS = 10
 
+
 # [INFO] Your configured model (gemini-2.5-pro) was temporarily unavailable. Switched to gemini-2.5-flash for this session.
+
 
 too_expensive = {
     "7ddc45e6fa6ed4caa120b11689cf200e",
@@ -89,6 +92,7 @@ too_expensive = {
     '4bde1a9aabb6f6c7f5ead82aa51f8d27'
 }
 
+
 # these docs skipped because they are processed by external contributor
 skipped_external = {
     "7ddc45e6fa6ed4caa120b11689cf200e",
@@ -145,8 +149,10 @@ skipped_external = {
 
 skipped = skipped_external | too_expensive
 
+
 class ExtractionResult(BaseModel):
     content: str
+
 
 def extract(cli_params):
     print(f'About to extract content with params => {", ".join([f"{k}: {v}" for k,v in cli_params.__dict__.items() if v])}')
@@ -156,6 +162,8 @@ def extract(cli_params):
         failure_count = manager.Value('i', 0)
         lock = manager.Lock()
         queue = manager.Queue()
+        
+        prepare_context()
         
         printer_thread = threading.Thread(target=printer_loop, args=(queue,), daemon=True)
         printer_thread.start()
@@ -264,6 +272,8 @@ def _process(context):
         context.doc_page_count=pdf_doc.page_count
     
     
+# try to set temperature to 0.1
+# add image examples to the context 
 def _extract_content(context, pdf_doc):
     chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
     chunks = _get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=context.cli_params.batch_size)
@@ -304,17 +314,19 @@ def _extract_content(context, pdf_doc):
                     source_path=slice_file_path,
                     result_path=chunk_result_incomplete_path
                 )
-                prompt = r"Given instructions in the file 'GEMINI.json', extract structured content from the following document @/home/tans1q/.monocorpus/misc/doc_slices/0b0df1ae1bb11471130d24042a29584c/slice-0-12.pdf and save the output to @/home/tans1q/.monocorpus/misc/chunked_result/0b0df1ae1bb11471130d24042a29584c/chunk-0-12.json.part."
                 try:
-                    output = gemini_cli(config=context.config, prompt=prompt).__dict__
+                    io = gemini_cli(config=context.config, prompt=prompt).__dict__
                     with open(get_in_workdir(Dirs.GEMINI_CLI_IO, context.md5, file=f"chunk-{_from}-{_to}.json"), "w") as f:
-                        json.dump(output, f, indent=4, ensure_ascii=False)
-                    context.log(f"Chunk {idx}({_from}-{_to}) extraction result: {output['stdout'].replace('\\n', ' ')}")
-                    output = "\n".join([output['stdout'], output['stderr']]).strip()
-
-                    if "gemini-2.5-flash" in output:
+                        json.dump(io, f, indent=4, ensure_ascii=False)
+                        
+                    if io['returncode'] != 0:
+                        raise ValueError(f"Gemini CLI returned with error code {io['returncode']}, stderr: {io['stderr']}")
+                    
+                    io = ";".join([io['stdout'], io['stderr']])
+                    
+                    if "flash" in io:
                         raise ValueError("Request was executed by flash model")
-                    elif "overloaded" in output:
+                    elif "overloaded" in io:
                         raise ValueError("Model is overloaded")
                     
                     # validating schema
@@ -327,7 +339,7 @@ def _extract_content(context, pdf_doc):
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                         
-                    context.log(f"[bold green]Chunk {idx}({_from}-{_to}) extracted successfully[/bold green]")
+                    context.log(f"[bold green]Chunk {idx}({_from}-{_to}) extracted successfully'[/bold green]")
                 except Exception as e:
                     import traceback
                     context.log(f"[bold red]Chunk {idx}({_from}-{_to}) extraction failed: {e}\n{traceback.format_exc()}[/bold red]")
@@ -357,9 +369,11 @@ def _extract_content(context, pdf_doc):
             context.chunk_paths.append(chunk_result_complete_path)
     return True
 
+
 def validate_chunk(raw_content):
     content = ExtractionResult.model_validate_json(raw_content).content
     return content
+
 
 def _create_doc_clice(_from, _to, pdf_doc, md5):
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, md5, file=f"slice-{_from}-{_to}.pdf")
@@ -412,7 +426,6 @@ def _upsert_document(context):
     context.gsheets_session.update(doc)
     
     
-
 def extract_markdown_headers(content):
     """
     Extracts Markdown headers up to a certain level and returns them in a structured format.
@@ -430,6 +443,7 @@ def extract_markdown_headers(content):
         output_lines.append(f"{hashes} {title.strip()}")
 
     return output_lines
+
 
 def printer_loop(queue: Queue):
     """Continuously read messages from queue and print with rich."""
@@ -493,8 +507,10 @@ def shift_trailing_footnotes_up(content):
 
     return '\n'.join(reordered)
 
+
 def _check_stop_file():
     return os.path.exists("stop")
+
 
 def _get_chunks(dir, start_inc: int, end_excl: int, chunk_size: int, last_chunk_min_size=5):
     # # Step 1: Sort existing chunks

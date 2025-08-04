@@ -11,7 +11,6 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import base64
 
 prefix = "enc:"
-
 workdir = "~/.monocorpus"
 
 

@@ -12,14 +12,14 @@ def gemini_cli(config, prompt):
         os.path.abspath(os.path.join(os.path.expanduser("~"), ".npm-global/bin/gemini")),
         "--model", "gemini-2.5-pro",
         "--prompt", prompt,
-        "--yolo",
+        "--yolo", "--debug",
     ]
     try:
         return subprocess.run(
             command,
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
             env=env,
             cwd=os.path.abspath(os.path.expanduser(workdir))
         )
