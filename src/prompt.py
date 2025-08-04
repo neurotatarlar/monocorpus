@@ -323,7 +323,7 @@ Text may appear in different scripts. Automatically detect the **primary languag
 📌 No explanations, no Markdown, no comments — only raw JSON-LD.
 """
 
-def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy, source_path, result_path):
+def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy):
    if headers_hierarchy:
       headers_hierarchy = "\n".join(headers_hierarchy)
       headers_hierarchy =  f"headers_hierarchy = ```\n{headers_hierarchy}\n```"
@@ -344,7 +344,7 @@ def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, he
    with open(path_to_shots, "r") as f:
       prompt.extend(json.load(f))
 
-   prompt.append({"text": f"Now, extract structured content from the following document `{source_path}` and save the output to `{result_path}`."})
+   prompt.append({"text" : "Now, extract the content from the input text according to the rules above. Return a JSON object with the extracted content."})
    return prompt
 
 def _get_remote_file_or_upload(client, name, content=None, path=None):

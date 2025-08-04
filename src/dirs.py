@@ -11,4 +11,4 @@ class Dirs(Enum):
     CLIPS = "misc/clips"
     CHUNKED_RESULTS = "misc/chunked_result"
     WIPING_PLAN = "misc/wiping_plan"
-    GEMINI_CLI_IO = "misc/gemini_cli_io"
+    PROMPTS = "misc/prompts"

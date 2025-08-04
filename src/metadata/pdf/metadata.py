@@ -18,17 +18,27 @@ from google.genai.errors import ClientError, ServerError
 from monocorpus_models import Document, Session
 import time
 
+skip = set([
+    "dd713e13dd749131652b7eef5fedf4ac",
+    "b2d56b82efc561e9e74f56d8701fd646",
+    "913471a88265ebb27423b67477ea5f8a",
+])
+
 def extract(cli_params):
     config = read_config()
     attempt = 1
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
-        # predicate = (Document.metadata_url.is_(None) | Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2")) & Document.mime_type.is_('application/pdf')
-        predicate = Document.metadata_url.is_(None) & Document.mime_type.is_('application/pdf')
+        predicate = (Document.metadata_url.is_(None) | Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2")) & Document.mime_type.is_('application/pdf')
+        # predicate = Document.metadata_url.is_(None) & Document.mime_type.is_('application/pdf')
         
         s3lient =  create_session(config)
         gemini_client = create_client(cli_params.key)
         
+        print(f"Extracting metadata from documents with key {cli_params.key} using model {cli_params.model}")
         for doc in obtain_documents(cli_params, ya_client, predicate=predicate):
+            if doc.md5 in skip:
+                print(f"Skipping document {doc.md5} as it is in the skip list")
+                continue
             try:
                 _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet_session)
                 attempt = 1
@@ -69,7 +79,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")
-    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=10)
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=11)
 
     # prepare prompt
     prompt = _prepare_prompt(doc, slice_page_count)
