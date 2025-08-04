@@ -7,20 +7,16 @@ class Message:
     id: str
     content: List[RenderableType]
     complete: bool
-
+    
 class Context():
 
-    def __init__(self, config, doc, cli_params, gsheets_session, failure_count, lock, queue):
+    def __init__(self, config, doc, cli_params, log_queue):
         self.config = config
         self.doc = doc
         self.md5 = doc.md5
         self.cli_params = cli_params
-        self.gsheets_session = gsheets_session
         self.chunk_paths = []
-        self.failure_count = failure_count
-        self.lock = lock
-        self.queue = queue
-
+        self.log_queue = log_queue
     
         self.ya_file_name = None
         self.ya_public_key = None 
@@ -57,5 +53,4 @@ class Context():
             content=content,
             complete=complete
         )
-        self.queue.put(msg)
-        # pass
+        self.log_queue.put(msg)

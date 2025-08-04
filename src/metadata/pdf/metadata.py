@@ -53,7 +53,7 @@ def extract(cli_params):
                 if isinstance(e, ServerError):
                     print("Server error, sleeping for 60 seconds")
                     time.sleep(60)
-                if attempt >= 10:
+                if attempt >= 30:
                     raise e
                 attempt += 1
 
@@ -79,7 +79,7 @@ def _metadata(doc, config, ya_client, gemini_client, s3lient, cli_params, gsheet
 
     # create a slice of first n and last n pages
     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, doc.md5, file=f"slice-for-meta")
-    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=11)
+    slice_page_count, original_doc_page_count = _prepare_slices(local_doc_path, slice_file_path, n=8)
 
     # prepare prompt
     prompt = _prepare_prompt(doc, slice_page_count)
