@@ -31,10 +31,8 @@ import time
 import random
 
 
-# todo add check for 429
 ATTEMPTS = 10
 
-# python src/main.py extract pdf --md5 84030e83ab3ba0265436ee13270ba51d ; spd-say complete
 
 too_expensive = {
     "7ddc45e6fa6ed4caa120b11689cf200e",
@@ -173,12 +171,12 @@ class KeysRotator:
         self.key_locks = {key: manager.Lock() for key in keys}
 
     def acquire_key(self):
-        with self.lock:
+        with self.lock:  # try to acquire lock for all keys
             for key in list(self.keys):  # work on snapshot
                 if key in self.failed_keys:
                     continue
                 lock = self.key_locks[key]
-                if lock.acquire(blocking=False):
+                if lock.acquire(blocking=False):  # try to acquire lock for key 60 seconds
                     return key
         return None
 
@@ -253,6 +251,11 @@ class ContentExtractor:
             return True
         except KeyboardInterrupt:
             exit(0)
+        except Exception as e:
+            import traceback
+            print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
+            print(traceback.format_exc())
+            return False
 
     
     def _enrich_context(self, ya_client):
@@ -270,7 +273,6 @@ class ContentExtractor:
             
             chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, self.context.md5)
             chunks = self._get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=self.context.cli_params.batch_size)
-            self.context.log(f"Extracting chunks: {chunks}")
             prev_chunk_tail = None
             headers_hierarchy = []
             next_footnote_num = 1
@@ -311,7 +313,7 @@ class ContentExtractor:
                             raise ValueError("No available API keys")
                         
                         gemini_client = create_client(key)
-                        self.context.log(f"Requesting gemini for chunk {idx}({_from}-{_to}) with model `{self.context.cli_params.model}` with key `{key}`" )
+                        self.context.log(f"Requesting gemini for chunk {idx}({_from}-{_to}) of {len(chunks)} with key `{key}`")
                         
                         response = gemini_api(
                             client=gemini_client,
@@ -325,12 +327,11 @@ class ContentExtractor:
                         with open(chunk_result_incomplete_path, "w") as f:
                             for p in response:
                                 if text := p.text:
-                                    print(f"Chunk {idx}({_from}-{_to}) response: {text}")
                                     f.write(text)
                     except ClientError as e:
                         if e.code == 429:
-                            self.keys_rotator.mark_key_failed(gemini_client.api_key)
-                            print(f"[red]Key {gemini_client.api_key} is exhausted, switching to the next key: {e}[/red]")
+                            self.keys_rotator.mark_key_failed(key)
+                            print(f"[red]Key `{key}` usage limit reached, it will be skipped for next requests[/red]")
                             time.sleep(60) 
                         raise e
                     except Exception as e:
@@ -526,29 +527,29 @@ def extract(cli_params):
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Manager() as manager:
         locks = Channel(manager)
         log_queue = manager.Queue()
-        keys_rotator = KeysRotator(manager, config['google_api_keys']['free'])
+        keys = config['google_api_keys']['free']
+        keys_rotator = KeysRotator(manager, keys)
 
         printer_thread = threading.Thread(target=printer_loop, args=(log_queue,), daemon=True)
         printer_thread.start()
 
         predicate = (
-            # Document.content_url.is_(None)
-            # & Document.full.is_(True) 
-            Document.language.is_("tt-Cyrl") 
+            Document.content_url.is_(None)
+            & Document.full.is_(True) 
+            & Document.language.is_("tt-Cyrl") 
             & Document.mime_type.is_('application/pdf')
         )
         
         docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
         print(f"[blue]Found {len(docs)} documents to process[/blue]")
         
-        with ProcessPoolExecutor(max_workers=cli_params.workers) as executor:
+        with ProcessPoolExecutor(max_workers=len(keys)) as executor:
             futures = {
                 executor.submit(ContentExtractor(config, doc, cli_params, log_queue, locks, keys_rotator).__call__): doc
                 for doc 
                 in docs
             }
             for future in as_completed(futures):
-                print(f"[blue]Processing document {futures[future].md5}[/blue]")
                 if _check_stop_file():
                     print("[yellow]Gracefully shutdown. Stopping...[/yellow]")
                     executor.shutdown(wait=True, cancel_futures=False)
@@ -558,21 +559,8 @@ def extract(cli_params):
                     executor.shutdown(wait=False, cancel_futures=True)
                     break
                 
-                try:
-                    if future.result():
-                        print(f"[green]Document {futures[future].md5} processed successfully[/green]")
-                    else:
-                        print(f"[yellow]Document {futures[future].md5} was skipped[/yellow]")
-                except Exception as e:
-                    import traceback
-                    print(f"[red]Error during extraction: {type(e).__name__}: {e}[/red]")
-                    print(traceback.format_exc())
-                    break
-                    # context.log(f"[bold red]failed with error: {e} {traceback.format_exc()}[/bold red]", complete=False)
-                    # with self.locks.failure_lock:
-                    #     self.locks.failure_count.value += 1
-                    #     if self.locks.failure_count.value >= ATTEMPTS:
-                    #         return False
+                _ = future.result()
+           
                 
         # Gracefully stop printer
         log_queue.put("__STOP__")

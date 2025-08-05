@@ -120,7 +120,6 @@ def _collect_images(content):
     for match in pattern.finditer(content):
         raw_html = match.group(1)
         fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
-        print(f">>>>>>{match}\n<<<<<<")
         if not (bbox := fig_elem.get("data-bbox")):
             raise ValueError(f"Figure element does not have 'data-bbox' attribute: '{match}'")
         details = {

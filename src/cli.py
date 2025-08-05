@@ -141,13 +141,6 @@ def extract_pdf(
             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
         )
     ] = "gemini-2.5-pro",
-    workers: Annotated[
-        int,
-        typer.Option(
-            "--workers", "-w",
-            help="Parallelism factor",
-        )
-    ] = 4,
     limit: Annotated[
         int,
         typer.Option(
@@ -164,7 +157,6 @@ def extract_pdf(
         page_slice=pages_slice,
         batch_size=batch_size,
         model=model,
-        workers=workers,
         limit=limit,
     )
     extract(cli_params)
