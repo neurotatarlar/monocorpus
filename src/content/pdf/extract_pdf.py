@@ -34,6 +34,7 @@ import random
 # todo add check for 429
 ATTEMPTS = 10
 
+# python src/main.py extract pdf --md5 84030e83ab3ba0265436ee13270ba51d ; spd-say complete
 
 too_expensive = {
     "7ddc45e6fa6ed4caa120b11689cf200e",
