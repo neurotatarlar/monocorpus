@@ -26,7 +26,6 @@ class ExtractPdfParams:
     page_slice: str
     batch_size: int
     model: str
-    workers: int
     limit: int
     
 @dataclass

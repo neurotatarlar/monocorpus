@@ -31,7 +31,7 @@ import time
 import random
 
 
-ATTEMPTS = 10
+ATTEMPTS = 10_000
 
 
 too_expensive = {
@@ -267,6 +267,11 @@ class ContentExtractor:
         
         
     def _process(self):
+        if _check_stop_file():
+            return False
+        if not (key := self.keys_rotator.acquire_key()):
+            self.context.log("No available keys for extraction, skipping this document")
+            return False
         self.context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{self.context.md5}-unformatted.md")
         with pymupdf.open(self.context.local_doc_path) as pdf_doc, open(self.context.unformatted_response_md, "w") as output:
             self.context.doc_page_count=pdf_doc.page_count
@@ -307,11 +312,7 @@ class ContentExtractor:
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
                     
-                    try: 
-                        key = self.keys_rotator.acquire_key()
-                        if not key:
-                            raise ValueError("No available API keys")
-                        
+                    try:                         
                         gemini_client = create_client(key)
                         self.context.log(f"Requesting gemini for chunk {idx}({_from}-{_to}) of {len(chunks)} with key `{key}`")
                         
@@ -543,7 +544,7 @@ def extract(cli_params):
         docs = [d for d in obtain_documents(cli_params, ya_client, predicate, limit=cli_params.limit) if d.md5 not in skipped ]
         print(f"[blue]Found {len(docs)} documents to process[/blue]")
         
-        with ProcessPoolExecutor(max_workers=len(keys)) as executor:
+        with ProcessPoolExecutor(max_workers=min(len(keys), 16)) as executor:
             futures = {
                 executor.submit(ContentExtractor(config, doc, cli_params, log_queue, locks, keys_rotator).__call__): doc
                 for doc 
@@ -553,11 +554,11 @@ def extract(cli_params):
                 if _check_stop_file():
                     print("[yellow]Gracefully shutdown. Stopping...[/yellow]")
                     executor.shutdown(wait=True, cancel_futures=False)
-                    break 
+                    return
                 elif locks.failure_count.value >= ATTEMPTS:
                     print("[red]Too many consecutive failures. Exiting all processing.[/red]")
                     executor.shutdown(wait=False, cancel_futures=True)
-                    break
+                    return
                 
                 _ = future.result()
            
