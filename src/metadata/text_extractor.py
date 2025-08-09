@@ -26,11 +26,9 @@ class FromTextMetadataExtractor:
         response = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, schema=Book, timeout_sec=120)
         # validate response
         if not (raw_response := "".join([ch.text for ch in response if ch.text])):
-            print(f"No metadata was extracted from document {self.doc.md5}")
-            return
+            return None
         else:
-            metadata = Book.model_validate_json(raw_response)
-        return metadata
+            return Book.model_validate_json(raw_response)
     
     
     def _load_extracted_content(self, first_N=30_000):

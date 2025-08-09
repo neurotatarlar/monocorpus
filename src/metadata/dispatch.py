@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from rich import print
 from s3 import upload_file, create_session
-from utils import read_config, get_in_workdir
+from utils import read_config, get_in_workdir, download_file_locally
 from dirs import Dirs
 from gemini import create_client
 import zipfile
@@ -14,6 +14,9 @@ from queue import Queue, Empty
 import threading
 from .text_extractor import FromTextMetadataExtractor
 from .pdf_slice_extractor import FromPdfSliceMetadataExtractor
+import os
+from utils import encrypt
+from yadisk_client import YaDisk
 
 
 model = 'gemini-2.5-pro'
@@ -38,42 +41,44 @@ skip_pdf = set([
 
 
 def extract_metadata():
-    # print("Processing documents without metadata")
-    # predicate = Document.metadata_url.is_(None) & Document.content_url.is_not(None)
-    # _process_by_predicate(predicate)
-    
-    predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & Document.content_url.is_not(None) & Document.mime_type.is_not('application/pdf')
-    print("Processing documents with older metadata extraction method...")
+    print("Processing documents without metadata")
+    predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     _process_by_predicate(predicate)
+    
+    # predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & Document.content_url.is_not(None) & Document.mime_type.is_('application/pdf')
+    # print("Processing documents with older metadata extraction method...")
+    # _process_by_predicate(predicate)
 
     
-def _process_by_predicate(predicate, docs_batch_size=65, keys_batch_size=18):
+def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
     config = read_config()
     all_keys = config["gemini_api_keys"]["free"]
-    for shift in range(0, len(all_keys), keys_batch_size):
+    for shift in range(5, len(all_keys), keys_batch_size):
         keys_slice = all_keys[shift: shift + keys_batch_size]
         
         tasks_queue = None
         threads = None
         try: 
             while True:
-                with Session() as read_session:
+                with Session() as read_session, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                     docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
 
-                if not docs:
-                    print("No documents for processing...")
-                    return
-                print(f"Found {len(docs)} documents for metadata extraction")
-                s3lient =  create_session(config)
                 tasks_queue = Queue(maxsize=len(docs))
                 for doc in docs:
                     if doc.md5 in skip_pdf:
                         continue
                     tasks_queue.put(doc)
                     
+                if tasks_queue.empty:
+                    print("No documents for processing...")
+                    return
+                
+                print(f"Found {len(tasks_queue)} documents for metadata extraction")
+                s3lient =  create_session(config)
+                    
                 threads = []
                 for key in keys_slice:
-                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient))
+                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests
@@ -95,25 +100,27 @@ def _process_by_predicate(predicate, docs_batch_size=65, keys_batch_size=18):
 class MetadataExtractionWorker:
     
     
-    def __init__(self, gemini_api_key, tasks_queue, config, s3lient):
+    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.s3lient = s3lient
+        self.ya_client = ya_client
         
         
     def __call__(self):
         gemini_client = create_client(self.key)
         while True:
             try:
+                local_doc_path = None
                 doc = self.tasks_queue.get(block=False)
                 self.log(f"Extracting metadata from document {doc.md5}({doc.ya_public_url}) by key {self.key}")
                 
                 if doc.content_url:
                     metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model)()
                 elif doc.mime_type == 'application/pdf':
-                    continue
-                    metadata = FromPdfSliceMetadataExtractor()()
+                    local_doc_path = local_doc_path = download_file_locally(self.ya_client, doc, self.config)
+                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model, local_doc_path)()
                 else:
                     self.log(f"Document {doc.md5} has no content_url or is not a PDF, skipping...")
                     continue
@@ -128,11 +135,8 @@ class MetadataExtractionWorker:
                     zf.writestr("metadata.json", meta_json)
 
                 # upload metadata to s3
-                meta_key = f"{doc.md5}-meta.zip"
-                meta_bucket = self.config["yandex"]["cloud"]['bucket']['metadata']
-                doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, self.s3lient, skip_if_exists=False)
+                self._upload_artifacts_to_s3(doc, local_meta_path, local_doc_path)
                 doc.metadata_extraction_method = f"{model}/prompt.v2"
-                self._upload_artifacts_to_s3(doc, local_meta_path)
                 with Session() as gsheet_session:
                     self._update_document(doc, metadata, gsheet_session)
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
@@ -147,10 +151,16 @@ class MetadataExtractionWorker:
                 self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
             
             
-    def _upload_artifacts_to_s3(self, doc, local_meta_path):
+    def _upload_artifacts_to_s3(self, doc, local_meta_path, local_doc_path):        
         meta_key = f"{doc.md5}-meta.zip"
         meta_bucket = self.config["yandex"]["cloud"]['bucket']['metadata']
         doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, self.s3lient, skip_if_exists=False)
+        
+        if local_doc_path:
+            doc_bucket = self.config["yandex"]["cloud"]['bucket']['document']
+            doc_key = os.path.basename(local_doc_path)
+            remote_doc_url = upload_file(local_doc_path, doc_bucket, doc_key, self.s3lient, skip_if_exists=True)
+            doc.document_url = encrypt(remote_doc_url, self.config) if doc.sharing_restricted else remote_doc_url
 
 
     def _update_document(self, doc, meta, gsheet_session):
@@ -192,6 +202,11 @@ class MetadataExtractionWorker:
             
         if _udc := _extract_classification(meta.additionalProperty, ["УДК", "UDC"]):
             doc.udc = _udc
+            
+        if meta.numberOfPages and doc.page_count and abs(meta.numberOfPages - int(doc.page_count)) < 5:
+            # if model detected count of pages in the document 
+            # and the pages count is not too far from count of pages in pdf file
+            doc.page_count = meta.numberOfPages
             
         gsheet_session.update(doc)
 

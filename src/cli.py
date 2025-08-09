@@ -9,8 +9,6 @@ from enum import Enum
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 extract_app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 app.add_typer(extract_app, name="extract", help="Extract by format")
-meta_app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
-app.add_typer(meta_app, name="meta", help="Extract metadata")
 
 slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
 
@@ -33,14 +31,6 @@ class ExtractEpubParams:
     md5: str
     path: str
     limit: int
-
-@dataclass
-class MetaCliParams:
-    md5: str
-    path: str
-    model: str
-    tier: Tier
-    key: str
 
 def slice_parser(value: str):
     if value:
@@ -198,75 +188,12 @@ def extract_docx():
     from content.docx import extract
     extract()
     
-@meta_app.command(name="pdf")
-def metadata_pdf(
-    md5: Annotated[
-        Optional[str],
-        typer.Option(
-            "--md5",
-            callback=md5_validator,
-            help="MD5 hash of the document. If not provided, all local documents will be processed."
-        )
-    ] = None,
-    path: Annotated[
-        Optional[str],
-        typer.Option(
-            "--path", "-p",
-            help="Path to the document or directory in yandex disk"
-        )
-    ] = None,
-    model: Annotated[
-        str,
-        typer.Option(
-            "--model", "-m",
-            help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
-        )
-    ] = "gemini-2.5-flash",
-    tier: Annotated[
-        Tier,
-        typer.Option(
-            "--tier", "-t",
-            help="Tier in Google used interact with Gemini",
-            case_sensitive=False
-        )
-    ] = Tier.free,
-    key: Annotated[
-        str, 
-        typer.Option(
-            "--key", "-k",
-            help="Key to extract metadata for non-PDF documents"
-        )
-    ] = None
-):
-    """
-    Extract metadata from documents.
-
-    This command processes documents specified by their MD5 hash or located at a given path 
-    in Yandex Disk. It uses the specified model to extract metadata, which can then be used 
-    for further analysis or integration. If no MD5 or path is provided, all local documents 
-    will be processed.
-    """
-    from metadata.pdf import extract
-    cli_params = MetaCliParams(
-        md5=md5,
-        path=path,
-        model=model,
-        tier=tier,
-        key=key
-    )
-    extract(cli_params)
-    
-@meta_app.command(name="nonpdf")
-def metadata_nonpdf(key: str):
-    from metadata.nonpdf import extract
-    extract(key)
-
 @app.command()
 def hf():
     import hf 
     hf.assemble_dataset()
     
 @app.command()
-def meta2():
+def meta():
     import metadata
     metadata.extract_metadata()
