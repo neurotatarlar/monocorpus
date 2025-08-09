@@ -201,6 +201,7 @@ def meta():
     import metadata
     metadata.extract_metadata()
     
+@app.command()
 def extract2():
     import content
     content.extract_content()

@@ -45,16 +45,20 @@ def extract_metadata():
     predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     _process_by_predicate(predicate)
     
-    predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & Document.content_url.is_not(None) & Document.mime_type.is_('application/pdf')
+    predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     print("Processing documents with older metadata extraction method...")
     _process_by_predicate(predicate)
 
     
 def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
     config = read_config()
-    all_keys = config["gemini_api_keys"]["free"]
-    for shift in range(0, len(all_keys), keys_batch_size):
-        keys_slice = all_keys[shift: shift + keys_batch_size]
+    exceeded_keys_lock = threading.Lock()
+    exceeded_keys_set = set()
+    
+    while True:
+        with exceeded_keys_lock:
+            if not (keys_slice := list(set(config["gemini_api_keys"]["free"]) - exceeded_keys_set)[:keys_batch_size]):
+                return
         
         tasks_queue = None
         threads = None
@@ -79,7 +83,7 @@ def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
                 threads = []
                 with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                     for key in keys_slice:
-                        t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client))
+                        t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
                         t.start()
                         threads.append(t)
                         time.sleep(5)  # slight delay to avoid overwhelming the API with requests
@@ -101,12 +105,14 @@ def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
 class MetadataExtractionWorker:
     
     
-    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client):
+    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.s3lient = s3lient
         self.ya_client = ya_client
+        self.exceeded_keys_lock = exceeded_keys_lock
+        self.exceeded_keys_set = exceeded_keys_set
         
         
     def __call__(self):
@@ -142,14 +148,19 @@ class MetadataExtractionWorker:
                     self._update_document(doc, metadata, gsheet_session)
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
             except Empty:
+                self.log("No tasks for processing, shutting down thread...")
                 return
             except ClientError as e:
                 if e.code == 429:
-                    self.log(f"Key {self.key} exhaused, shutting down thread...") 
+                    self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
+                    self.tasks_queue.put(doc)
+                    with self.exceeded_keys_lock:
+                        self.exceeded_keys_set.add(self.key)
                 return
-            except BaseException as e:
+            except Exception as e:
                 import traceback
                 self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
+                continue
             
             
     def _upload_artifacts_to_s3(self, doc, local_meta_path, local_doc_path):        

@@ -37,36 +37,10 @@ import zipfile
 from urllib.parse import urlparse
 from rich import print
 from .epub_extractor import EpubExtractor
-
-
-# these formats requires preformatting into docx format before extraction
-to_docx_mime_types = set([
-    'text/rtf',
-    'application/rtf',
-    'application/rtf+xml',
-    'application/msword',
-    'text/rtf',
-    'application/x-rtf',
-    'application/vnd.oasis.opendocument.text',
-])
-
-
-# these formats requires checking to UTF-8 format 
-check_encoding_mime_types = set([
-    "text/plain",
-    "text/csv",
-    "text/tab-separated-values",
-    "application/xml",
-    "text/xml",
-    "text/markdown",
-    "application/x-tex",
-    "text/x-tex",
-    "application/x-subrip",
-    "application/json",
-    "application/x-yaml",
-    "text/yaml",
-    "text/x-ini"
-])
+from .doc_like_extractor import DocLikeExtractor, to_docx_mime_types, check_encoding_mime_types
+import threading
+import time
+from .pdf_extractor import PdfExtractor
 
 
 non_pdf_format_types = to_docx_mime_types | \
@@ -85,13 +59,23 @@ pdf_format_types = set([
 ])
 
 
+skip_pdf = set([])
+
+
 def extract_content():
-    print("Extracting content of nonpdf documents")
+    # print("Extracting content of nonpdf documents")
+    # predicate = (
+    #     Document.content_url.is_(None) &
+    #     Document.mime_type.in_(non_pdf_format_types)
+    # )
+    # _process_non_pdf_by_predicate(predicate)
+    
+    print("Extracting content of pdf documents")
     predicate = (
         Document.content_url.is_(None) &
         Document.mime_type.in_(non_pdf_format_types)
     )
-    _process_non_pdf_by_predicate(predicate)
+    _process_pdf_by_predicate(predicate)
     
     
     
@@ -115,13 +99,14 @@ def _process_non_pdf_by_predicate(predicate):
             print("No documents for processing...")
             return
         
+        gcloud_creds = _get_credentials()
         for doc in docs:
             print(f"Extracting content from file {doc.md5}({doc.ya_public_url})")
             local_doc_path = download_file_locally(ya_client, doc, config)
             if doc.mime_type == 'application/epub+zip':
                 content = EpubExtractor(doc, local_doc_path, config, s3client).extract()
             else:
-                content = EpubExtractor(doc, local_doc_path, config, s3client).extract()
+                content = DocLikeExtractor(doc, local_doc_path, config, s3client, gcloud_creds).extract()
             
             formatted_content = mdformat.text(
                 content,
@@ -151,6 +136,19 @@ def _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, 
     remote_doc_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
     doc.document_url = encrypt(remote_doc_url, config) if doc.sharing_restricted else remote_doc_url
 
+
+def _get_credentials():
+    token_file = "personal_token.json"
+    
+    if os.path.exists(token_file):
+        return Credentials.from_authorized_user_file(token_file, SCOPES)
+    
+    flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+    creds = flow.run_local_server(port=0)
+    with open(token_file, 'w') as f:
+        f.write(creds.to_json())
+    return Credentials.from_authorized_user_file(token_file, SCOPES)
+
     
 def _process_pdf_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
     config = read_config()
@@ -176,12 +174,12 @@ def _process_pdf_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18)
                     print("No documents for processing...")
                     return
                 
-                s3lient =  create_session(config)
+                s3lient = create_session(config)
                     
                 threads = []
                 with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                     for key in keys_slice:
-                        t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client))
+                        t = threading.Thread(target=PdfExtractor(key))
                         t.start()
                         threads.append(t)
                         time.sleep(5)  # slight delay to avoid overwhelming the API with requests

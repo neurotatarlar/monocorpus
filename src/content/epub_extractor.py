@@ -1,18 +1,11 @@
-from yadisk_client import YaDisk
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
-from monocorpus_models import Document, Session
+from utils import get_in_workdir
 from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT, ITEM_COVER, ITEM_UNKNOWN
 from bs4 import BeautifulSoup, NavigableString
 from markdownify import markdownify as md
-import mdformat
 from dirs import Dirs
 from rich import print
 import re
-from s3 import upload_file, create_session
-import os
-import zipfile
 from urllib.parse import urlparse
-from rich import print
 
 
 class EpubExtractor:
@@ -25,8 +18,7 @@ class EpubExtractor:
     
     
     def extract(self):
-        print(f"Extracting content from file {self.doc.md5}({self.doc.file_name})")
-        md_content, icr = self._extract(self.doc, self.config, self.local_doc_path, s3lient) 
+        md_content, icr = self._extract(self.doc, self.config, self.local_doc_path, self.s3lient) 
         return self._postprocess(md_content)
 
 
@@ -96,7 +88,7 @@ class EpubExtractor:
                 
                 # Remove <a> tag with relative href but keep the text
                 for a in soup.find_all('a', href=True):
-                    if _is_relative(a['href']):
+                    if self._is_relative(a['href']):
                         a.unwrap() 
                         
                 text_html = str(soup)
@@ -115,4 +107,9 @@ class EpubExtractor:
                 raise ValueError(f"Unexpected type received: {item_type}")
                 
         return "\n\n".join(outputs), (image_items, document_items)
+    
+    
+    def _is_relative(self, url):
+        parsed = urlparse(url)
+        return not parsed.scheme and not parsed.netloc
 
