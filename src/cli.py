@@ -72,6 +72,7 @@ def sync():
     import sync
     sync.sync()
 
+
 @app.command()
 def select(query: list[str]):
     """
@@ -83,6 +84,7 @@ def select(query: list[str]):
     """
     import sheets_introspect
     sheets_introspect.sheets_introspect(" ".join(query))
+
 
 @extract_app.command(name="pdf")
 def extract_pdf(
@@ -150,6 +152,7 @@ def extract_pdf(
     )
     extract(cli_params)
 
+
 @extract_app.command(name="epub")
 def extract_epub(
     md5: Annotated[
@@ -197,3 +200,7 @@ def hf():
 def meta():
     import metadata
     metadata.extract_metadata()
+    
+def extract2():
+    import content
+    content.extract_content()

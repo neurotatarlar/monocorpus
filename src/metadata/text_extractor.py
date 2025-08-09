@@ -19,7 +19,7 @@ class FromTextMetadataExtractor:
         self.model = model
     
                 
-    def __call__(self):
+    def extract(self):
         slice = self._load_extracted_content()
         # prepare prompt
         prompt = self._prepare_prompt(slice)

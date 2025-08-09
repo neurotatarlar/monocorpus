@@ -45,43 +45,44 @@ def extract_metadata():
     predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     _process_by_predicate(predicate)
     
-    # predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & Document.content_url.is_not(None) & Document.mime_type.is_('application/pdf')
-    # print("Processing documents with older metadata extraction method...")
-    # _process_by_predicate(predicate)
+    predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & Document.content_url.is_not(None) & Document.mime_type.is_('application/pdf')
+    print("Processing documents with older metadata extraction method...")
+    _process_by_predicate(predicate)
 
     
 def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
     config = read_config()
     all_keys = config["gemini_api_keys"]["free"]
-    for shift in range(5, len(all_keys), keys_batch_size):
+    for shift in range(0, len(all_keys), keys_batch_size):
         keys_slice = all_keys[shift: shift + keys_batch_size]
         
         tasks_queue = None
         threads = None
         try: 
             while True:
-                with Session() as read_session, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+                with Session() as read_session:
                     docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
 
+                print(f"Got {len(docs)} docs for metadata extraction")
                 tasks_queue = Queue(maxsize=len(docs))
                 for doc in docs:
                     if doc.md5 in skip_pdf:
                         continue
                     tasks_queue.put(doc)
                     
-                if tasks_queue.empty:
+                if tasks_queue.empty():
                     print("No documents for processing...")
                     return
                 
-                print(f"Found {len(tasks_queue)} documents for metadata extraction")
-                s3lient =  create_session(config)
+                s3lient = create_session(config)
                     
                 threads = []
-                for key in keys_slice:
-                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client))
-                    t.start()
-                    threads.append(t)
-                    time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+                with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+                    for key in keys_slice:
+                        t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client))
+                        t.start()
+                        threads.append(t)
+                        time.sleep(5)  # slight delay to avoid overwhelming the API with requests
 
                 # Shutdown workers gracefully
                 for t in threads:
@@ -117,10 +118,10 @@ class MetadataExtractionWorker:
                 self.log(f"Extracting metadata from document {doc.md5}({doc.ya_public_url}) by key {self.key}")
                 
                 if doc.content_url:
-                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model)()
+                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model).extract()
                 elif doc.mime_type == 'application/pdf':
                     local_doc_path = local_doc_path = download_file_locally(self.ya_client, doc, self.config)
-                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model, local_doc_path)()
+                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model, local_doc_path).extract()
                 else:
                     self.log(f"Document {doc.md5} has no content_url or is not a PDF, skipping...")
                     continue
