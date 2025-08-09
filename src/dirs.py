@@ -12,3 +12,4 @@ class Dirs(Enum):
     CHUNKED_RESULTS = "misc/chunked_result"
     WIPING_PLAN = "misc/wiping_plan"
     PROMPTS = "misc/prompts"
+    LOGS = "misc/logs"

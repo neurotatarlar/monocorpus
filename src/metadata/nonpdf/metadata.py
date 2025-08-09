@@ -99,8 +99,7 @@ def _load_extracted_content(doc, config, first_N=30_000):
     
             
 def _prepare_prompt(slice):
-    prompt = DEFINE_META_PROMPT_NON_PDF_HEADER.format(n=len(slice))
-    prompt = [{'text': prompt}]
+    prompt = [{'text': DEFINE_META_PROMPT_NON_PDF_HEADER.format(n=len(slice))}]
     prompt.append({'text': DEFINE_META_PROMPT_BODY})
     prompt.append({"text": "Now, extract metadata from the following extraction from the document"})
     prompt.append({"text": slice})

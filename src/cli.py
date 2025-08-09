@@ -265,3 +265,8 @@ def metadata_nonpdf(key: str):
 def hf():
     import hf 
     hf.assemble_dataset()
+    
+@app.command()
+def meta2():
+    import metadata
+    metadata.extract_metadata()
