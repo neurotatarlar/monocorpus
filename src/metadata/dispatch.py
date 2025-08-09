@@ -1,24 +1,23 @@
 from sqlalchemy import select
-from utils import decrypt
-from prompt import DEFINE_META_PROMPT_NON_PDF_HEADER, DEFINE_META_PROMPT_BODY
 from rich import print
 from s3 import upload_file, create_session
 from utils import read_config, get_in_workdir
 from dirs import Dirs
-from gemini import gemini_api, create_client
-from metadata.schema import Book
+from gemini import create_client
 import zipfile
 import isbnlib
-import requests
 import re
 from monocorpus_models import Document, Session
 import time
-from google.genai.errors import ClientError, ServerError
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from google.genai.errors import ClientError
 from queue import Queue, Empty
 import threading
+from .text_extractor import FromTextMetadataExtractor
+from .pdf_slice_extractor import FromPdfSliceMetadataExtractor
+from itertools import batched
 
 model = 'gemini-2.5-pro'
+
 
 def extract_metadata():
     # print("Processing documents without metadata")
@@ -28,67 +27,70 @@ def extract_metadata():
     predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & Document.content_url.is_not(None) & Document.mime_type.is_not('application/pdf')
     print("Processing documents with older metadata extraction method...")
     _process_by_predicate(predicate)
-    
-def _process_by_predicate(predicate):
-    with Session() as read_session:
-        docs = read_session.query(select(Document).where(predicate))
-    if not docs:
-        print("No documents for processing...")
-        return
-    print(f"Found {len(docs)} documents for metadata extraction")
-    config = read_config()
-    s3lient =  create_session(config)
-    tasks_queue = Queue(maxsize=len(docs))
-    for doc in docs:
-        tasks_queue.put(doc)
-        
-    threads = []
-    for key in config["gemini_api_keys"]["free"][:16]:
-        t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient))
-        t.start()
-        threads.append(t)
-        time.sleep(5)  # slight delay to avoid overwhelming the API with requests
 
-    try: 
-    # Shutdown workers gracefully
-        for t in threads:
-            t.join()
-    except KeyboardInterrupt:
-        print("Interrupted, shutting down workers...")
-        tasks_queue.queue.clear()  # Clear the queue to stop workers
-        for t in threads:
-            t.join(timeout=60)
+    
+def _process_by_predicate(predicate, batch_size=100):
+    tasks_queue = None
+    threads = None
+    while True:
+        with Session() as read_session:
+            docs = read_session.query(select(Document).where(predicate).limit(batch_size))
+
+        if not docs:
+            print("No documents for processing...")
+            return
+        print(f"Found {len(docs)} documents for metadata extraction")
+        config = read_config()
+        s3lient =  create_session(config)
+        tasks_queue = Queue(maxsize=len(docs))
+        for doc in docs:
+            tasks_queue.put(doc)
+            
+        threads = []
+        keys = config["gemini_api_keys"]["free"][16:-3]
+        try: 
+            for key in keys:
+                t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient))
+                t.start()
+                threads.append(t)
+                time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+
+            # Shutdown workers gracefully
+            for t in threads:
+                t.join()
+        except KeyboardInterrupt:
+            print("Interrupted, shutting down workers...")
+            if tasks_queue:
+                tasks_queue.queue.clear()  # Clear the queue to stop workers
+            if threads:
+                for t in threads:
+                    t.join(timeout=60)
+            return
         
-class KeyAwareWorker:
+        
+        
+class MetadataExtractionWorker:
+    
+    
     def __init__(self, gemini_api_key, tasks_queue, config, s3lient):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.s3lient = s3lient
-
-    def __call__(self, *args, **kwds):
-        pass
-    
-    def log(self, message):
-        message = f"{threading.current_thread().name} - {time.strftime('%Y-%m-%d %H:%M:%S')}: {message}"
-        log_file = get_in_workdir(Dirs.LOGS, file=f"metadata_extraction_{self.key}.log")
-        with open(log_file, "a") as log:
-            log.write(f"{message}\n")
-        print(message)
-    
-class MetadataExtractionWorker(KeyAwareWorker):
+        
+        
     def __call__(self):
-        try:
-            gemini_client = create_client(self.key)
-            while True:
+        gemini_client = create_client(self.key)
+        while True:
+            try:
                 doc = self.tasks_queue.get(block=False)
                 self.log(f"Extracting metadata from document {doc.md5}({doc.ya_public_url}) by key {self.key}")
                 
                 if doc.content_url:
-                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient)()
+                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model)()
                 elif doc.mime_type == 'application/pdf':
                     continue
-                    # metadata = _extract_by_pdf_slice()
+                    metadata = FromPdfSliceMetadataExtractor()()
                 else:
                     self.log(f"Document {doc.md5} has no content_url or is not a PDF, skipping...")
                     continue
@@ -111,16 +113,22 @@ class MetadataExtractionWorker(KeyAwareWorker):
                 with Session() as gsheet_session:
                     self._update_document(doc, metadata, gsheet_session)
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
-        except Empty:
-            return
-        except BaseException as e:
-            import traceback
-            self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
+            except Empty:
+                return
+            except ClientError as e:
+                if e.code == 429:
+                    self.log(f"Key {self.key} exhaused, shutting down thread...") 
+                return
+            except BaseException as e:
+                import traceback
+                self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
+            
             
     def _upload_artifacts_to_s3(self, doc, local_meta_path):
         meta_key = f"{doc.md5}-meta.zip"
         meta_bucket = self.config["yandex"]["cloud"]['bucket']['metadata']
         doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, self.s3lient, skip_if_exists=False)
+
 
     def _update_document(self, doc, meta, gsheet_session):
         doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
@@ -165,105 +173,9 @@ class MetadataExtractionWorker(KeyAwareWorker):
         gsheet_session.update(doc)
 
 
-class FromTextMetadataExtractor:
-    def __init__(self, doc, config, gemini_client, s3lient):
-        self.doc = doc
-        self.config = config
-        self.gemini_client = gemini_client
-        self.s3lient = s3lient
-                
-    def __call__(self):
-        slice = self._load_extracted_content()
-        # prepare prompt
-        prompt = self._prepare_prompt(slice)
-        response = gemini_api(client=self.gemini_client, model=model, prompt=prompt, schema=Book, timeout_sec=120)
-        # validate response
-        if not (raw_response := "".join([ch.text for ch in response if ch.text])):
-            print(f"No metadata was extracted from document {self.doc.md5}")
-            return
-        else:
-            metadata = Book.model_validate_json(raw_response)
-        return metadata
-    
-    
-    def _load_extracted_content(self, first_N=30_000):
-        content_zip = get_in_workdir(Dirs.CONTENT, file=f"{self.doc.md5}.zip")
-        content_url = decrypt(self.doc.content_url, self.config) if self.doc.sharing_restricted else self.doc.content_url
-        
-        with open(content_zip, "wb") as um_zip, requests.get(content_url, stream=True) as resp:
-            resp.raise_for_status()
-            for chunk in resp.iter_content(chunk_size=512): 
-                um_zip.write(chunk)
-
-        content_dir = get_in_workdir(Dirs.CONTENT)
-        with zipfile.ZipFile(content_zip, 'r') as enc_zip:
-            content_path = enc_zip.extract(f"{self.doc.md5}.md", content_dir)
-            
-        with open(content_path, "r") as f:
-            return f.read(first_N)
-        
-    def _prepare_prompt(self, slice):
-        prompt = DEFINE_META_PROMPT_NON_PDF_HEADER.format(n=len(slice))
-        prompt = [{'text': prompt}]
-        prompt.append({'text': DEFINE_META_PROMPT_BODY})
-        prompt.append({"text": "Now, extract metadata from the following extraction from the document"})
-        prompt.append({"text": slice})
-        return prompt
-    
-    
-class FromPdfSliceMetadataExtractor:
-    def __init__(self, doc, config, gemini_client, s3lient):
-        self.doc = doc
-        self.config = config
-        self.gemini_client = gemini_client
-        self.s3lient = s3lient
-                
-    def __call__(self):
-        print(f"Extracting metadata from document {self.doc.md5}({self.doc.ya_public_url})")
-        slice = self._load_extracted_content(self.doc, self.config)
-        # prepare prompt
-        prompt = self._prepare_prompt(slice)
-        start_time = time.time()
-        response = gemini_api(client=self.gemini_client, model=model, prompt=prompt, schema=Book, timeout_sec=120)
-        # validate response
-        if not (raw_response := "".join([ch.text for ch in response if ch.text])):
-            print(f"No metadata was extracted from document {self.doc.md5}")
-            return
-        else:
-            metadata = Book.model_validate_json(raw_response)
-        print("Queried gemini", round(time.time() - start_time, 1))
-        return metadata
-    
-    
-    def _load_extracted_content(self, first_N=30_000):
-        content_zip = get_in_workdir(Dirs.CONTENT, file=f"{self.doc.md5}.zip")
-        content_url = decrypt(self.doc.content_url, self.config) if self.doc.sharing_restricted else self.doc.content_url
-        
-        with open(content_zip, "wb") as um_zip, requests.get(content_url, stream=True) as resp:
-            resp.raise_for_status()
-            for chunk in resp.iter_content(chunk_size=512): 
-                um_zip.write(chunk)
-
-        content_dir = get_in_workdir(Dirs.CONTENT)
-        with zipfile.ZipFile(content_zip, 'r') as enc_zip:
-            content_path = enc_zip.extract(f"{self.doc.md5}.md", content_dir)
-            
-        with open(content_path, "r") as f:
-            return f.read(first_N)
-        
-    def _prepare_prompt(self, slice):
-        prompt = DEFINE_META_PROMPT_NON_PDF_HEADER.format(n=len(slice))
-        prompt = [{'text': prompt}]
-        prompt.append({'text': DEFINE_META_PROMPT_BODY})
-        prompt.append({"text": "Now, extract metadata from the following extraction from the document"})
-        prompt.append({"text": slice})
-        return prompt
-        
-
-        
-
-
-    
-        
-        
-    
+    def log(self, message):
+        message = f"{threading.current_thread().name} - {time.strftime('%Y-%m-%d %H:%M:%S')}: {message}"
+        log_file = get_in_workdir(Dirs.LOGS, file=f"metadata_extraction_{self.key}.log")
+        with open(log_file, "a") as log:
+            log.write(f"{message}\n")
+        print(message)
