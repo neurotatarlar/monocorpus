@@ -14,9 +14,27 @@ from queue import Queue, Empty
 import threading
 from .text_extractor import FromTextMetadataExtractor
 from .pdf_slice_extractor import FromPdfSliceMetadataExtractor
-from itertools import batched
+
 
 model = 'gemini-2.5-pro'
+
+
+skip_pdf = set([
+    "dd713e13dd749131652b7eef5fedf4ac",
+    "b2d56b82efc561e9e74f56d8701fd646",
+    "913471a88265ebb27423b67477ea5f8a",
+    "32fdbabed0d8c5542cc4cf6dfa69d9ee",
+    "31a91979335f7c39e34ce764965f41d8",
+    "d4aa4ac8fdcd996d985f5bdafe3244d7",
+    "edadf934d54bb952958c9798b72af2fd",
+    "779f5587af3faee67d767ae4170d7c7e",
+    "2cd6ab2836e3062b322701da834ffb3e",
+    "60be21a1742e1c5723a034651314fc96",
+    "8f06ce5728c80dd2564eb0e7ada9b601",
+    "ae032d9ba4b2d7a32e2862439c848099",
+    "41752f8460921044a5909ff348b01b05",
+    "63092bd67e856d3a2ee93066737a4640",
+])
 
 
 def extract_metadata():
@@ -29,35 +47,40 @@ def extract_metadata():
     _process_by_predicate(predicate)
 
     
-def _process_by_predicate(predicate, batch_size=100):
-    tasks_queue = None
-    threads = None
-    while True:
-        with Session() as read_session:
-            docs = read_session.query(select(Document).where(predicate).limit(batch_size))
-
-        if not docs:
-            print("No documents for processing...")
-            return
-        print(f"Found {len(docs)} documents for metadata extraction")
-        config = read_config()
-        s3lient =  create_session(config)
-        tasks_queue = Queue(maxsize=len(docs))
-        for doc in docs:
-            tasks_queue.put(doc)
-            
-        threads = []
-        keys = config["gemini_api_keys"]["free"][16:-3]
+def _process_by_predicate(predicate, docs_batch_size=65, keys_batch_size=18):
+    config = read_config()
+    all_keys = config["gemini_api_keys"]["free"]
+    for shift in range(0, len(all_keys), keys_batch_size):
+        keys_slice = all_keys[shift: shift + keys_batch_size]
+        
+        tasks_queue = None
+        threads = None
         try: 
-            for key in keys:
-                t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient))
-                t.start()
-                threads.append(t)
-                time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+            while True:
+                with Session() as read_session:
+                    docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
 
-            # Shutdown workers gracefully
-            for t in threads:
-                t.join()
+                if not docs:
+                    print("No documents for processing...")
+                    return
+                print(f"Found {len(docs)} documents for metadata extraction")
+                s3lient =  create_session(config)
+                tasks_queue = Queue(maxsize=len(docs))
+                for doc in docs:
+                    if doc.md5 in skip_pdf:
+                        continue
+                    tasks_queue.put(doc)
+                    
+                threads = []
+                for key in keys_slice:
+                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient))
+                    t.start()
+                    threads.append(t)
+                    time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+
+                # Shutdown workers gracefully
+                for t in threads:
+                    t.join()
         except KeyboardInterrupt:
             print("Interrupted, shutting down workers...")
             if tasks_queue:
