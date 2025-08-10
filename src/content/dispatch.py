@@ -141,13 +141,14 @@ skipped_external = {
 
 skip_pdf = skipped_external | too_expensive
 
+
 def extract_content(cli_params):
-    print("Extracting content of nonpdf documents")
-    predicate = (
-        Document.content_url.is_(None) &
-        Document.mime_type.in_(non_pdf_format_types)
-    )
-    _process_non_pdf_by_predicate(predicate, cli_params)
+    # print("Extracting content of nonpdf documents")
+    # predicate = (
+    #     Document.content_url.is_(None) &
+    #     Document.mime_type.in_(non_pdf_format_types)
+    # )
+    # _process_non_pdf_by_predicate(predicate, cli_params)
     
     print("Extracting content of pdf documents")
     predicate = (
@@ -217,17 +218,19 @@ def _get_credentials():
     return Credentials.from_authorized_user_file(token_file, SCOPES)
 
     
-def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_batch_size=1, offset=150):
+def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_batch_size=2, offset=150):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = set()
-    while True:
+    stop_event = threading.Event()
+    while not stop_event.is_set():
         tasks_queue = None
         threads = None
         try:
             with exceeded_keys_lock:
                 available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
-            keys_slice = list(available_keys)[:keys_batch_size]
+            # keys_slice = list(available_keys)[:keys_batch_size]
+            keys_slice = list(available_keys)[-keys_batch_size:]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return
@@ -254,16 +257,17 @@ def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_ba
                 threads = []
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
-                    t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
+                    t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set, stop_event))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests
 
-            # Shutdown workers gracefully
+            # waiting for workers shutdown gracefully
             for t in threads:
                 t.join()
         except KeyboardInterrupt:
             print("Interrupted, shutting down workers...")
+            stop_event.set()
             if tasks_queue:
                 tasks_queue.queue.clear()  # Clear the queue to stop workers
             if threads:

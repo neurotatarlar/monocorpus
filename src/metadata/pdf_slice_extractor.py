@@ -37,6 +37,7 @@ class FromPdfSliceMetadataExtractor:
         # send to gemini
         files = {slice_file_path: self.doc.mime_type}
         response = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
+        del prompt
         
         # validate response
         if not (raw_response := "".join([ch.text for ch in response if ch.text])):

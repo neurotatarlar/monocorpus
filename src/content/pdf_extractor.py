@@ -17,11 +17,13 @@ from content.pdf_postprocess import postprocess
 from prompt import cook_extraction_prompt
 import json
 from content.continuity_checker import continue_smoothly
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from s3 import upload_file, create_session
 
 
 model = 'gemini-2.5-pro'
+
+
 
 class ExtractionResult(BaseModel):
     content: str
@@ -30,12 +32,78 @@ class ExtractionResult(BaseModel):
     
 class ChunkPlanner:
     
-    def __init__(self, chunks_dir):
-        self.chunks_dir = chunks_dir
+    def __init__(self, chunked_results_dir, pages_count, chunk_sizes = [20, 10, 5, 2, 1]):
+        self.chunked_results_dir = chunked_results_dir
+        self.chunk_sizes = chunk_sizes
+        self.current_chunk_size_index = 0
+        self.processed_ranges = self._load_processed_ranges()
+        self.pages_count = pages_count
+    
         
+    def next(self):
+        start_page = self._find_next_missing_page()
+        if start_page is None:
+            return None  # no more chunks to process
         
-    def iterate():
-        pass
+        size = self.chunk_sizes[self.current_chunk_size_index]
+        end_page = min(start_page + size - 1, self.pages_count)
+        if start_page >= end_page:
+            return None
+        print(f"size={size}, start_page={start_page}, end_page={end_page}", )
+        return Chunk(start_page, end_page)
+    
+    
+    def _find_next_missing_page(self):
+        """Find the first page number that has not yet been processed."""
+        current = 0
+        for chunk in self.processed_ranges:
+            if chunk.start > current:
+                return current  # gap found
+            current = max(current, chunk.end + 1)
+        if current <= self.pages_count:
+            return current
+        return None
+    
+    
+    def decrease_chunk_size(self):
+        if self.current_chunk_size_index < len(self.chunk_sizes) - 1:
+            self.current_chunk_size_index += 1
+            return True
+        return False
+    
+    
+    def mark_success(self, chunk: "Chunk"):
+        """Call this when a chunk was successfully processed."""
+        self.processed_ranges.append(chunk)
+        self.processed_ranges.sort()
+    
+    
+    def _load_processed_ranges(self): 
+        """Load already processed chunk ranges from the directory."""
+        slice_pattern = re.compile(r"chunk-(\d+)-(\d+)\.json$")
+        processed = []
+        for filename in os.listdir(self.chunked_results_dir):
+            m = slice_pattern.match(filename)
+            if m:
+                start, end = map(int, m.groups())
+                processed.append(Chunk(start, end))
+        processed.sort()
+        return processed
+        
+
+    def verify_complete(self):
+        """Check if all pages from 0 to max_page are covered without gaps."""
+        covered_pages = []
+        for chunk in self.processed_ranges:
+            covered_pages.extend(range(chunk.start, chunk.end + 1))
+        
+        covered_set = set(covered_pages)
+        missing_pages = [p for p in range(0, self.max_page + 1) if p not in covered_set]
+
+        if missing_pages:
+            return False, missing_pages
+        return True, []
+    
     
     
     
@@ -45,12 +113,35 @@ class Chunk:
         self.start = start
         self.end = end
     
+        
+    def __lt__(self, other):
+        return (self.start, self.end) < (other.start, other.end)
+    
+    
+    def __le__(self, other):
+        return (self.start, self.end) <= (other.start, other.end)
+    
+    
+    def __gt__(self, other):
+        return (self.start, self.end) > (other.start, other.end)
+    
+    
+    def __ge__(self, other):
+        return (self.start, self.end) >= (other.start, other.end)
+    
+    
+    def __eq__(self, other):
+        return (self.start, self.end) == (other.start, other.end)
+    
+    
+    def __repr__(self):
+        return f"Chunk({self.start}, {self.end})"
     
     
 class PdfExtractor:
     
     
-    def __init__(self, key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set):
+    def __init__(self, key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set, stop_event):
         self.key = key
         self.tasks_queue = tasks_queue
         self.config = config
@@ -58,14 +149,19 @@ class PdfExtractor:
         self.ya_client = ya_client
         self.exceeded_keys_lock = exceeded_keys_lock, 
         self.exceeded_keys_set = exceeded_keys_set
+        self.stop_event = stop_event
+        
         
     def __call__(self):
         gemini_client = create_client(self.key)
-        while True:
+        while not self.stop_event.is_set():
             try: 
                 doc = self.tasks_queue.get(block=False)
                 self.log(f"Extracting content from document {doc.md5}({doc.ya_public_url}) by key {self.key}")
                 context = self._extract_doc(doc, gemini_client)
+                
+                if self.stop_event.is_set():
+                    return
                 
                 # additional processing
                 self.log(f"Postprocessing document {doc.md5}({doc.ya_public_url})")
@@ -103,7 +199,7 @@ class PdfExtractor:
                 return
             except Exception as e:
                 import traceback
-                self.log(f"Could not extract content from doc {doc.md5}: {e} \n{traceback.format_exc()}")
+                self.log(f"Could not extract content from doc '{doc.md5}': {e} \n{traceback.format_exc()}")
                 continue
             
             
@@ -121,22 +217,18 @@ class PdfExtractor:
             headers_hierarchy = []
             next_footnote_num = 1
             
-            chunk_planner = ChunkPlanner(chunked_results_dir)
-            while True:
-                chunk = chunk_planner.next()
-                # if not chunk:
-                #     break
-                # chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
-                # content = None
-            # chunks = self._get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=20)
-            # for idx, chunk in enumerate(chunks, start=1):
-                # _from = chunk[0]
-                # _to = chunk[-1] 
+            chunk_planner = ChunkPlanner(chunked_results_dir, pages_count=context.doc_page_count)
+            while not self.stop_event.is_set():
+                if not (chunk := chunk_planner.next()):
+                    complete, missing_pages = chunk_planner.verify_complete
+                    if not complete:
+                        raise ValueError(f"Chunk planner gave none chunks but there is missed pages '{missing_pages}'")
+                
                 chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
                 content = None
                 
                 if os.path.exists(chunk_result_complete_path):
-                    self.log(f"Chunk({chunk.start}-{chunk.end}) of {len(pdf_doc.page_count())} is already extracted")
+                    self.log(f"Chunk({chunk.start}-{chunk.end}) of {context.doc_page_count} is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
                         content = ExtractionResult.model_validate_json(f.read()).content
                         
@@ -155,7 +247,7 @@ class PdfExtractor:
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
                     
-                    self.log(f"Requesting gemini for chunk ({chunk.start}-{chunk.end}) of {len(pdf_doc.page_count())} with key `{self.key}`")
+                    self.log(f"Extracting chunk ({chunk.start}-{chunk.end}) of {context.doc_page_count} of document '{context.md5}' with key '{self.key}'")
                     
                     response = gemini_api(
                         client=gemini_client,
@@ -173,23 +265,27 @@ class PdfExtractor:
                     
                     # validating schema
                     with open(chunk_result_incomplete_path, "r") as f:
-                        content = ExtractionResult.model_validate_json(f.read()).content
-                        
-                    if not content:
-                        raise ValueError("Could not extract chunk")
+                        try: 
+                            content = ExtractionResult.model_validate_json(f.read()).content
+                        except ValidationError:
+                            if chunk_planner.decrease_chunk_size():
+                                continue
+                            else:
+                                raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")
                         
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                         
-                    self.log(f"[bold green]Chunk ({_from}-{_to}) extracted successfully'[/bold green]")
-
+                    self.log(f"[bold green]Chunk ({chunk.start}-{chunk.end}) of {context.doc_page_count} extracted successfully'[/bold green]")
+                    chunk_planner.mark_success(chunk)
+                    
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
                 content = self._shift_trailing_footnotes_up(content)
                 headers_hierarchy.extend(self._extract_markdown_headers(content))
                 
                 if prev_chunk_tail:
                     content = continue_smoothly(prev_chunk_tail=prev_chunk_tail, content=content)
-    
+
                 prev_chunk_tail = content[-300:]
                 # important to remove hyphen after taking the chunk tail
                 content = content.removesuffix('-').removesuffix('\n')

@@ -24,6 +24,7 @@ class FromTextMetadataExtractor:
         # prepare prompt
         prompt = self._prepare_prompt(slice)
         response = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, schema=Book, timeout_sec=120)
+        del prompt
         # validate response
         if not (raw_response := "".join([ch.text for ch in response if ch.text])):
             return None

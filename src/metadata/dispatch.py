@@ -17,6 +17,7 @@ from .pdf_slice_extractor import FromPdfSliceMetadataExtractor
 import os
 from utils import encrypt
 from yadisk_client import YaDisk
+import gc
 
 
 model = 'gemini-2.5-pro'
@@ -53,7 +54,7 @@ def extract_metadata():
     _process_by_predicate(predicate)
 
     
-def _process_by_predicate(predicate, docs_batch_size=64, keys_batch_size=18):
+def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = set()
@@ -61,6 +62,7 @@ def _process_by_predicate(predicate, docs_batch_size=64, keys_batch_size=18):
     while True:
         tasks_queue = None
         threads = None
+        gc.collect()
         try: 
             with exceeded_keys_lock:
                 available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
