@@ -56,41 +56,46 @@ def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
     exceeded_keys_set = set()
     
     while True:
-        with exceeded_keys_lock:
-            if not (keys_slice := list(set(config["gemini_api_keys"]["free"]) - exceeded_keys_set)[:keys_batch_size]):
-                return
-        
         tasks_queue = None
         threads = None
         try: 
-            while True:
-                with Session() as read_session:
-                    docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
-
-                print(f"Got {len(docs)} docs for metadata extraction")
-                tasks_queue = Queue(maxsize=len(docs))
-                for doc in docs:
-                    if doc.md5 in skip_pdf:
-                        continue
-                    tasks_queue.put(doc)
-                    
-                if tasks_queue.empty():
-                    print("No documents for processing...")
-                    return
+            with exceeded_keys_lock:
+                available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
+            print(f"Available keys: {available_keys}, total keys: {config['gemini_api_keys']}")
+            keys_slice = list(available_keys)[:keys_batch_size]
+            if not keys_slice:
+                print("No keys available, exiting...")
+                return
+            else:
+                print(f"Extracting with keys: {keys_slice}")
                 
-                s3lient = create_session(config)
-                    
-                threads = []
-                with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-                    for key in keys_slice:
-                        t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
-                        t.start()
-                        threads.append(t)
-                        time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+            with Session() as read_session:
+                docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
 
-                # Shutdown workers gracefully
-                for t in threads:
-                    t.join()
+            print(f"Got {len(docs)} docs for metadata extraction")
+            tasks_queue = Queue(maxsize=len(docs))
+            for doc in docs:
+                if doc.md5 in skip_pdf:
+                    continue
+                tasks_queue.put(doc)
+                
+            if tasks_queue.empty():
+                print("No documents for processing...")
+                return
+            
+            s3lient = create_session(config)
+                
+            threads = []
+            with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+                for key in keys_slice:
+                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
+                    t.start()
+                    threads.append(t)
+                    time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+
+            # Shutdown workers gracefully
+            for t in threads:
+                t.join()
         except KeyboardInterrupt:
             print("Interrupted, shutting down workers...")
             if tasks_queue:

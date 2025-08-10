@@ -19,7 +19,6 @@ MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 
 
 def postprocess(context):
-    context.log("Postprocessing")
     with open(context.unformatted_response_md, "r") as f:
         content = f.read()
         

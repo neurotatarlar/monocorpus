@@ -52,7 +52,7 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
     else:
         return path
 
-def obtain_documents(cli_params, ya_client, predicate=None, limit=None, gsheet_session = Session()):
+def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=None, gsheet_session = Session()):
     def _yield_by_md5(_md5, _predicate):
         print(f"Looking for document by md5 '{_md5}'")
         if _predicate is None:
@@ -115,12 +115,15 @@ def download_file_locally(ya_client, doc, config):
             ya_client.download_public(url, f)
     return local_path
 
-def _find(session, predicate=None, limit=None):
+def _find(session, predicate=None, limit=None, offset=None):
     statement = select(Document)
     if predicate is not None:
         statement = statement.where(predicate)
     if limit:
         statement = statement.limit(limit)
+        
+    if offset:
+        statement.offset(offset)
     
     yield from session.query(statement)
     

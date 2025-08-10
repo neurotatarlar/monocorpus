@@ -1,1 +1,1 @@
-from .extract_docx import extract
+# from .extract_docx import extract
