@@ -24,6 +24,8 @@ model = 'gemini-2.5-pro'
 
 skip_pdf = set([
     "dd713e13dd749131652b7eef5fedf4ac",
+    "11a9083e437bd5d61d97102799597084"
+    "dd713e13dd749131652b7eef5fedf4ac",
     "b2d56b82efc561e9e74f56d8701fd646",
     "913471a88265ebb27423b67477ea5f8a",
     "32fdbabed0d8c5542cc4cf6dfa69d9ee",
@@ -39,6 +41,7 @@ skip_pdf = set([
     "63092bd67e856d3a2ee93066737a4640",
 ])
 
+# python src/main.py select 'count(md5) from Documents where metadata_extraction_method is not "gemini-2.5-pro/prompt.v2" and (content_url is not NULL or mime_type is "application/pdf")'
 
 def extract_metadata():
     print("Processing documents without metadata")
@@ -50,7 +53,7 @@ def extract_metadata():
     _process_by_predicate(predicate)
 
     
-def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
+def _process_by_predicate(predicate, docs_batch_size=64, keys_batch_size=18):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = set()
@@ -61,13 +64,12 @@ def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
         try: 
             with exceeded_keys_lock:
                 available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
-            print(f"Available keys: {available_keys}, total keys: {config['gemini_api_keys']}")
             keys_slice = list(available_keys)[:keys_batch_size]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return
             else:
-                print(f"Extracting with keys: {keys_slice}")
+                print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with Session() as read_session:
                 docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
@@ -87,7 +89,8 @@ def _process_by_predicate(predicate, docs_batch_size=72, keys_batch_size=18):
                 
             threads = []
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-                for key in keys_slice:
+                for num in range(min(len(keys_slice), len(docs))):
+                    key = keys_slice[num]
                     t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
                     t.start()
                     threads.append(t)
@@ -138,7 +141,7 @@ class MetadataExtractionWorker:
                     continue
                 
                 if not metadata:
-                    self.log(f"No metadata was extracted from document {doc.md5}")
+                    self.log(f"No metadata was extracted from document {doc.md5}({doc.ya_public_url})")
                     continue
                 # write metadata to zip
                 local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")

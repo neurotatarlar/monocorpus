@@ -1,41 +1,15 @@
 from monocorpus_models import Document, Session, SCOPES
 from yadisk_client import YaDisk
-from utils import read_config, download_file_locally, get_in_workdir, encrypt
-from monocorpus_models import Document, Session, SCOPES
 import mdformat
 from dirs import Dirs
 from rich import print
-import re
 from s3 import upload_file, create_session
 import os
 import zipfile
-from rich import print
-from sqlalchemy import select
-import subprocess
-import chardet
-import subprocess
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-from googleapiclient.discovery import build
-import io
-import shutil
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from queue import Queue, Empty
-from yadisk_client import YaDisk
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
-from monocorpus_models import Document, Session
-from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT, ITEM_COVER, ITEM_UNKNOWN
-from bs4 import BeautifulSoup, NavigableString
-from markdownify import markdownify as md
-import mdformat
-from dirs import Dirs
-from rich import print
-import re
-from s3 import upload_file, create_session
-import os
-import zipfile
-from urllib.parse import urlparse
-from rich import print
+from queue import Queue
+from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, encrypt
 from .epub_extractor import EpubExtractor
 from .doc_like_extractor import DocLikeExtractor, to_docx_mime_types, check_encoding_mime_types
 import threading
@@ -168,12 +142,12 @@ skipped_external = {
 skip_pdf = skipped_external | too_expensive
 
 def extract_content(cli_params):
-    # print("Extracting content of nonpdf documents")
-    # predicate = (
-    #     Document.content_url.is_(None) &
-    #     Document.mime_type.in_(non_pdf_format_types)
-    # )
-    # _process_non_pdf_by_predicate(predicate, cli_params)
+    print("Extracting content of nonpdf documents")
+    predicate = (
+        Document.content_url.is_(None) &
+        Document.mime_type.in_(non_pdf_format_types)
+    )
+    _process_non_pdf_by_predicate(predicate, cli_params)
     
     print("Extracting content of pdf documents")
     predicate = (
@@ -253,13 +227,12 @@ def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_ba
         try:
             with exceeded_keys_lock:
                 available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
-            print(f"Available keys: {available_keys}, total keys: {config['gemini_api_keys']}")
             keys_slice = list(available_keys)[:keys_batch_size]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return
             else:
-                print(f"Extracting with keys: {keys_slice}")
+                print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
             
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                 with Session() as gsheets_session:
@@ -279,7 +252,8 @@ def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_ba
                 s3lient = create_session(config)
                     
                 threads = []
-                for key in keys_slice:
+                for num in range(min(len(keys_slice), len(docs))):
+                    key = keys_slice[num]
                     t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
                     t.start()
                     threads.append(t)

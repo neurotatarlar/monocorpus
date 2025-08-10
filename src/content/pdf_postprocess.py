@@ -18,7 +18,7 @@ MODEL_NAME = 'yolov10b'
 MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 
 
-def postprocess(context):
+def postprocess(context, config):
     with open(context.unformatted_response_md, "r") as f:
         content = f.read()
         
@@ -31,7 +31,7 @@ def postprocess(context):
     postprocessed = re.sub(r'<table\s+class="toc">.*?</table>','<!-- mdformat-toc start --no-anchors -->', postprocessed, flags=re.DOTALL)
     
     # exctract images
-    postprocessed = _proccess_images(context, postprocessed)
+    postprocessed = _proccess_images(context, postprocessed, config)
     
     postprocessed = mdformat.text(
         postprocessed,
@@ -45,7 +45,7 @@ def postprocess(context):
 
     return postprocessed
 
-def _proccess_images(context, content):
+def _proccess_images(context, content, config):
     dashboard = _collect_images(content)
     if not dashboard:
         return content
@@ -54,7 +54,7 @@ def _proccess_images(context, content):
     images_dir = get_in_workdir(Dirs.PAGE_IMAGES, context.md5)
     clips_dir = get_in_workdir(Dirs.CLIPS)
     model = YOLO(hf_hub_download(repo_id=REPO_ID, filename=MODEL_CHECKPOINT))
-    session = create_session(context.config)
+    session = create_session(config)
     with pymupdf.open(context.local_doc_path) as doc:
         for idx, (page_no, details) in enumerate(dashboard.items(), start=1):
             page = doc[page_no]
@@ -105,7 +105,7 @@ def _proccess_images(context, content):
             boxed_image.save(path_to_page_image_boxed, format = 'png')
             pairs, unmatched_images = _pair_model_boxes(details, centroid_distance_threshold = (width + height) / 10)
             _clips(pix, pairs, page_no, clips_dir, context.md5)
-            _upload_to_s3(pairs, session, context)
+            _upload_to_s3(pairs, session, config)
             _compile_replacement_str(pairs)
             result.extend([(p['gemini']['html'], p['replacement']) for p in pairs])
             context.unmatched_images += unmatched_images
@@ -139,11 +139,11 @@ def _replace_images(result, content):
         content = content.replace(target, replacement)
     return content
 
-def _upload_to_s3(pairs, session, context):
+def _upload_to_s3(pairs, session, config):
     for p in pairs:
         if not (path := p.get('path')):
             continue
-        bucket = context.config["yandex"]["cloud"]['bucket']['image']
+        bucket = config["yandex"]["cloud"]['bucket']['image']
         key = os.path.basename(path)
         p['url'] = upload_file(path, bucket, key, session, skip_if_exists=True)
 

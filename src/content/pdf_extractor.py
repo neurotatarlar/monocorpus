@@ -27,6 +27,26 @@ class ExtractionResult(BaseModel):
     content: str
     
     
+    
+class ChunkPlanner:
+    
+    def __init__(self, chunks_dir):
+        self.chunks_dir = chunks_dir
+        
+        
+    def iterate():
+        pass
+    
+    
+    
+class Chunk:
+    
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+    
+    
+    
 class PdfExtractor:
     
     
@@ -49,7 +69,7 @@ class PdfExtractor:
                 
                 # additional processing
                 self.log(f"Postprocessing document {doc.md5}({doc.ya_public_url})")
-                postprocessed = postprocess(context)
+                postprocessed = postprocess(context, self.config)
                 
                 # write postprocessed content to a file
                 context.formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-formatted.md")
@@ -100,34 +120,42 @@ class PdfExtractor:
             prev_chunk_tail = None
             headers_hierarchy = []
             next_footnote_num = 1
-            chunks = self._get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=20)
-            for idx, chunk in enumerate(chunks, start=1):
-                _from = chunk[0]
-                _to = chunk[-1] 
-                chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{_from}-{_to}.json")
+            
+            chunk_planner = ChunkPlanner(chunked_results_dir)
+            while True:
+                chunk = chunk_planner.next()
+                # if not chunk:
+                #     break
+                # chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
+                # content = None
+            # chunks = self._get_chunks(dir=chunked_results_dir, start_inc=0, end_excl=pdf_doc.page_count-1, chunk_size=20)
+            # for idx, chunk in enumerate(chunks, start=1):
+                # _from = chunk[0]
+                # _to = chunk[-1] 
+                chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
                 content = None
                 
                 if os.path.exists(chunk_result_complete_path):
-                    self.log(f"Chunk {idx}({_from}-{_to}) of {len(chunks)} is already extracted")
+                    self.log(f"Chunk({chunk.start}-{chunk.end}) of {len(pdf_doc.page_count())} is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
                         content = ExtractionResult.model_validate_json(f.read()).content
                         
                 if not content:
                     # create a pdf doc what will contain a slice of original pdf doc
-                    slice_file_path = self._create_doc_clice(_from, _to, pdf_doc, context.md5)
+                    slice_file_path = self._create_doc_clice(chunk.start, chunk.end, pdf_doc, context.md5)
                 
                     chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                     
                     # prepare prompt
-                    prompt = cook_extraction_prompt(_from, _to, next_footnote_num, headers_hierarchy)
+                    prompt = cook_extraction_prompt(chunk.start, chunk.end, next_footnote_num, headers_hierarchy)
                     prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
-                    with open(os.path.join(prompts_dir, f"chunk-{_from}-{_to}"), "w") as f:
+                    with open(os.path.join(prompts_dir, f"chunk-{chunk.start}-{chunk.end}"), "w") as f:
                         json.dump(prompt, f, indent=4, ensure_ascii=False)
                     
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
                     
-                    self.log(f"Requesting gemini for chunk {idx}({_from}-{_to}) of {len(chunks)} with key `{self.key}`")
+                    self.log(f"Requesting gemini for chunk ({chunk.start}-{chunk.end}) of {len(pdf_doc.page_count())} with key `{self.key}`")
                     
                     response = gemini_api(
                         client=gemini_client,
@@ -153,7 +181,7 @@ class PdfExtractor:
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                         
-                    self.log(f"[bold green]Chunk {idx}({_from}-{_to}) extracted successfully'[/bold green]")
+                    self.log(f"[bold green]Chunk ({_from}-{_to}) extracted successfully'[/bold green]")
 
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
                 content = self._shift_trailing_footnotes_up(content)
@@ -224,7 +252,7 @@ class PdfExtractor:
         reordered = body_lines[:-1] + [''] + footnotes + [''] + body_lines[-1:]
 
         return '\n'.join(reordered)
-            
+
 
     def _get_chunks(self, dir, start_inc: int, end_excl: int, chunk_size: int, last_chunk_min_size=5):
         # # Step 1: Sort existing chunks

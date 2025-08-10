@@ -14,8 +14,8 @@ class Context():
         self.local_content_path = None
         self.formatted_response_md = None
         self.unformatted_response_md = None
-        # self.remote_doc_url = None
-        # self.remote_content_url = None
+        self.remote_doc_url = None
+        self.remote_content_url = None
         self.extraction_method = None
         # count of pages in the document, not in the book inside document
         self.doc_page_count = None
