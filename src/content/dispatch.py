@@ -218,7 +218,7 @@ def _get_credentials():
     return Credentials.from_authorized_user_file(token_file, SCOPES)
 
     
-def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_batch_size=2, offset=150):
+def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_batch_size=1, offset=150):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = set()

@@ -31,78 +31,92 @@ class ExtractionResult(BaseModel):
     
     
 class ChunkPlanner:
-    
-    def __init__(self, chunked_results_dir, pages_count, chunk_sizes = [20, 10, 5, 2, 1]):
+    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[20, 10, 5, 2, 1]):
         self.chunked_results_dir = chunked_results_dir
+        self.pages_count = pages_count
         self.chunk_sizes = chunk_sizes
         self.current_chunk_size_index = 0
         self.processed_ranges = self._load_processed_ranges()
-        self.pages_count = pages_count
-    
-        
-    def next(self):
-        start_page = self._find_next_missing_page()
-        if start_page is None:
-            return None  # no more chunks to process
-        
-        size = self.chunk_sizes[self.current_chunk_size_index]
-        end_page = min(start_page + size - 1, self.pages_count)
-        if start_page >= end_page:
-            return None
-        print(f"size={size}, start_page={start_page}, end_page={end_page}", )
-        return Chunk(start_page, end_page)
-    
-    
-    def _find_next_missing_page(self):
-        """Find the first page number that has not yet been processed."""
-        current = 0
-        for chunk in self.processed_ranges:
-            if chunk.start > current:
-                return current  # gap found
-            current = max(current, chunk.end + 1)
-        if current <= self.pages_count:
-            return current
-        return None
-    
-    
-    def decrease_chunk_size(self):
-        if self.current_chunk_size_index < len(self.chunk_sizes) - 1:
-            self.current_chunk_size_index += 1
-            return True
-        return False
-    
-    
-    def mark_success(self, chunk: "Chunk"):
-        """Call this when a chunk was successfully processed."""
-        self.processed_ranges.append(chunk)
-        self.processed_ranges.sort()
-    
-    
-    def _load_processed_ranges(self): 
+
+        # iteration state
+        self.cursor_page = 0
+        self.idx_processed = 0
+        self.last_attempted_chunk = None
+        self.retry_mode = False
+
+    def _load_processed_ranges(self):
         """Load already processed chunk ranges from the directory."""
         slice_pattern = re.compile(r"chunk-(\d+)-(\d+)\.json$")
         processed = []
+        seen = set()
         for filename in os.listdir(self.chunked_results_dir):
             m = slice_pattern.match(filename)
             if m:
                 start, end = map(int, m.groups())
-                processed.append(Chunk(start, end))
+                if (start, end) not in seen:
+                    processed.append(Chunk(start, end))
+                    seen.add((start, end))
         processed.sort()
         return processed
-        
+
+    def next(self):
+        """Return the next chunk to process: either a processed one, or a gap."""
+        # Retry mode: use last start page with smaller size
+        if self.retry_mode and self.last_attempted_chunk:
+            size = self.chunk_sizes[self.current_chunk_size_index]
+            end_page = min(self.last_attempted_chunk.start + size - 1, self.pages_count)
+            chunk = Chunk(self.last_attempted_chunk.start, end_page)
+            self.last_attempted_chunk = chunk
+            self.retry_mode = False
+            return chunk
+
+        while self.cursor_page <= self.pages_count:
+            if self.idx_processed < len(self.processed_ranges):
+                next_chunk = self.processed_ranges[self.idx_processed]
+                if self.cursor_page < next_chunk.start:
+                    # gap found
+                    size = self.chunk_sizes[self.current_chunk_size_index]
+                    end_page = min(self.cursor_page + size - 1, self.pages_count)
+                    chunk = Chunk(self.cursor_page, end_page)
+                    self.last_attempted_chunk = chunk
+                    self.cursor_page = end_page + 1
+                    return chunk
+                else:
+                    # skip processed chunk
+                    self.cursor_page = next_chunk.end + 1
+                    self.idx_processed += 1
+                    return next_chunk
+            else:
+                # fill until end
+                if self.cursor_page <= self.pages_count:
+                    size = self.chunk_sizes[self.current_chunk_size_index]
+                    end_page = min(self.cursor_page + size - 1, self.pages_count)
+                    chunk = Chunk(self.cursor_page, end_page)
+                    self.last_attempted_chunk = chunk
+                    self.cursor_page = end_page + 1
+                    return chunk
+        return None
+
+    def decrease_chunk_size(self):
+        if self.current_chunk_size_index < len(self.chunk_sizes) - 1:
+            self.current_chunk_size_index += 1
+            self.retry_mode = True
+            return True
+        return False
+
+    def mark_success(self, chunk):
+        """Record a successfully processed chunk."""
+        if chunk not in self.processed_ranges:
+            self.processed_ranges.append(chunk)
+            self.processed_ranges.sort()
 
     def verify_complete(self):
         """Check if all pages from 0 to pages_count are covered without gaps."""
-        covered_pages = []
+        covered = set()
         for chunk in self.processed_ranges:
-            covered_pages.extend(range(chunk.start, chunk.end + 1))
-        
-        covered_set = set(covered_pages)
-        missing_pages = [p for p in range(0, self.pages_count + 1) if p not in covered_set]
-
-        if missing_pages:
-            return False, missing_pages
-        return True, []
+            covered.update(range(chunk.start, chunk.end + 1))
+        missing = [p for p in range(0, self.pages_count + 1) if p not in covered]
+        return (len(missing) == 0, missing)
     
     
     
@@ -182,8 +196,8 @@ class PdfExtractor:
                 self._upload_artifacts(context)
                 
                 # update the document in the gsheet
-                with Session() as gsheets_session:
-                    self._upsert_document(gsheets_session, context)
+                # with Session() as gsheets_session:
+                    # self._upsert_document(gsheets_session, context)
                 
                 self.log(f"[bold green]Content extraction complete[/bold green], unmatched images: {context.unmatched_images} of {context.total_images}")
             except Empty:
@@ -230,7 +244,7 @@ class PdfExtractor:
                     self.log(f"Chunk({chunk.start}-{chunk.end}) of {context.doc_page_count} is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
                         content = ExtractionResult.model_validate_json(f.read()).content
-                        
+                      
                 if not content:
                     # create a pdf doc what will contain a slice of original pdf doc
                     slice_file_path = self._create_doc_clice(chunk.start, chunk.end, pdf_doc, context.md5)
