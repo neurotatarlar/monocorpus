@@ -155,13 +155,13 @@ class Chunk:
 class PdfExtractor:
     
     
-    def __init__(self, key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set, stop_event):
-        self.key = key
+    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set, stop_event):
+        self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.s3lient = s3lient
         self.ya_client = ya_client
-        self.exceeded_keys_lock = exceeded_keys_lock, 
+        self.exceeded_keys_lock = exceeded_keys_lock
         self.exceeded_keys_set = exceeded_keys_set
         self.stop_event = stop_event
         
@@ -196,8 +196,8 @@ class PdfExtractor:
                 self._upload_artifacts(context)
                 
                 # update the document in the gsheet
-                # with Session() as gsheets_session:
-                    # self._upsert_document(gsheets_session, context)
+                with Session() as gsheets_session:
+                    self._upsert_document(gsheets_session, context)
                 
                 self.log(f"[bold green]Content extraction complete[/bold green], unmatched images: {context.unmatched_images} of {context.total_images}")
             except Empty:
@@ -236,12 +236,13 @@ class PdfExtractor:
                     complete, missing_pages = chunk_planner.verify_complete()
                     if not complete:
                         raise ValueError(f"Chunk planner gave none chunks but there is missed pages '{missing_pages}' for doc '{context.md5}'")
+                    break
                 
                 chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
                 content = None
                 
                 if os.path.exists(chunk_result_complete_path):
-                    self.log(f"Chunk({chunk.start}-{chunk.end}) of {context.doc_page_count} is already extracted")
+                    self.log(f"Chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
                         content = ExtractionResult.model_validate_json(f.read()).content
                       
@@ -260,7 +261,7 @@ class PdfExtractor:
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
                     
-                    self.log(f"Extracting chunk ({chunk.start}-{chunk.end}) of {context.doc_page_count} of document '{context.md5}' with key '{self.key}'")
+                    self.log(f"Extracting chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
                     
                     response = gemini_api(
                         client=gemini_client,
@@ -289,7 +290,7 @@ class PdfExtractor:
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                         
-                    self.log(f"[bold green]Chunk ({chunk.start}-{chunk.end}) of {context.doc_page_count} extracted successfully'[/bold green]")
+                    self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]")
                     chunk_planner.mark_success(chunk)
                     
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
@@ -415,7 +416,7 @@ class PdfExtractor:
         
         
     def log(self, message):
-        message = f"{threading.current_thread().name} - {time.strftime('%Y-%m-%d %H:%M:%S')}: {message}"
+        message = f"{threading.current_thread().name} {time.strftime('%d-%m-%y %H:%M:%S')} {self.key[-7:]}: {message}"
         log_file = get_in_workdir(Dirs.LOGS, file=f"content_extraction_{self.key}.log")
         with open(log_file, "a") as log:
             log.write(f"{message}\n")

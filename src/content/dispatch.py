@@ -28,6 +28,7 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 too_expensive = {
+    "933a9910f0f7e1a5efd21aa1cd39e36e",
     "7ddc45e6fa6ed4caa120b11689cf200e",
     "7e18fc2e65badafaeacd3503fcb8df46",
     "2d7b5f5732a0144fe0fcf0c44cffc926",
@@ -229,8 +230,7 @@ def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_ba
         try:
             with exceeded_keys_lock:
                 available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
-            # keys_slice = list(available_keys)[:keys_batch_size]
-            keys_slice = list(available_keys)[-keys_batch_size:]
+            keys_slice = list(available_keys)[:keys_batch_size]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return
@@ -244,9 +244,8 @@ def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=72, keys_ba
                 print(f"Got {len(docs)} docs for content extraction")
                 tasks_queue = Queue(maxsize=len(docs))
                 for doc in docs:
-                    if doc.md5 in skip_pdf:
-                        continue
-                    tasks_queue.put(doc)
+                    if doc.md5 not in skip_pdf:
+                        tasks_queue.put(doc)
                     
                 if tasks_queue.empty():
                     print("No documents for processing...")

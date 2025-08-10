@@ -45,9 +45,9 @@ skip_pdf = set([
 # python src/main.py select 'count(md5) from Documents where metadata_extraction_method is not "gemini-2.5-pro/prompt.v2" and (content_url is not NULL or mime_type is "application/pdf")'
 
 def extract_metadata():
-    print("Processing documents without metadata")
-    predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
-    _process_by_predicate(predicate)
+    # print("Processing documents without metadata")
+    # predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
+    # _process_by_predicate(predicate)
     
     predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     print("Processing documents with older metadata extraction method...")
@@ -75,6 +75,7 @@ def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
                 
             with Session() as read_session:
                 docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
+            del read_session
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
@@ -131,7 +132,7 @@ class MetadataExtractionWorker:
             try:
                 local_doc_path = None
                 doc = self.tasks_queue.get(block=False)
-                self.log(f"Extracting metadata from document {doc.md5}({doc.ya_public_url}) by key {self.key}")
+                self.log(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
                 
                 if doc.content_url:
                     metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model).extract()
@@ -156,6 +157,7 @@ class MetadataExtractionWorker:
                 doc.metadata_extraction_method = f"{model}/prompt.v2"
                 with Session() as gsheet_session:
                     self._update_document(doc, metadata, gsheet_session)
+                del gsheet_session
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
             except Empty:
                 self.log("No tasks for processing, shutting down thread...")
@@ -234,7 +236,7 @@ class MetadataExtractionWorker:
 
 
     def log(self, message):
-        message = f"{threading.current_thread().name} - {time.strftime('%Y-%m-%d %H:%M:%S')}: {message}"
+        message = f"{threading.current_thread().name} {time.strftime('%d-%m-%y %H:%M:%S')} {self.key[-7:]}: {message}"
         log_file = get_in_workdir(Dirs.LOGS, file=f"metadata_extraction_{self.key}.log")
         with open(log_file, "a") as log:
             log.write(f"{message}\n")
