@@ -92,13 +92,13 @@ class ChunkPlanner:
         
 
     def verify_complete(self):
-        """Check if all pages from 0 to max_page are covered without gaps."""
+        """Check if all pages from 0 to pages_count are covered without gaps."""
         covered_pages = []
         for chunk in self.processed_ranges:
             covered_pages.extend(range(chunk.start, chunk.end + 1))
         
         covered_set = set(covered_pages)
-        missing_pages = [p for p in range(0, self.max_page + 1) if p not in covered_set]
+        missing_pages = [p for p in range(0, self.pages_count + 1) if p not in covered_set]
 
         if missing_pages:
             return False, missing_pages
@@ -157,7 +157,6 @@ class PdfExtractor:
         while not self.stop_event.is_set():
             try: 
                 doc = self.tasks_queue.get(block=False)
-                self.log(f"Extracting content from document {doc.md5}({doc.ya_public_url}) by key {self.key}")
                 context = self._extract_doc(doc, gemini_client)
                 
                 if self.stop_event.is_set():
@@ -220,9 +219,9 @@ class PdfExtractor:
             chunk_planner = ChunkPlanner(chunked_results_dir, pages_count=context.doc_page_count)
             while not self.stop_event.is_set():
                 if not (chunk := chunk_planner.next()):
-                    complete, missing_pages = chunk_planner.verify_complete
+                    complete, missing_pages = chunk_planner.verify_complete()
                     if not complete:
-                        raise ValueError(f"Chunk planner gave none chunks but there is missed pages '{missing_pages}'")
+                        raise ValueError(f"Chunk planner gave none chunks but there is missed pages '{missing_pages}' for doc '{context.md5}'")
                 
                 chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
                 content = None
