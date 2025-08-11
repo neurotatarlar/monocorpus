@@ -18,12 +18,22 @@ import os
 from utils import encrypt
 from yadisk_client import YaDisk
 import gc
+from datetime import datetime, timezone, timedelta
+import json
 
 
 model = 'gemini-2.5-pro'
 
 
 skip_pdf = set([
+    "cfa071b659e0fc9971ff62ed1659b035",
+    "ec0a9711b045acfdbd6aa8a00806296d",
+    "d2b2822611cbdbbdda716e084896f361",
+    "34cc2bb7f6b8912a187efd7dcda0cf67",
+    "af08b326ce7ba90fd1142d87d4e59115",
+    "99fbf9040145fd330cdd91ef7838faeb",
+    "41be0586ebef64bbabeb905a93288809",
+    "11a9083e437bd5d61d97102799597084",
     "dd713e13dd749131652b7eef5fedf4ac",
     "11a9083e437bd5d61d97102799597084"
     "dd713e13dd749131652b7eef5fedf4ac",
@@ -45,9 +55,9 @@ skip_pdf = set([
 # python src/main.py select 'count(md5) from Documents where metadata_extraction_method is not "gemini-2.5-pro/prompt.v2" and (content_url is not NULL or mime_type is "application/pdf")'
 
 def extract_metadata():
-    # print("Processing documents without metadata")
-    # predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
-    # _process_by_predicate(predicate)
+    print("Processing documents without metadata")
+    predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
+    _process_by_predicate(predicate)
     
     predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     print("Processing documents with older metadata extraction method...")
@@ -57,11 +67,12 @@ def extract_metadata():
 def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
-    exceeded_keys_set = set()
+    exceeded_keys_set = _load_expired_keys()
     
     while True:
         tasks_queue = None
         threads = None
+        _dump_expired_keys(exceeded_keys_set)
         gc.collect()
         try: 
             with exceeded_keys_lock:
@@ -110,8 +121,37 @@ def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
                 for t in threads:
                     t.join(timeout=60)
             return
+    
         
+def _load_expired_keys(dir = 'expired_keys'):
+    os.makedirs(dir, exist_ok=True)
+    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
+    if os.path.exists(ekf):
+        with open(ekf, "r") as f:
+            return set(json.load(f))
+    else: return set()
+     
+
+def _dump_expired_keys(keys, dir = 'expired_keys'):
+    os.makedirs(dir, exist_ok=True)
+    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
+    with open(ekf, "w") as f:
+        json.dump(list(keys), f, ensure_ascii=False, indent=4)
         
+
+def _get_bucket_id():
+    """Return bucket like '20250810_1' or '20250811_0' based on 09:00 UTC cutoff."""
+    now = datetime.now(timezone.utc)
+
+    # If before 09:00 UTC, we are still in the *previous day's* second bucket
+    if now.hour < 9:
+        date = (now - timedelta(days=1)).strftime("%Y%m%d")
+        bucket_num = 1
+    else:
+        date = now.strftime("%Y%m%d")
+        bucket_num = 0
+
+    return f"{date}_{bucket_num}"
         
 class MetadataExtractionWorker:
     
@@ -157,6 +197,8 @@ class MetadataExtractionWorker:
                 doc.metadata_extraction_method = f"{model}/prompt.v2"
                 with Session() as gsheet_session:
                     self._update_document(doc, metadata, gsheet_session)
+                    gsheet_session._get_session().commit()
+                    gsheet_session._get_session().flush()
                 del gsheet_session
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
             except Empty:
@@ -241,3 +283,4 @@ class MetadataExtractionWorker:
         with open(log_file, "a") as log:
             log.write(f"{message}\n")
         print(message)
+    

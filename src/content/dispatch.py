@@ -144,19 +144,19 @@ skip_pdf = skipped_external | too_expensive
 
 
 def extract_content(cli_params):
-    # print("Extracting content of nonpdf documents")
-    # predicate = (
-    #     Document.content_url.is_(None) &
-    #     Document.mime_type.in_(non_pdf_format_types)
-    # )
-    # _process_non_pdf_by_predicate(predicate, cli_params)
-    
-    print("Extracting content of pdf documents")
+    print("Extracting content of nonpdf documents")
     predicate = (
         Document.content_url.is_(None) &
-        Document.mime_type.is_("application/pdf")
+        Document.mime_type.in_(non_pdf_format_types)
     )
-    _process_pdf_by_predicate(predicate, cli_params)
+    _process_non_pdf_by_predicate(predicate, cli_params)
+    
+    # print("Extracting content of pdf documents")
+    # predicate = (
+    #     Document.content_url.is_(None) &
+    #     Document.mime_type.is_("application/pdf")
+    # )
+    # _process_pdf_by_predicate(predicate, cli_params)
     
  
 def _process_non_pdf_by_predicate(predicate, cli_params):
