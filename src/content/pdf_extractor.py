@@ -13,7 +13,7 @@ import os
 from gemini import gemini_api, create_client
 import pymupdf
 import shutil
-from content.pdf_postprocess import postprocess
+from content.pdf_postprocess import postprocess, NoBboxError
 from prompt import cook_extraction_prompt
 import json
 from content.continuity_checker import continue_smoothly
@@ -158,14 +158,13 @@ class Chunk:
 class PdfExtractor:
     
     
-    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set, stop_event):
+    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, channel, stop_event):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.s3lient = s3lient
         self.ya_client = ya_client
-        self.exceeded_keys_lock = exceeded_keys_lock
-        self.exceeded_keys_set = exceeded_keys_set
+        self.channel = channel
         self.stop_event = stop_event
         
         
@@ -210,9 +209,10 @@ class PdfExtractor:
                 if e.code == 429:
                     self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
                     self.tasks_queue.put(doc)
-                    with self.exceeded_keys_lock:
-                        self.exceeded_keys_set.add(self.key)
+                    self.channel.add_exceeded_key(self.key)
                 return
+            except NoBboxError as e:
+                self.channel.add_repairable_doc(e.md5)
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract content from doc '{doc.md5}': {e} \n{traceback.format_exc()}")
@@ -288,6 +288,7 @@ class PdfExtractor:
                             if chunk_planner.decrease_chunk_size():
                                 continue
                             else:
+                                self.channel.add_unprocessable_doc(context.md5)
                                 raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")
                         
                     # "mark" batch as extracted by renaming file

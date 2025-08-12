@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from rich import print
 from s3 import upload_file, create_session
-from utils import read_config, get_in_workdir, download_file_locally
+from utils import read_config, get_in_workdir, download_file_locally, load_expired_keys, dump_expired_keys
 from dirs import Dirs
 from gemini import create_client
 import zipfile
@@ -18,14 +18,13 @@ import os
 from utils import encrypt
 from yadisk_client import YaDisk
 import gc
-from datetime import datetime, timezone, timedelta
-import json
 
 
 model = 'gemini-2.5-pro'
 
 
 skip_pdf = set([
+    "d18af226805d9d352af7b97c8140f1b8",
     "cfa071b659e0fc9971ff62ed1659b035",
     "ec0a9711b045acfdbd6aa8a00806296d",
     "d2b2822611cbdbbdda716e084896f361",
@@ -67,12 +66,12 @@ def extract_metadata():
 def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
-    exceeded_keys_set = _load_expired_keys()
+    exceeded_keys_set = load_expired_keys()
     
     while True:
         tasks_queue = None
         threads = None
-        _dump_expired_keys(exceeded_keys_set)
+        dump_expired_keys(exceeded_keys_set)
         gc.collect()
         try: 
             with exceeded_keys_lock:
@@ -123,36 +122,7 @@ def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
             return
     
         
-def _load_expired_keys(dir = 'expired_keys'):
-    os.makedirs(dir, exist_ok=True)
-    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
-    if os.path.exists(ekf):
-        with open(ekf, "r") as f:
-            return set(json.load(f))
-    else: return set()
-     
-
-def _dump_expired_keys(keys, dir = 'expired_keys'):
-    os.makedirs(dir, exist_ok=True)
-    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
-    with open(ekf, "w") as f:
-        json.dump(list(keys), f, ensure_ascii=False, indent=4)
-        
-
-def _get_bucket_id():
-    """Return bucket like '20250810_1' or '20250811_0' based on 09:00 UTC cutoff."""
-    now = datetime.now(timezone.utc)
-
-    # If before 09:00 UTC, we are still in the *previous day's* second bucket
-    if now.hour < 9:
-        date = (now - timedelta(days=1)).strftime("%Y%m%d")
-        bucket_num = 1
-    else:
-        date = now.strftime("%Y%m%d")
-        bucket_num = 0
-
-    return f"{date}_{bucket_num}"
-        
+       
 class MetadataExtractionWorker:
     
     

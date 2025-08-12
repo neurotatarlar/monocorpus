@@ -18,6 +18,11 @@ MODEL_NAME = 'yolov10b'
 MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 
 
+class NoBboxError(BaseException):
+    def __init__(self, md5, *args):
+        super().__init__(*args)
+        self.md5 = md5
+    
 def postprocess(context, config):
     with open(context.unformatted_response_md, "r") as f:
         content = f.read()
@@ -46,7 +51,7 @@ def postprocess(context, config):
     return postprocessed
 
 def _proccess_images(context, content, config):
-    dashboard = _collect_images(content)
+    dashboard = _collect_images(context, content)
     if not dashboard:
         return content
     
@@ -113,14 +118,14 @@ def _proccess_images(context, content, config):
     
     return _replace_images(result, content)
 
-def _collect_images(content):
+def _collect_images(context, content):
     pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)
     dashboard = defaultdict(dict)
     for match in pattern.finditer(content):
         raw_html = match.group(1)
         fig_elem = BeautifulSoup(raw_html, 'html.parser').find('figure')
         if not (bbox := fig_elem.get("data-bbox")):
-            raise ValueError(f"Figure element does not have 'data-bbox' attribute: '{match}'")
+            raise NoBboxError(context.md5, f"Figure element does not have 'data-bbox' attribute: '{match}'")
         details = {
             'html': raw_html,
             'bbox': json.loads(bbox),

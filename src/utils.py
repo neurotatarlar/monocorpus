@@ -9,6 +9,8 @@ from sqlalchemy import select
 from collections import deque
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import base64
+from datetime import datetime, timezone, timedelta
+import json
 
 prefix = "enc:"
 
@@ -169,3 +171,33 @@ def decrypt(ciphertext, config):
     key = base64.urlsafe_b64decode(config["encryption_key"])
     aesgcm = AESGCM(key)
     return aesgcm.decrypt(nonce, ct, None).decode()
+
+def load_expired_keys(dir = 'expired_keys'):
+    os.makedirs(dir, exist_ok=True)
+    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
+    if os.path.exists(ekf):
+        with open(ekf, "r") as f:
+            return set(json.load(f))
+    else: return set()
+    
+
+def dump_expired_keys(keys, dir = 'expired_keys'):
+    os.makedirs(dir, exist_ok=True)
+    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
+    with open(ekf, "w") as f:
+        json.dump(list(keys), f, ensure_ascii=False, indent=4)
+        
+
+def _get_bucket_id():
+    """Return bucket like '20250810_1' or '20250811_0' based on 09:00 UTC cutoff."""
+    now = datetime.now(timezone.utc)
+
+    # If before 09:00 UTC, we are still in the *previous day's* second bucket
+    if now.hour < 9:
+        date = (now - timedelta(days=1)).strftime("%Y%m%d")
+        bucket_num = 1
+    else:
+        date = now.strftime("%Y%m%d")
+        bucket_num = 0
+
+    return f"{date}_{bucket_num}"
