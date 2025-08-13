@@ -208,7 +208,7 @@ def _dedup_by_isbn(plan, yaclient, config):
                 return _docs - _pdf_docs
             _extracted_pdf_docs = set([d for d in _pdf_docs if d.content_url])
             #  if we have multiple pdf docs, but only one of them already extracted then keep it and move anothers
-            if len(_extracted_pdf_docs):
+            if len(_extracted_pdf_docs) == 1:
                 return _docs - _extracted_pdf_docs
             
             _choices = {idx: doc for idx, doc in enumerate(sorted(_docs, key=lambda d: d.ya_public_url), start=1)}

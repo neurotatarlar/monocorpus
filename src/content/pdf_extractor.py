@@ -20,9 +20,7 @@ from content.continuity_checker import continue_smoothly
 from pydantic import BaseModel, ValidationError
 from s3 import upload_file, create_session
 
-# todo write expired keys into file
 # change prompt if the book is an article
-# todo save unprocessed docs into file to skip them
 
 model = 'gemini-2.5-pro'
 

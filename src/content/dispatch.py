@@ -28,20 +28,41 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    # print("Extracting content of nonpdf documents")
-    # predicate = (
-    #     Document.content_url.is_(None) &
-    #     Document.mime_type.in_(non_pdf_format_types)
-    # )
-    # _process_non_pdf_by_predicate(predicate, cli_params)
-    
-    print("Extracting content of pdf documents")
+    print("Extracting content of nonpdf documents")
     predicate = (
         Document.content_url.is_(None) &
-        Document.mime_type.is_("application/pdf") &
-        Document.language.is_("tt-Cyrl")
+        Document.mime_type.in_(non_pdf_format_types)
     )
-    _process_pdf_by_predicate(predicate, cli_params)
+    _process_non_pdf_by_predicate(predicate, cli_params)
+    
+    print("Extracting content of pdf documents")
+    channel = Channel()
+    # predicate = (
+    #     Document.content_url.is_(None) &
+    #     Document.mime_type.is_("application/pdf") &
+    #     Document.language.is_("tt-Cyrl") &
+    #     Document.full.is_(True) &
+    #     Document.md5.not_in(channel.unprocessable_docs)
+    # )
+    
+    docs_cy = [
+        "5ee5d1fbed67f06dcddb789b58afbcb5",
+        "113300f737bec5b126ddf45071d1acf2",
+        "b5af07315dacca8015afe39e2569b6fa",
+        "af8ffc4df8309d8bf843540da0327130",
+        "d07fe446ec0563d933c5f30ca8807b26"
+    ]
+    docs_lat = [
+        "4b2ca16f36e00157e4ec0312650d52ca",
+        "f25dd93615fe1cce5a352e16009d8773",
+        "ca47e8a2bcb343a0f425bc4f4ed6503c",
+        "3610f7b6a056ca6af9fee828dd50632f",
+        "5bf7fef1f2c34d8741b0a4fd84ef2a40",
+    ]
+    predicate = (
+        Document.md5.in_(docs_cy)
+    )
+    _process_pdf_by_predicate(predicate, cli_params, channel)
     
  
 def _process_non_pdf_by_predicate(predicate, cli_params):
@@ -150,11 +171,10 @@ class Channel:
     def add_repairable_doc(self, md5):
         with self.lock:
             self.repairable_docs.add(md5)
-            
+
     
-def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=120, keys_batch_size=40, offset=150):
+def _process_pdf_by_predicate(predicate, cli_params, channel, docs_batch_size=120, keys_batch_size=40):
     config = read_config()
-    channel = Channel()
     stop_event = threading.Event()
     
     while not stop_event.is_set():
@@ -173,7 +193,7 @@ def _process_pdf_by_predicate(predicate, cli_params, docs_batch_size=120, keys_b
             
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                 with Session() as gsheets_session:
-                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=docs_batch_size, gsheet_session=gsheets_session, offset=offset))
+                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=docs_batch_size, gsheet_session=gsheets_session))
                     
                 if not docs:
                     print("No docs for processing, exiting...")
