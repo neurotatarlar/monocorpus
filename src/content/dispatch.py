@@ -28,41 +28,14 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    print("Extracting content of nonpdf documents")
-    predicate = (
-        Document.content_url.is_(None) &
-        Document.mime_type.in_(non_pdf_format_types)
-    )
-    _process_non_pdf_by_predicate(predicate, cli_params)
-    
-    print("Extracting content of pdf documents")
-    channel = Channel()
+    # print("Extracting content of nonpdf documents")
     # predicate = (
     #     Document.content_url.is_(None) &
-    #     Document.mime_type.is_("application/pdf") &
-    #     Document.language.is_("tt-Cyrl") &
-    #     Document.full.is_(True) &
-    #     Document.md5.not_in(channel.unprocessable_docs)
+    #     Document.mime_type.in_(non_pdf_format_types)
     # )
+    # _process_non_pdf_by_predicate(predicate, cli_params)
     
-    docs_cy = [
-        "5ee5d1fbed67f06dcddb789b58afbcb5",
-        "113300f737bec5b126ddf45071d1acf2",
-        "b5af07315dacca8015afe39e2569b6fa",
-        "af8ffc4df8309d8bf843540da0327130",
-        "d07fe446ec0563d933c5f30ca8807b26"
-    ]
-    docs_lat = [
-        "4b2ca16f36e00157e4ec0312650d52ca",
-        "f25dd93615fe1cce5a352e16009d8773",
-        "ca47e8a2bcb343a0f425bc4f4ed6503c",
-        "3610f7b6a056ca6af9fee828dd50632f",
-        "5bf7fef1f2c34d8741b0a4fd84ef2a40",
-    ]
-    predicate = (
-        Document.md5.in_(docs_cy)
-    )
-    _process_pdf_by_predicate(predicate, cli_params, channel)
+    _process_pdf(cli_params)
     
  
 def _process_non_pdf_by_predicate(predicate, cli_params):
@@ -146,7 +119,7 @@ class Channel:
         file = os.path.join(dir, file_name)
         if os.path.exists(file):
             with open(file, "r") as f:
-                return set(f.readlines())
+                return set([l.strip() for l in f.readlines()])
         else: 
             return set()
         
@@ -155,32 +128,48 @@ class Channel:
         os.makedirs(dir, exist_ok=True)
         file = os.path.join(dir, file_name)
         with open(file, "w") as f:
-            f.write("\n".join(items))
+            f.write("\n".join([l.strip() for l in items]))
             
     
     def add_exceeded_key(self, key):
         with self.lock:
             self.exceeded_keys_set.add(key)
+            dump_expired_keys(self.exceeded_keys_set)
     
             
     def add_unprocessable_doc(self, md5):
         with self.lock:
             self.unprocessable_docs.add(md5)
+            self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
             
     
     def add_repairable_doc(self, md5):
         with self.lock:
             self.repairable_docs.add(md5)
+            self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf_by_predicate(predicate, cli_params, channel, docs_batch_size=120, keys_batch_size=40):
+def _process_pdf(cli_params, docs_batch_size=120, keys_batch_size=24):
     config = read_config()
     stop_event = threading.Event()
+    print("Extracting content of pdf documents")
     
     while not stop_event.is_set():
         tasks_queue = None
         threads = None
-
+        
+        channel = Channel()
+        predicate = (
+            Document.content_url.is_(None) &
+            Document.mime_type.is_("application/pdf") &
+            Document.language.is_("tt-Cyrl") &
+            Document.full.is_(True) &
+            Document.md5.not_in(channel.unprocessable_docs) &
+            Document.title.notlike("%ш__талинчы%") &
+            Document.title.notlike("%ЯШ_ СТАЛИНЧЫ%") &
+            Document.title.notlike("%ызыл _атарстан%") &
+            Document.title.notlike("%КЫЗЫЛ ТАТАРСТАН%")
+        )
         
         try:
             available_keys =  set(config["gemini_api_keys"]) - channel.exceeded_keys_set
@@ -203,8 +192,13 @@ def _process_pdf_by_predicate(predicate, cli_params, channel, docs_batch_size=12
                 tasks_queue = Queue(maxsize=len(docs))
                 skip_docs = channel.repairable_docs | channel.unprocessable_docs
                 for doc in docs:
-                    if doc.md5 not in skip_docs:
-                        tasks_queue.put(doc)
+                    if doc.md5 in skip_docs:
+                        continue
+                    
+                    # if "кызыл татарстан" in doc.title.lower() or "кызыл татарстан" in doc.publisher.lower():
+                    #     continue
+                    
+                    tasks_queue.put(doc)
                     
                 if tasks_queue.empty():
                     print("No documents for processing...")

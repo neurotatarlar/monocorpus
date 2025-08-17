@@ -155,7 +155,7 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
    - Use this logic for referencing page numbers in images or figure tags.
    
 12. Language
-   - The document is written in Tatar using the Cyrillic script.
+   - The document is written in Tatar using the Zamanalif variant of Latin script. This alphabet is the same as common turkic alphabet.
    - Be cautious not to delete or alter meaningful Tatar-language content.
 
 13. Output format
@@ -168,7 +168,7 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
 14. General requirements:
    - Output a clean, continuous version of the document, improving structure and readability.
    - Do not translate, rewrite, or modify the original Tatar text.
-   - The document language is Tatar, written in Cyrillic.
+   - The document language is Tatar, written in Zamanalif tatar script.
    - Be careful not to accidentally remove important content.
 """.strip()
 
@@ -344,7 +344,7 @@ def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, he
    with open(path_to_shots, "r") as f:
       prompt.extend(json.load(f))
 
-   prompt.append({"text" : "Now, extract the content from the input text according to the rules above. Return a JSON object with the extracted content."})
+   prompt.append({"text" : "Now, extract the content from according to the rules above. Return a JSON object with the extracted content."})
    return prompt
 
 def _get_remote_file_or_upload(client, name, content=None, path=None):

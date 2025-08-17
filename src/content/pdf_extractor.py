@@ -32,7 +32,7 @@ class ExtractionResult(BaseModel):
     
     
 class ChunkPlanner:
-    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[20, 10, 5, 2, 1]):
+    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[10, 5, 2, 1]):
         self.chunked_results_dir = chunked_results_dir
         self.pages_count = pages_count
         self.chunk_sizes = chunk_sizes
@@ -173,7 +173,7 @@ class PdfExtractor:
                 doc = self.tasks_queue.get(block=False)
                 context = self._extract_doc(doc, gemini_client)
                 
-                if self.stop_event.is_set():
+                if self.stop_event.is_set() or not context:
                     return
                 
                 # additional processing
@@ -203,12 +203,6 @@ class PdfExtractor:
             except Empty:
                 self.log("No tasks for processing, shutting down thread...")
                 return
-            except ClientError as e:
-                if e.code == 429:
-                    self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
-                    self.tasks_queue.put(doc)
-                    self.channel.add_exceeded_key(self.key)
-                return
             except NoBboxError as e:
                 self.channel.add_repairable_doc(e.md5)
             except Exception as e:
@@ -223,8 +217,8 @@ class PdfExtractor:
         # request latest metadata of the doc in yandex disk
         self._enrich_context(self.ya_client, context)
         
-        context.unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
-        with pymupdf.open(context.local_doc_path) as pdf_doc, open(context.unformatted_response_md, "w") as output:
+        unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
+        with pymupdf.open(context.local_doc_path) as pdf_doc, open(unformatted_response_md, "w") as output:
             context.doc_page_count=pdf_doc.page_count
             chunked_results_dir = get_in_workdir(Dirs.CHUNKED_RESULTS, context.md5)
             prev_chunk_tail = None
@@ -264,30 +258,43 @@ class PdfExtractor:
                     
                     self.log(f"Extracting chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
                     
-                    response = gemini_api(
-                        client=gemini_client,
-                        model=model,
-                        prompt=prompt,
-                        files=files,
-                        schema=ExtractionResult,
-                        timeout_sec=6000
-                    )
-                    # write result into file
-                    with open(chunk_result_incomplete_path, "w") as f:
-                        for p in response:
-                            if text := p.text:
-                                f.write(text)
-                    
-                    # validating schema
-                    with open(chunk_result_incomplete_path, "r") as f:
-                        try: 
+                    try:
+                        response = gemini_api(
+                            client=gemini_client,
+                            model=model,
+                            prompt=prompt,
+                            files=files,
+                            schema=ExtractionResult,
+                            timeout_sec=6000
+                        )
+                        # write result into file
+                        with open(chunk_result_incomplete_path, "w") as f:
+                            for p in response:
+                                if text := p.text:
+                                    f.write(text)
+                                    
+                        # validating schema
+                        with open(chunk_result_incomplete_path, "r") as f:
                             content = ExtractionResult.model_validate_json(f.read()).content
-                        except ValidationError:
-                            if chunk_planner.decrease_chunk_size():
-                                continue
+                    except ClientError as e:
+                        if e.code == 429:
+                            if 'generate_content_free_tier_input_token_count' in json.dumps(e.details):
+                                if chunk_planner.decrease_chunk_size():
+                                    continue
+                                else:
+                                    self.channel.add_unprocessable_doc(context.md5)
+                                    raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")
                             else:
-                                self.channel.add_unprocessable_doc(context.md5)
-                                raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")
+                                self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
+                                self.tasks_queue.put(doc)
+                                self.channel.add_exceeded_key(self.key)
+                                return None
+                    except ValidationError:
+                        if chunk_planner.decrease_chunk_size():
+                            continue
+                        else:
+                            self.channel.add_unprocessable_doc(context.md5)
+                            raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")                    
                         
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
@@ -315,6 +322,7 @@ class PdfExtractor:
 
                 context.chunk_paths.append(chunk_result_complete_path)   
                 
+        context.unformatted_response_md = unformatted_response_md
         return context
                
                

@@ -157,7 +157,7 @@ def _define_docs_for_wiping(yaclient, config):
     docs_for_wiping.update(nontextual_docs)
     flush(docs_for_wiping)
     
-    _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
     
     return docs_for_wiping
     
