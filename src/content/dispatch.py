@@ -149,7 +149,7 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params, docs_batch_size=120, keys_batch_size=24):
+def _process_pdf(cli_params, docs_batch_size=72, keys_batch_size=24):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")

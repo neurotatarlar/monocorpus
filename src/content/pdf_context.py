@@ -24,6 +24,10 @@ class Context():
     def __enter__(self):
         # self.progress.__enter__()
         return self
+    
+    def add_chunk_path(self, path):
+        if path not in self.chunk_paths[::-1]:
+            self.chunk_paths.append(path)
 
     def __exit__(self, type, value, traceback):
         # self.progress.__exit__(type, value, traceback)

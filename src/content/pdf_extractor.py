@@ -199,7 +199,7 @@ class PdfExtractor:
                 with Session() as gsheets_session:
                     self._upsert_document(gsheets_session, context)
                 
-                self.log(f"[bold green]Content extraction complete[/bold green], unmatched images: {context.unmatched_images} of {context.total_images}")
+                self.log(f"[bold green]Content extraction complete {context.doc.md5}({context.doc.ya_public_url})[/bold green]")
             except Empty:
                 self.log("No tasks for processing, shutting down thread...")
                 return
@@ -207,7 +207,7 @@ class PdfExtractor:
                 self.channel.add_repairable_doc(e.md5)
             except Exception as e:
                 import traceback
-                self.log(f"Could not extract content from doc '{doc.md5}': {e} \n{traceback.format_exc()}")
+                self.log(f"Could not extract content from doc {doc.md5}({doc.ya_public_url}): {e} \n{traceback.format_exc()}")
                 continue
             
             
@@ -242,6 +242,8 @@ class PdfExtractor:
                         content = ExtractionResult.model_validate_json(f.read()).content
                       
                 if not content:
+                    self.log(f"Extracting chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
+                    
                     # create a pdf doc what will contain a slice of original pdf doc
                     slice_file_path = self._create_doc_clice(chunk.start, chunk.end, pdf_doc, context.md5)
                 
@@ -255,9 +257,7 @@ class PdfExtractor:
                     
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
-                    
-                    self.log(f"Extracting chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
-                    
+                                        
                     try:
                         response = gemini_api(
                             client=gemini_client,
@@ -320,7 +320,7 @@ class PdfExtractor:
                 last_footnote_num = max(map(int, footnote_counters)) if footnote_counters else 0
                 next_footnote_num = max(next_footnote_num, last_footnote_num + 1)            
 
-                context.chunk_paths.append(chunk_result_complete_path)   
+                context.add_chunk_path(chunk_result_complete_path)
                 
         context.unformatted_response_md = unformatted_response_md
         return context
@@ -443,7 +443,7 @@ class PdfExtractor:
 
 
     def _upload_artifacts(self, context):
-        self.log("Uploading artifacts to object storage")
+        self.log(f"Uploading artifacts to object storage {context.doc.md5}({context.doc.ya_public_url})")
                     
         session = create_session(self.config)
         
@@ -480,5 +480,5 @@ class PdfExtractor:
         doc.content_url = context.remote_content_url
         doc.unmatched_images = f"{context.unmatched_images} of {context.total_images}"
             
-        self.log("Updating doc details in gsheets")
+        self.log(f"Updating doc details in gsheets {context.doc.md5}({context.doc.ya_public_url})")
         gsheets_session.update(doc)
