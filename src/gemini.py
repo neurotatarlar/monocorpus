@@ -49,6 +49,6 @@ def gemini_api(prompt, model, client, files = {}, temperature=0.1, schema=None, 
             seed=1552,
             http_options=types.HttpOptions(
                 timeout=timeout_sec * 1000
-            )
+            ),
         )
     )

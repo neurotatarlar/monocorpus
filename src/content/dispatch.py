@@ -149,7 +149,7 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params, docs_batch_size=72, keys_batch_size=24):
+def _process_pdf(cli_params, docs_batch_size=10, keys_batch_size=1):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
@@ -164,11 +164,11 @@ def _process_pdf(cli_params, docs_batch_size=72, keys_batch_size=24):
             Document.mime_type.is_("application/pdf") &
             Document.language.is_("tt-Cyrl") &
             Document.full.is_(True) &
-            Document.md5.not_in(channel.unprocessable_docs) &
-            Document.title.notlike("%ш__талинчы%") &
-            Document.title.notlike("%ЯШ_ СТАЛИНЧЫ%") &
-            Document.title.notlike("%ызыл _атарстан%") &
-            Document.title.notlike("%КЫЗЫЛ ТАТАРСТАН%")
+            Document.md5.not_in(channel.unprocessable_docs)
+            # Document.title.notlike("%ш__талинчы%") &
+            # Document.title.notlike("%ЯШ_ СТАЛИНЧЫ%") &
+            # Document.title.notlike("%ызыл _атарстан%") &
+            # Document.title.notlike("%КЫЗЫЛ ТАТАРСТАН%")
         )
         
         try:
@@ -194,9 +194,6 @@ def _process_pdf(cli_params, docs_batch_size=72, keys_batch_size=24):
                 for doc in docs:
                     if doc.md5 in skip_docs:
                         continue
-                    
-                    # if "кызыл татарстан" in doc.title.lower() or "кызыл татарстан" in doc.publisher.lower():
-                    #     continue
                     
                     tasks_queue.put(doc)
                     

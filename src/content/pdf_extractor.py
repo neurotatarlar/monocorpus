@@ -19,6 +19,8 @@ import json
 from content.continuity_checker import continue_smoothly
 from pydantic import BaseModel, ValidationError
 from s3 import upload_file, create_session
+from yadisk.exceptions import PathNotFoundError
+from json.decoder import JSONDecodeError
 
 # change prompt if the book is an article
 
@@ -205,10 +207,15 @@ class PdfExtractor:
                 return
             except NoBboxError as e:
                 self.channel.add_repairable_doc(e.md5)
+            except JSONDecodeError as e:
+                if doc:
+                    self.channel.add_repairable_doc(doc.md5)
+            except PathNotFoundError:
+                if doc:
+                    self.channel.add_unprocessable_doc(doc.md5)
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract content from doc {doc.md5}({doc.ya_public_url}): {e} \n{traceback.format_exc()}")
-                continue
             
             
     def _extract_doc(self, doc, gemini_client):
@@ -259,7 +266,7 @@ class PdfExtractor:
                     files = {slice_file_path: "application/pdf"}
                                         
                     try:
-                        response = gemini_api(
+                        resp = gemini_api(
                             client=gemini_client,
                             model=model,
                             prompt=prompt,
@@ -269,37 +276,39 @@ class PdfExtractor:
                         )
                         # write result into file
                         with open(chunk_result_incomplete_path, "w") as f:
-                            for p in response:
+                            usage_meta = None
+                            for p in resp:
+                                if p.usage_metadata:
+                                    usage_meta = p.usage_metadata
                                 if text := p.text:
                                     f.write(text)
                                     
                         # validating schema
                         with open(chunk_result_incomplete_path, "r") as f:
                             content = ExtractionResult.model_validate_json(f.read()).content
-                    except ClientError as e:
-                        if e.code == 429:
-                            if 'generate_content_free_tier_input_token_count' in json.dumps(e.details):
-                                if chunk_planner.decrease_chunk_size():
-                                    continue
-                                else:
-                                    self.channel.add_unprocessable_doc(context.md5)
-                                    raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")
-                            else:
+                            
+                    except (ClientError, ValidationError) as e:
+                        if isinstance(e, ClientError):
+                            self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {json.dumps(e.details)}")
+                            if e.code == 429:
                                 self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
                                 self.tasks_queue.put(doc)
                                 self.channel.add_exceeded_key(self.key)
                                 return None
-                    except ValidationError:
+                        
+                        chunk_size = f"with size {chunk.end - chunk.start + 1}" if chunk else ""
                         if chunk_planner.decrease_chunk_size():
+                            self.log(f"Could not extract chunk {chunk_size} of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
                             continue
                         else:
                             self.channel.add_unprocessable_doc(context.md5)
-                            raise ValueError("Could not extract chunk with any of chunk sizes, skipping the doc...")                    
-                        
+                            self.log(f"Could not extract chunk with any of chunk sizes, skipping the doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")     
+                            return None  
+
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                         
-                    self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]")
+                    self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) extracted successfully: {_tokens_info(usage_meta)}")
                     chunk_planner.mark_success(chunk)
                     
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
@@ -324,8 +333,7 @@ class PdfExtractor:
                 
         context.unformatted_response_md = unformatted_response_md
         return context
-               
-               
+    
     def _extract_markdown_headers(self, content):
         """
         Extracts Markdown headers up to a certain level and returns them in a structured format.
@@ -482,3 +490,11 @@ class PdfExtractor:
             
         self.log(f"Updating doc details in gsheets {context.doc.md5}({context.doc.ya_public_url})")
         gsheets_session.update(doc)
+
+
+
+def _tokens_info(usage_meta):
+    if usage_meta:
+        return f"input tokens:{usage_meta.prompt_token_count}, output tokens: {usage_meta.candidates_token_count}, total tokens: {usage_meta.total_token_count}"
+    return ""
+               
