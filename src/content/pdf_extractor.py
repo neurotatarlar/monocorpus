@@ -21,6 +21,9 @@ from pydantic import BaseModel, ValidationError
 from s3 import upload_file, create_session
 from yadisk.exceptions import PathNotFoundError
 from json.decoder import JSONDecodeError
+import datetime
+import time
+
 
 # change prompt if the book is an article
 
@@ -175,8 +178,11 @@ class PdfExtractor:
                 doc = self.tasks_queue.get(block=False)
                 context = self._extract_doc(doc, gemini_client)
                 
-                if self.stop_event.is_set() or not context:
+                if self.stop_event.is_set():
                     return
+                
+                if not context:
+                    continue
                 
                 # additional processing
                 self.log(f"Postprocessing document {doc.md5}({doc.ya_public_url})")
@@ -233,11 +239,16 @@ class PdfExtractor:
             next_footnote_num = 1
             
             chunk_planner = ChunkPlanner(chunked_results_dir, pages_count=context.doc_page_count)
+            prev_req_time = None
+            
             while not self.stop_event.is_set():
+                usage_meta = None
+                
                 if not (chunk := chunk_planner.next()):
                     complete, missing_pages = chunk_planner.verify_complete()
                     if not complete:
-                        raise ValueError(f"Chunk planner gave none chunks but there is missed pages '{missing_pages}' for doc '{context.md5}'")
+                        self.log(f"Chunk planner gave none chunks but there are missed pages '{missing_pages}' for doc '{context.md5}'")
+                        return None
                     break
                 
                 chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
@@ -265,6 +276,13 @@ class PdfExtractor:
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
                                         
+                    if prev_req_time:
+                        elapsed = datetime.datetime.now() - prev_req_time
+                        if elapsed < datetime.timedelta(minutes=1):
+                            time_to_sleep = int(60 - elapsed.total_seconds()) + 1
+                            self.log(f"Sleeping for {time_to_sleep} seconds")
+                            time.sleep(time_to_sleep)
+                    prev_req_time = datetime.datetime.now()
                     try:
                         resp = gemini_api(
                             client=gemini_client,
@@ -276,7 +294,6 @@ class PdfExtractor:
                         )
                         # write result into file
                         with open(chunk_result_incomplete_path, "w") as f:
-                            usage_meta = None
                             for p in resp:
                                 if p.usage_metadata:
                                     usage_meta = p.usage_metadata
@@ -291,7 +308,7 @@ class PdfExtractor:
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {json.dumps(e.details)}")
                             if e.code == 429:
-                                self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
+                                self.log(f"Shutting down thread...") 
                                 self.tasks_queue.put(doc)
                                 self.channel.add_exceeded_key(self.key)
                                 return None
@@ -308,7 +325,7 @@ class PdfExtractor:
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
                         
-                    self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) extracted successfully: {_tokens_info(usage_meta)}")
+                    self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]: {_tokens_info(usage_meta)}")
                     chunk_planner.mark_success(chunk)
                     
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices

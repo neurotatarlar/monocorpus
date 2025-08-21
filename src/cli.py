@@ -221,7 +221,7 @@ def extract(
 ):
     import content
     cli_params = ExtractParams(
-        md5=md5, 
-        path=path,
+        md5=md5.strip() if md5 else None, 
+        path=path.strip() if path else None,
     )
     content.extract_content(cli_params)
