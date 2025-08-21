@@ -176,12 +176,12 @@ class PdfExtractor:
         while not self.stop_event.is_set():
             try: 
                 doc = self.tasks_queue.get(block=False)
-                context = self._extract_doc(doc, gemini_client)
+                result = self._extract_doc(doc, gemini_client)
                 
-                if self.stop_event.is_set():
+                if self.stop_event.is_set() or result.get("stop_worker", False):
                     return
                 
-                if not context:
+                if not (context := result.get("context")):
                     continue
                 
                 # additional processing
@@ -248,7 +248,7 @@ class PdfExtractor:
                     complete, missing_pages = chunk_planner.verify_complete()
                     if not complete:
                         self.log(f"Chunk planner gave none chunks but there are missed pages '{missing_pages}' for doc '{context.md5}'")
-                        return None
+                        return {"stop_worker": False}
                     break
                 
                 chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
@@ -307,20 +307,29 @@ class PdfExtractor:
                     except (ClientError, ValidationError) as e:
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {json.dumps(e.details)}")
-                            if e.code == 429:
-                                self.log(f"Shutting down thread...") 
+                            message = json.dumps(e.details)
+                            if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
+                                self.log(f"Free tier limit reached for model {model}, stopping worker...")
+                                # return task to the queue for later processing
                                 self.tasks_queue.put(doc)
+                                # add key to the exceeded keys set
                                 self.channel.add_exceeded_key(self.key)
-                                return None
-                        
-                        chunk_size = f"with size {chunk.end - chunk.start + 1}" if chunk else ""
+                                return {"stop_worker": True}
+                            elif e.code == 429 and "GenerateContentInputTokensPerModelPerMinute-FreeTier" in message:
+                                # try to decrease chunk size
+                                pass
+                            else:
+                                self.channel.add_repairable_doc(context.md5)
+                                return {"stop_worker": False}
+
                         if chunk_planner.decrease_chunk_size():
+                            chunk_size = f"with size {chunk.end - chunk.start + 1}" if chunk else ""
                             self.log(f"Could not extract chunk {chunk_size} of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
                             continue
                         else:
                             self.channel.add_unprocessable_doc(context.md5)
-                            self.log(f"Could not extract chunk with any of chunk sizes, skipping the doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")     
-                            return None  
+                            self.log(f"Could not extract chunk {chunk.start}-{chunk.end} of doc {context.md5}({context.doc.ya_public_url})")
+                            return {"stop_worker": False}
 
                     # "mark" batch as extracted by renaming file
                     shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
@@ -349,7 +358,7 @@ class PdfExtractor:
                 context.add_chunk_path(chunk_result_complete_path)
                 
         context.unformatted_response_md = unformatted_response_md
-        return context
+        return {"context": context, "stop_worker": False}
     
     def _extract_markdown_headers(self, content):
         """
