@@ -149,7 +149,7 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params, docs_batch_size=24, keys_batch_size=8):
+def _process_pdf(cli_params, docs_batch_size=54, keys_batch_size=18):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
@@ -213,7 +213,7 @@ def _process_pdf(cli_params, docs_batch_size=24, keys_batch_size=8):
 
             # waiting for workers shutdown gracefully
             for t in threads:
-                t.join()
+                t.join(60*10)
                 
             channel.dump()
         except KeyboardInterrupt:

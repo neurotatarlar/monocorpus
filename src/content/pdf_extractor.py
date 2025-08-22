@@ -328,7 +328,7 @@ class PdfExtractor:
                             continue
                         else:
                             self.channel.add_unprocessable_doc(context.md5)
-                            self.log(f"Could not extract chunk {chunk.start}-{chunk.end} of doc {context.md5}({context.doc.ya_public_url})")
+                            self.log(f"Could not extract chunk with any size of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
                             return {"stop_worker": False}
 
                     # "mark" batch as extracted by renaming file
