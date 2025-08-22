@@ -6,10 +6,7 @@ shots/cooked
 expired_keys/*
 package-lock.json
 .python-version
-unprocessables/unprocessables.txt
-
-0_to_process
-src_old/tests/tmp
+unprocessables/repairables.txt
 
 # Byte-compiled / optimized / DLL files
 **/__pycache__/

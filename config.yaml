@@ -1,8 +1,13 @@
-google_api_key: <SET ME>
+encryption_key: <SET ME>
+gemini_api_keys:
+  - <SET ME>
 
 yandex:
   disk:
     oauth_token: <SET ME>
+    entry_point: /НейроТатарлар/kitaplar/monocorpus
+    filtered_out: /НейроТатарлар/kitaplar/filtered_out
+    hidden: /НейроТатарлар/kitaplar/monocorpus/__ТАРАТМАСКА_DONT_SHARE_НЕ_ДЕЛИТЬСЯ
   cloud:
     aws_access_key_id: <SET ME>
     aws_secret_access_key: <SET ME>
@@ -10,3 +15,12 @@ yandex:
       document: ttdoc
       metadata: ttmeta
       content: ttcontent
+      upstream_metadata: upstream-metadata
+      content_chunks: ttcontent-chunks
+      image: ttimg
+  
+
+# python src/main.py select 'language, COUNT(*) AS count, ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM Document), 2) AS percent FROM Document GROUP BY language ORDER BY percent DESC'
+# python src/main.py select 'mime_type, COUNT(*) AS count, ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM Document), 2) AS percent FROM Document where content_url is NULL GROUP BY mime_type ORDER BY percent DESC'
+# awg-quick up wg0 ; cd ~/projects/monocorpus && source .venv/bin/activate && python src/main.py sync ; python src/main.py extract pdf ; python src/main.py extract ; python src/main.py extract ; python src/main.py extract ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; python src/main.py meta ; spd-say complete ; shutdown
+# python src/main.py select 'count(*) from Document where mime_type == "application/pdf" and full == true and language == "tt-Cyrl" and content_url != NULL'
