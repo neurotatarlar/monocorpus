@@ -23,6 +23,7 @@ from yadisk.exceptions import PathNotFoundError
 from json.decoder import JSONDecodeError
 import datetime
 import time
+from google.genai.errors import ServerError
 
 
 # change prompt if the book is an article
@@ -169,6 +170,7 @@ class PdfExtractor:
         self.ya_client = ya_client
         self.channel = channel
         self.stop_event = stop_event
+        self.gemini_query_time = None
         
         
     def __call__(self):
@@ -178,7 +180,7 @@ class PdfExtractor:
                 doc = self.tasks_queue.get(block=False)
                 result = self._extract_doc(doc, gemini_client)
                 
-                if self.stop_event.is_set() or result.get("stop_worker", False):
+                if self.stop_event.is_set() or result.get("stop_worker"):
                     return
                 
                 if not (context := result.get("context")):
@@ -276,13 +278,7 @@ class PdfExtractor:
                     # request gemini
                     files = {slice_file_path: "application/pdf"}
                                         
-                    if prev_req_time:
-                        elapsed = datetime.datetime.now() - prev_req_time
-                        if elapsed < datetime.timedelta(minutes=1):
-                            time_to_sleep = int(60 - elapsed.total_seconds()) + 1
-                            self.log(f"Sleeping for {time_to_sleep} seconds")
-                            time.sleep(time_to_sleep)
-                    prev_req_time = datetime.datetime.now()
+                    self._sleep_if_needed()
                     try:
                         resp = gemini_api(
                             client=gemini_client,
@@ -304,9 +300,12 @@ class PdfExtractor:
                         with open(chunk_result_incomplete_path, "r") as f:
                             content = ExtractionResult.model_validate_json(f.read()).content
                             
+                    except ServerError as e:
+                        self.tasks_queue.put(doc)  # return task to the queue for later processing
+                        continue  # continue to the next doc with timeout
                     except (ClientError, ValidationError) as e:
                         if isinstance(e, ClientError):
-                            self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {json.dumps(e.details)}")
+                            self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
                             if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
                                 self.log(f"Free tier limit reached for model {model}, stopping worker...")
@@ -359,6 +358,18 @@ class PdfExtractor:
                 
         context.unformatted_response_md = unformatted_response_md
         return {"context": context, "stop_worker": False}
+    
+    
+    def _sleep_if_needed(self):
+        now = datetime.datetime.now()
+        if self.gemini_query_time:
+            elapsed = now - self.gemini_query_time
+            if elapsed < datetime.timedelta(minutes=1):
+                time_to_sleep = int(60 - elapsed.total_seconds()) + 1
+                self.log(f"Sleeping for {time_to_sleep} seconds")
+                time.sleep(time_to_sleep)
+        self.gemini_query_time = now
+    
     
     def _extract_markdown_headers(self, content):
         """

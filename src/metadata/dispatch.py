@@ -18,7 +18,8 @@ import os
 from utils import encrypt
 from yadisk_client import YaDisk
 import gc
-
+import datetime
+import time
 
 model = 'gemini-2.5-pro'
 
@@ -111,7 +112,7 @@ def _process_by_predicate(predicate, docs_batch_size=48, keys_batch_size=12):
 
             # Shutdown workers gracefully
             for t in threads:
-                t.join()
+                t.join(timeout=120)
         except KeyboardInterrupt:
             print("Interrupted, shutting down workers...")
             if tasks_queue:
@@ -138,6 +139,7 @@ class MetadataExtractionWorker:
         
     def __call__(self):
         gemini_client = create_client(self.key)
+        prev_req_time = None
         while True:
             try:
                 local_doc_path = None
@@ -145,9 +147,11 @@ class MetadataExtractionWorker:
                 self.log(f"Extracting metadata from document {doc.md5}({doc.ya_public_url})")
                 
                 if doc.content_url:
+                    prev_req_time = self._sleep_if_needed(prev_req_time)
                     metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model).extract()
                 elif doc.mime_type == 'application/pdf':
                     local_doc_path = local_doc_path = download_file_locally(self.ya_client, doc, self.config)
+                    prev_req_time = self._sleep_if_needed(prev_req_time)
                     metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model, local_doc_path).extract()
                 else:
                     self.log(f"Document {doc.md5} has no content_url or is not a PDF, skipping...")
@@ -185,6 +189,16 @@ class MetadataExtractionWorker:
                 import traceback
                 self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
                 continue
+            
+
+    def _sleep_if_needed(self, prev_req_time):
+        if prev_req_time:
+            elapsed = datetime.datetime.now() - prev_req_time
+            if elapsed < datetime.timedelta(minutes=1):
+                time_to_sleep = int(60 - elapsed.total_seconds()) + 1
+                self.log(f"Sleeping for {time_to_sleep} seconds")
+                time.sleep(time_to_sleep)
+        return datetime.datetime.now()
             
             
     def _upload_artifacts_to_s3(self, doc, local_meta_path, local_doc_path):        

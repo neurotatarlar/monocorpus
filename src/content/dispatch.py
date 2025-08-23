@@ -104,7 +104,9 @@ class Channel:
         self.exceeded_keys_set = load_expired_keys()
         self.unprocessable_docs, self.repairable_docs = self._load_unprocessable_docs()
         
-        
+    def get_all_unprocessable_docs(self):
+        return self.unprocessable_docs | self.repairable_docs
+    
     def dump(self):
         dump_expired_keys(self.exceeded_keys_set)
         self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
@@ -149,7 +151,7 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params, docs_batch_size=54, keys_batch_size=18):
+def _process_pdf(cli_params, docs_batch_size=48, keys_batch_size=16):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
@@ -164,7 +166,7 @@ def _process_pdf(cli_params, docs_batch_size=54, keys_batch_size=18):
             Document.mime_type.is_("application/pdf") &
             Document.language.is_("tt-Cyrl") &
             Document.full.is_(True) &
-            Document.md5.not_in(channel.unprocessable_docs)
+            Document.md5.not_in(channel.get_all_unprocessable_docs())
             # Document.title.notlike("%ш__талинчы%") &
             # Document.title.notlike("%ЯШ_ СТАЛИНЧЫ%") &
             # Document.title.notlike("%ызыл _атарстан%") &
@@ -190,12 +192,10 @@ def _process_pdf(cli_params, docs_batch_size=54, keys_batch_size=18):
 
                 print(f"Got {len(docs)} docs for content extraction")
                 tasks_queue = Queue(maxsize=len(docs))
-                skip_docs = channel.repairable_docs | channel.unprocessable_docs
+                skip_docs = channel.get_all_unprocessable_docs()
                 for doc in docs:
-                    if doc.md5 in skip_docs:
-                        continue
-                    
-                    tasks_queue.put(doc)
+                    if doc.md5 not in skip_docs:
+                        tasks_queue.put(doc)
                     
                 if tasks_queue.empty():
                     print("No documents for processing...")
