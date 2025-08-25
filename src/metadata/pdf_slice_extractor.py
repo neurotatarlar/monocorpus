@@ -28,7 +28,7 @@ class FromPdfSliceMetadataExtractor:
     def extract(self):
         # create a slice of first n and last n pages
         slice_file_path = get_in_workdir(Dirs.DOC_SLICES, self.doc.md5, file=f"slice-for-meta")
-        slice_page_count, original_doc_page_count = self._prepare_slices(slice_file_path, n=8)
+        slice_page_count, original_doc_page_count = self._prepare_slices(slice_file_path, n=3)
         self.doc.page_count = original_doc_page_count
         
         # prepare prompt
