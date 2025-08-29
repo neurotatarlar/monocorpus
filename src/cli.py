@@ -24,6 +24,8 @@ app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 class ExtractParams:
     md5: str
     path: str
+    batch_size: int
+    workers: int
 
 # def slice_parser(value: str):
 #     if value:
@@ -211,17 +213,25 @@ def extract(
             help="Path to the document or directory in yandex disk. If not provided, all yandex disk will be processed"
         )
     ] = None,
-    limit: Annotated[
+    batch_size: Annotated[
         int,
         typer.Option(
-            "--limit", "-l",
-            help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
+            "--batch-size", "-b",
+            help="Count of documents to process in one batch",
         )
     ] = None,
-):
+    workers: Annotated[
+        int,
+        typer.Option(
+            "--workers", "-w",
+            help="Count of parallel workers to process documents. Each worker use separate Gemini API key. Cannot be more than count of available API keys.",
+        )
+    ] = 8,):
     import content
     cli_params = ExtractParams(
         md5=md5.strip() if md5 else None, 
         path=path.strip() if path else None,
+        workers=workers,
+        batch_size=batch_size if batch_size and batch_size > 0 else workers*3,
     )
     content.extract_content(cli_params)

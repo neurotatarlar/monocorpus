@@ -241,7 +241,6 @@ class PdfExtractor:
             next_footnote_num = 1
             
             chunk_planner = ChunkPlanner(chunked_results_dir, pages_count=context.doc_page_count)
-            prev_req_time = None
             
             while not self.stop_event.is_set():
                 usage_meta = None
@@ -476,6 +475,33 @@ class PdfExtractor:
         with open(log_file, "a") as log:
             log.write(f"{message}\n")
         print(message)
+        
+        
+    # def _create_doc_clice(self, _from, _to, pdf_doc, md5, dpi=200, max_px=2048):
+    #     slice_file_path = get_in_workdir(Dirs.DOC_SLICES, md5, file=f"slice-{_from}-{_to}.pdf")
+    #     if not os.path.exists(slice_file_path):
+    #         doc_slice = pymupdf.open()
+    #         for page_num in range(_from, _to):
+    #             page = pdf_doc[page_num]
+    #             pix = page.get_pixmap(dpi=dpi, alpha=False)
+                
+    #             # Downscale if needed
+    #             if max(pix.width, pix.height) > max_px:
+    #                 scale = max_px / max(pix.width, pix.height)
+    #                 # render again at reduced DPI
+    #                 new_dpi = int(dpi * scale)
+    #                 pix = pdf_doc[page_num].get_pixmap(dpi=new_dpi, alpha=False)
+                
+    #             # Create new PDF page with resized image
+    #             img_pdf = pymupdf.open()
+    #             rect = pymupdf.Rect(0, 0, pix.width, pix.height)
+    #             img_page = img_pdf.new_page(width=pix.width, height=pix.height)
+
+    #             img_page.insert_image(rect, pixmap=pix)
+
+    #             doc_slice.insert_pdf(img_pdf)
+    #         doc_slice.save(slice_file_path, deflate=True, garbage=4)
+    #     return slice_file_path
         
         
     def _create_doc_clice(self, _from, _to, pdf_doc, md5):

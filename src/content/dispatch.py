@@ -151,7 +151,7 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params, docs_batch_size=32, keys_batch_size=8):
+def _process_pdf(cli_params):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
@@ -175,7 +175,7 @@ def _process_pdf(cli_params, docs_batch_size=32, keys_batch_size=8):
         
         try:
             available_keys =  set(config["gemini_api_keys"]) - channel.exceeded_keys_set
-            keys_slice = list(available_keys)[:keys_batch_size]
+            keys_slice = list(available_keys)[:cli_params.workers]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return
@@ -184,7 +184,7 @@ def _process_pdf(cli_params, docs_batch_size=32, keys_batch_size=8):
             
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                 with Session() as gsheets_session:
-                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=docs_batch_size, gsheet_session=gsheets_session))
+                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=cli_params.batch_size, gsheet_session=gsheets_session))
                     
                 if not docs:
                     print("No docs for processing, exiting...")
