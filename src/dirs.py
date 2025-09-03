@@ -13,3 +13,5 @@ class Dirs(Enum):
     WIPING_PLAN = "misc/wiping_plan"
     PROMPTS = "misc/prompts"
     LOGS = "misc/logs"
+    BOXES_PLOTS = "misc/plots"
+    PREDICTIONS = "predictions"

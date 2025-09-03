@@ -27,6 +27,11 @@ class ExtractParams:
     batch_size: int
     workers: int
 
+@dataclass
+class CliParams:
+    md5: str
+    path: str
+
 # def slice_parser(value: str):
 #     if value:
 #         match = slice_pattern.match(value)
@@ -54,6 +59,7 @@ def md5_validator(value: str):
         if not all(ch in string.hexdigits for ch in value):
             raise typer.BadParameter("MD5 should be a hex string")
     return value
+
 
 @app.command()
 def sync():
@@ -186,15 +192,18 @@ def select(query: list[str]):
 #     from content.docx import extract
 #     extract()
     
+    
 @app.command()
 def hf():
     import hf 
     hf.assemble_dataset()
     
+    
 @app.command()
 def meta():
     import metadata
     metadata.extract_metadata()
+    
     
 @app.command()
 def extract(
@@ -235,3 +244,29 @@ def extract(
         batch_size=batch_size if batch_size and batch_size > 0 else workers*3,
     )
     content.extract_content(cli_params)
+    
+    
+@app.command()
+def layouts(
+        md5: Annotated[
+        Optional[str],
+        typer.Option(
+            "--md5",
+            callback=md5_validator,
+            help="MD5 hash of the document. If not provided, all local documents will be processed."
+        )
+    ] = None,
+    path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--path", "-p",
+            help="Path to the document or directory in yandex disk. If not provided, all yandex disk will be processed"
+        )
+    ] = None,
+):
+    from layout.dispatch import layouts
+    cli_params = CliParams(
+        md5=md5.strip() if md5 else None, 
+        path=path.strip() if path else None,
+    )
+    layouts(cli_params)

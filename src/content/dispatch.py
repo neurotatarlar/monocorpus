@@ -162,11 +162,12 @@ def _process_pdf(cli_params):
         
         channel = Channel()
         predicate = (
-            Document.content_url.is_(None) &
-            Document.mime_type.is_("application/pdf") &
-            Document.language.is_("tt-Cyrl") &
-            Document.full.is_(True) &
-            Document.md5.not_in(channel.get_all_unprocessable_docs())
+            # Document.content_url.is_(None) &
+            # Document.mime_type.is_("application/pdf") &
+            # Document.language.is_("tt-Cyrl") &
+            # Document.full.is_(True) &
+            # Document.md5.not_in(channel.get_all_unprocessable_docs())
+            Document.md5.is_(cli_params.md5)
             # Document.title.notlike("%ш__талинчы%") &
             # Document.title.notlike("%ЯШ_ СТАЛИНЧЫ%") &
             # Document.title.notlike("%ызыл _атарстан%") &

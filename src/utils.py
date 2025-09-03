@@ -90,7 +90,7 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=N
         yield from _yield_by_path(cli_params.path, predicate)
     else:
         print("Traversing all unprocessed documents")
-        yield from _find(gsheet_session, predicate=predicate, limit=limit)
+        yield from _find(gsheet_session, predicate=predicate, limit=limit, offset=offset)
 
 def download_file_locally(ya_client, doc, config):
     def _extension_by_mime_type(mime_type):
