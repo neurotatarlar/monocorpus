@@ -21,6 +21,7 @@ def read_config(config_file: str = "config.yaml"):
     with open(get_in_workdir(file=config_file, prefix="."), 'r') as file:
         return yaml.safe_load(file)
 
+
 def pick_files(dir_path: Union[str, Dirs]):
     return [
         os.path.normpath(os.path.join(dir_name, f))
@@ -29,6 +30,7 @@ def pick_files(dir_path: Union[str, Dirs]):
         for f
         in files
     ]
+
 
 def calculate_md5(file_path: str):
     """
@@ -43,6 +45,7 @@ def calculate_md5(file_path: str):
             hash_md5.update(chunk)
     return hash_md5.hexdigest()
 
+
 def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str = workdir):
     dir_names = [i.value if isinstance(i, Dirs) else i for i in dir_names]
     script_parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
@@ -53,6 +56,7 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
         return os.path.join(path, file)
     else:
         return path
+
 
 def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=None, gsheet_session = Session()):
     def _yield_by_md5(_md5, _predicate):
@@ -92,6 +96,7 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=N
         print("Traversing all unprocessed documents")
         yield from _find(gsheet_session, predicate=predicate, limit=limit, offset=offset)
 
+
 def download_file_locally(ya_client, doc, config):
     def _extension_by_mime_type(mime_type):
         if mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
@@ -116,6 +121,7 @@ def download_file_locally(ya_client, doc, config):
         with open(local_path, "wb") as f:
             ya_client.download_public(url, f)
     return local_path
+
 
 def _find(session, predicate=None, limit=None, offset=None):
     statement = select(Document)
@@ -144,7 +150,7 @@ def walk_yadisk(client, root, fields = [
         empty = True
         for res in client.listdir(
             current,
-            max_items=None,
+            max_items=30_000,
             fields=fields
         ):
             empty = False
@@ -155,6 +161,7 @@ def walk_yadisk(client, root, fields = [
         if empty:
             print(f"Removing folder `{current}` because it is empty")
             client.remove(current, force_async=True, wait=False)
+              
                 
 def encrypt(url, config):
     key = base64.urlsafe_b64decode(config["encryption_key"])
@@ -164,6 +171,7 @@ def encrypt(url, config):
     chiphercode = base64.urlsafe_b64encode(nonce + encrypted).decode()
     return f"{prefix}{chiphercode}"
 
+
 def decrypt(ciphertext, config):
     encrypted_url = ciphertext.removeprefix(prefix)
     data = base64.urlsafe_b64decode(encrypted_url)
@@ -171,6 +179,7 @@ def decrypt(ciphertext, config):
     key = base64.urlsafe_b64decode(config["encryption_key"])
     aesgcm = AESGCM(key)
     return aesgcm.decrypt(nonce, ct, None).decode()
+
 
 def load_expired_keys(dir = 'expired_keys'):
     os.makedirs(dir, exist_ok=True)

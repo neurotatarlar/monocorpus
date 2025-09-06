@@ -181,6 +181,7 @@ class MetadataExtractionWorker:
                 self.log("No tasks for processing, shutting down thread...")
                 return
             except ClientError as e:
+                print(e)
                 if e.code == 429:
                     self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
                     self.tasks_queue.put(doc)

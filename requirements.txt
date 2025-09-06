@@ -27,3 +27,4 @@ pyarrow
 fastparquet
 chardet
 markitdown[pptx, docx, epub]
+surya-ocr

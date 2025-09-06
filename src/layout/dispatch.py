@@ -43,7 +43,7 @@ class Context:
         
 
 def layouts(cli_params):
-    cli_params.md5="ced45598a9cc9b331e1529c89ad0c77a"
+    # cli_params.md5=""
     config = read_config()
     predicate = (
         # Document.content_url.is_(None) &
