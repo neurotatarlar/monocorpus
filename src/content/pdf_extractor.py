@@ -26,10 +26,7 @@ import time
 from google.genai.errors import ServerError
 
 
-# change prompt if the book is an article
-
 model = 'gemini-2.5-pro'
-
 
 
 class ExtractionResult(BaseModel):
@@ -178,6 +175,7 @@ class PdfExtractor:
         while not self.stop_event.is_set():
             try: 
                 doc = self.tasks_queue.get(block=False)
+                self.log(f"Processing doc {doc.md5}({doc.ya_public_url})")
                 result = self._extract_doc(doc, gemini_client)
                 
                 if self.stop_event.is_set() or result.get("stop_worker"):
@@ -218,7 +216,8 @@ class PdfExtractor:
             except JSONDecodeError as e:
                 if doc:
                     self.channel.add_repairable_doc(doc.md5)
-            except PathNotFoundError:
+            except PathNotFoundError as e:
+                print(f"PathNotFoundError {e}")
                 if doc:
                     self.channel.add_unprocessable_doc(doc.md5)
             except Exception as e:
@@ -227,9 +226,10 @@ class PdfExtractor:
             
             
     def _extract_doc(self, doc, gemini_client):
+        self.log(f"About to download doc {doc.md5}({doc.ya_public_url})")
         local_doc_path = download_file_locally(self.ya_client, doc, self.config)
+        self.log(f"Downloaded doc {doc.md5}({doc.ya_public_url})")
         context = Context(doc, local_doc_path)
-        # request latest metadata of the doc in yandex disk
         self._enrich_context(self.ya_client, context)
         
         unformatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{context.md5}-unformatted.md")
@@ -300,9 +300,11 @@ class PdfExtractor:
                             content = ExtractionResult.model_validate_json(f.read()).content
                             
                     except ServerError as e:
+                        print(f"Server error: {e}")
                         self.tasks_queue.put(doc)  # return task to the queue for later processing
                         continue  # continue to the next doc with timeout
                     except (ClientError, ValidationError) as e:
+                        print(f"Client error: {e}")
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
