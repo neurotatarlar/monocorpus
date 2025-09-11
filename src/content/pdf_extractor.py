@@ -32,8 +32,6 @@ model = 'gemini-2.5-pro'
 class ExtractionResult(BaseModel):
     content: str
     
-    
-    
 class ChunkPlanner:
     def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[10, 5, 2, 1]):
         self.chunked_results_dir = chunked_results_dir
@@ -47,6 +45,7 @@ class ChunkPlanner:
         self.idx_processed = 0
         self.last_attempted_chunk = None
         self.retry_mode = False
+
 
     def _load_processed_ranges(self):
         """Load already processed chunk ranges from the directory."""
@@ -62,6 +61,7 @@ class ChunkPlanner:
                     seen.add((start, end))
         processed.sort()
         return processed
+
 
     def next(self):
         """Return the next chunk to process: either a processed one, or a gap."""
@@ -338,7 +338,7 @@ class PdfExtractor:
                     chunk_planner.mark_success(chunk)
                     
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
-                content = self._shift_trailing_footnotes_up(content)
+                # content = self._shift_trailing_footnotes_up(content)
                 headers_hierarchy.extend(self._extract_markdown_headers(content))
                 
                 if prev_chunk_tail:

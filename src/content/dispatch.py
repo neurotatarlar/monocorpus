@@ -28,17 +28,17 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    # print("Extracting content of nonpdf documents")
-    # predicate = (
-    #     Document.content_url.is_(None) &
-    #     Document.mime_type.in_(non_pdf_format_types)
-    # )
-    # _process_non_pdf_by_predicate(predicate, cli_params)
+    # _process_non_pdf(cli_params)
     
     _process_pdf(cli_params)
     
  
-def _process_non_pdf_by_predicate(predicate, cli_params):
+def _process_non_pdf(cli_params):
+    print("Extracting content of nonpdf documents")
+    predicate = (
+        Document.content_url.is_(None) &
+        Document.mime_type.in_(non_pdf_format_types)
+    )
     config = read_config()
     s3client = create_session(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheets_session:
