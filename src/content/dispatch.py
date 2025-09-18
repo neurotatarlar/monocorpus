@@ -15,6 +15,7 @@ from .doc_like_extractor import DocLikeExtractor, to_docx_mime_types, check_enco
 import threading
 import time
 from .pdf_extractor import PdfExtractor
+import random
 
 
 non_pdf_format_types = to_docx_mime_types | \
@@ -28,7 +29,7 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    # _process_non_pdf(cli_params)
+    _process_non_pdf(cli_params)
     
     _process_pdf(cli_params)
     
@@ -174,8 +175,9 @@ def _process_pdf(cli_params):
         )
         
         try:
-            available_keys =  set(config["gemini_api_keys"]) - channel.exceeded_keys_set
-            keys_slice = list(available_keys)[:cli_params.workers]
+            available_keys =  list(set(config["gemini_api_keys"]) - channel.exceeded_keys_set)
+            random.shuffle(available_keys)
+            keys_slice = available_keys[:cli_params.workers]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return

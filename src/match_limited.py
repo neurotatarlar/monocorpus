@@ -10,7 +10,7 @@ import os
 
 
 limited_dir = "/НейроТатарлар/kitaplar/monocorpus/милли.китапханә/limited"
-downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/_1st priority for OCR/milli_kitaphana_(un)limited" 
+downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/milli_kitaphana_(un)limited" 
 
 def match_limited():
     config = read_config()
@@ -22,6 +22,10 @@ def match_limited():
         print(f"Got {len(downloaded_fully_docs)} docs in dir with limited but fully downladed docs")
         
         intersected = downloaded_fully_docs.keys() & limited_docs.keys()
+        if not intersected:
+            print("No intersections found, exiting...")
+            return
+        
         s3client = create_session(config)
         upstream_metadata_bucket = config['yandex']['cloud']['bucket']['upstream_metadata']
         upstream_metas = _lookup_upstream_metadata(s3client, upstream_metadata_bucket)

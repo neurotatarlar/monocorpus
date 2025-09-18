@@ -235,7 +235,7 @@ def extract(
             "--workers", "-w",
             help="Count of parallel workers to process documents. Each worker use separate Gemini API key. Cannot be more than count of available API keys.",
         )
-    ] = 8,):
+    ] = 8):
     import content
     cli_params = ExtractParams(
         md5=md5.strip() if md5 else None, 
@@ -273,5 +273,17 @@ def layouts(
     
 @app.command()
 def match_limited():
+    """
+    Match limited and full books and remove matched 
+    """
     import match_limited
     match_limited.match_limited()
+    
+    
+@app.command()
+def sharing_restricted():
+    """
+    Check docs in sharing restricted folder are matches to docs in gsheets
+    """
+    import sharing_restricted
+    sharing_restricted.check()

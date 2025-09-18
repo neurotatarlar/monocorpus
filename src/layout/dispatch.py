@@ -1,3 +1,11 @@
+# First create a layout plan
+# 1. extract layouts by yolo 
+# 2. extract layouts by surya
+# 3. create consensus layouts prediction
+# try to create consensus, sort out simple layouts, find clips, separate to areas: 
+# - all but first and last layout, last and first layouts mergedjoined 
+#
+
 # extract yolo
 # extract syria 
 # convert to intermediate format 

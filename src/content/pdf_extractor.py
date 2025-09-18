@@ -266,6 +266,8 @@ class PdfExtractor:
                     # create a pdf doc what will contain a slice of original pdf doc
                     slice_file_path = self._create_doc_clice(chunk.start, chunk.end, pdf_doc, context.md5)
                 
+                    if os.path.exists(chunk_result_complete_path): 
+                        os.remove(chunk_result_complete_path)
                     chunk_result_incomplete_path = chunk_result_complete_path + ".part"
                     
                     # prepare prompt
@@ -299,12 +301,15 @@ class PdfExtractor:
                         with open(chunk_result_incomplete_path, "r") as f:
                             content = ExtractionResult.model_validate_json(f.read()).content
                             
+                        # "mark" batch as extracted by renaming file
+                        shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
+                        self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]: {_tokens_info(usage_meta)}")
                     except ServerError as e:
-                        print(f"Server error: {e}")
+                        self.log(f"Server error: {e}")
                         self.tasks_queue.put(doc)  # return task to the queue for later processing
-                        continue  # continue to the next doc with timeout
+                        return {"stop_worker": False}  # continue to the next doc with timeout
                     except (ClientError, ValidationError) as e:
-                        print(f"Client error: {e}")
+                        self.log(f"Client error: {e}")
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
@@ -331,10 +336,6 @@ class PdfExtractor:
                             self.log(f"Could not extract chunk with any size of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
                             return {"stop_worker": False}
 
-                    # "mark" batch as extracted by renaming file
-                    shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
-                        
-                    self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]: {_tokens_info(usage_meta)}")
                     chunk_planner.mark_success(chunk)
                     
                 # shift footnotes up in the content to avoid heaving footnote text at the brake between slices
