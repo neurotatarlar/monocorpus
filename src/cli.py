@@ -287,3 +287,23 @@ def sharing_restricted():
     """
     import sharing_restricted
     sharing_restricted.check()
+    
+    
+@app.command()
+def check_artifacts():
+    """
+    Check for artifactes like repated parts and broken utf-8 
+    """
+    import check_artifacts
+    check_artifacts.check()
+    
+
+@app.command()
+def normalize_metadata():
+    """
+    Check for artifactes like repated parts and broken utf-8 
+    """
+    import metadata.normalize.normalizer as normalizer
+    normalizer.normalize()
+    
+    

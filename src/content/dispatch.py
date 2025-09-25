@@ -29,7 +29,7 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    _process_non_pdf(cli_params)
+    # _process_non_pdf(cli_params)
     
     _process_pdf(cli_params)
     
@@ -219,7 +219,7 @@ def _process_pdf(cli_params):
 
             # waiting for workers shutdown gracefully
             for t in threads:
-                t.join(60*10)
+                t.join()
                 
             channel.dump()
         except KeyboardInterrupt:

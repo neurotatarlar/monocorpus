@@ -213,7 +213,7 @@ class PdfExtractor:
                 return
             except NoBboxError as e:
                 self.channel.add_repairable_doc(e.md5)
-            except JSONDecodeError as e:
+            except (JSONDecodeError, RecursionError, IndexError) as e:
                 if doc:
                     self.channel.add_repairable_doc(doc.md5)
             except PathNotFoundError as e:
@@ -269,6 +269,8 @@ class PdfExtractor:
                     if os.path.exists(chunk_result_complete_path): 
                         os.remove(chunk_result_complete_path)
                     chunk_result_incomplete_path = chunk_result_complete_path + ".part"
+                    if os.path.exists(chunk_result_incomplete_path): 
+                        os.remove(chunk_result_incomplete_path)
                     
                     # prepare prompt
                     prompt = cook_extraction_prompt(chunk.start, chunk.end, next_footnote_num, headers_hierarchy)
@@ -313,7 +315,8 @@ class PdfExtractor:
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
-                            if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
+                            # if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
+                            if e.code == 429:
                                 self.log(f"Free tier limit reached for model {model}, stopping worker...")
                                 # return task to the queue for later processing
                                 self.tasks_queue.put(doc)
