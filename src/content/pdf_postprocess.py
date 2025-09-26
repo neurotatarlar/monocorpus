@@ -108,13 +108,11 @@ def _proccess_images(context, content, config):
             
             path_to_page_image_boxed = os.path.join(images_dir, f"{page.number}-boxed.png")
             boxed_image.save(path_to_page_image_boxed, format = 'png')
-            pairs, unmatched_images = _pair_model_boxes(details, centroid_distance_threshold = (width + height) / 10)
+            pairs = _pair_model_boxes(details, centroid_distance_threshold = (width + height) / 10)
             _clips(pix, pairs, page_no, clips_dir, context.md5)
             _upload_to_s3(pairs, session, config)
             _compile_replacement_str(pairs)
             result.extend([(p['gemini']['html'], p['replacement']) for p in pairs])
-            context.unmatched_images += unmatched_images
-            context.total_images += (len(pairs) + unmatched_images)
     
     return _replace_images(result, content)
 
@@ -178,7 +176,6 @@ def _compile_replacement_str(pairs):
             
 def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
     potential_matches = []
-    unmatched_images = 0
 
     # Step 1: Collect all potential matches with scores
     for gem_idx, gem_box in enumerate(details['gemini']):
@@ -220,10 +217,9 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
     # we still keep gemini bbox to later remove it from the document by creating empty replacement string
     for idx, gem_box in enumerate(details['gemini']):
         if idx not in matched_gemini:
-            unmatched_images += 1
             matches.append({'gemini': gem_box})
 
-    return matches, unmatched_images
+    return matches
     
 def compute_iou(box1, box2):
     xa = max(box1[0], box2[0])

@@ -555,7 +555,6 @@ class PdfExtractor:
         doc.content_extraction_method=context.extraction_method
         doc.document_url = encrypt(context.remote_doc_url, self.config) if doc.sharing_restricted else context.remote_doc_url
         doc.content_url = context.remote_content_url
-        doc.unmatched_images = f"{context.unmatched_images} of {context.total_images}"
             
         self.log(f"Updating doc details in gsheets {context.doc.md5}({context.doc.ya_public_url})")
         gsheets_session.update(doc)

@@ -58,7 +58,7 @@ skip_pdf = set()  # --- IGNORE ---
 
 def extract_metadata():
     print("Processing documents without metadata")
-    predicate = Document.metadata_url.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
+    predicate = Document.metadata_json.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     _process_by_predicate(predicate)
     
     predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
@@ -171,6 +171,7 @@ class MetadataExtractionWorker:
                 # upload metadata to s3
                 self._upload_artifacts_to_s3(doc, local_meta_path, local_doc_path)
                 doc.metadata_extraction_method = f"{model}/prompt.v2"
+                doc.metadata_json = meta_json
                 with Session() as gsheet_session:
                     self._update_document(doc, metadata, gsheet_session)
                     gsheet_session._get_session().commit()
@@ -207,7 +208,7 @@ class MetadataExtractionWorker:
     def _upload_artifacts_to_s3(self, doc, local_meta_path, local_doc_path):        
         meta_key = f"{doc.md5}-meta.zip"
         meta_bucket = self.config["yandex"]["cloud"]['bucket']['metadata']
-        doc.metadata_url = upload_file(local_meta_path, meta_bucket, meta_key, self.s3lient, skip_if_exists=False)
+        upload_file(local_meta_path, meta_bucket, meta_key, self.s3lient, skip_if_exists=False)
         
         if local_doc_path:
             doc_bucket = self.config["yandex"]["cloud"]['bucket']['document']
@@ -249,12 +250,6 @@ class MetadataExtractionWorker:
                 if len(vals) == 1:
                     return vals[0] 
             return None
-            
-        if _bbc := _extract_classification(meta.additionalProperty, ["ББК", "BBC"]):
-            doc.bbc = _bbc
-            
-        if _udc := _extract_classification(meta.additionalProperty, ["УДК", "UDC"]):
-            doc.udc = _udc
             
         if meta.numberOfPages and doc.page_count and abs(meta.numberOfPages - int(doc.page_count)) < 5:
             # if model detected count of pages in the document 

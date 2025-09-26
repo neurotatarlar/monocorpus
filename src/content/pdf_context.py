@@ -5,8 +5,6 @@ class Context():
         self.md5 = doc.md5
         self.local_doc_path = local_doc_path
         self.chunk_paths = []
-        self.unmatched_images = 0
-        self.total_images = 0
     
         self.ya_file_name = None
         self.ya_public_key = None 

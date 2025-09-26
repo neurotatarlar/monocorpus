@@ -307,3 +307,9 @@ def normalize_metadata():
     normalizer.normalize()
     
     
+@app.command()
+def upload_metadata():
+    import metadata.upload as uploader
+    uploader.upload()
+    
+    
