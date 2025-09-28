@@ -12,7 +12,7 @@ from sqlalchemy import select, text
 
 def upload():
     output_dir = get_in_workdir(Dirs.METADATA)
-    limit = 100
+    limit = 500
     files_without_metadata = set()
     while True:
         with Session() as reader_session, Session() as uploader_session:

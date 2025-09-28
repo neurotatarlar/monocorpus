@@ -17,12 +17,11 @@ import typer
 from rapidfuzz.distance import Levenshtein
 from sklearn.cluster import AgglomerativeClustering
 import numpy as np
+from collections import defaultdict
 
 
-
-# todo change how metadata file all named locally
+# check surname endwith '-на', цкая must be кызы, father name must be ovna, surname endswith Константин
 # todo normalize Yanalif
-# todo check sergey problem as patromymic, Львович, Нурулловна
 # problem with yo omitting
 
 # example matches: Г. Тукай, Р.А. Усманов, 
@@ -83,40 +82,41 @@ pattern_second_word_is_father_name = regex.compile(
     r'(?P<surname>[А-ЯӘӨҮҖҢҺЁа-яәөүҗңһё]+(?:-[А-ЯӘӨҮҖҢҺЁа-яәөүҗңһё]+)*)$'  # surname (hyphen allowed)
 )
 
+normalized_persons_path = "_artifacts/normalized_persons.json"
+raw_persons_file = '_artifacts/raw_persons.csv'
+raw_publishers_file = '_artifacts/raw_publishers.csv'
+
+
 def normalize():
-    if os.path.exists("normalized_persons.json"):
-        with open("normalized_persons.json", "r") as f:
+    if os.path.exists(normalized_persons_path):
+        with open(normalized_persons_path, "r") as f:
             existing_persons = set([Person(**p) for p in json.load(f)])
     else:
         existing_persons = set()
-    
-    persons_file = 'raw_persons.csv'
-    publishers_file = 'raw_publishers.csv'
-    if not (os.path.exists(persons_file) or os.path.exists(publishers_file)):
-        _prepare_raw_materials(persons_file, publishers_file)
         
-    new_persons = _create_persons(persons_file)
-    full_name_persons = sorted([p for p in new_persons if p.fathername])
-    
-    all_persons = list(existing_persons | set(full_name_persons))
-    
-    try:
-        cluster_relatives(all_persons)
-    except KeyboardInterrupt:
-        print("Interrupted by user, saving progress...")
-    finally:
-        with open("normalized_persons.json", "w") as f:
-            json.dump([p.dict() for p in all_persons], f, ensure_ascii=False, indent=4)
+    print(f"Loaded {len(existing_persons)} existing persons from {normalized_persons_path}")
+    all_names = set()
+    for p in existing_persons:
+        if p.patronymic_marker == 'улы':
+            continue
+        all_names.add(p.firstname)
+    for n in sorted(list(all_names)):
+        print(f"{n}")
 
 def cluster_relatives(persons):
+    all_names = set()
+    for p in persons:
+        all_names.add(p.firstname)
+        all_names.add(p.fathername)
+        
     # Precompute distance matrix
-    n = len(persons)
+    n = len(all_names)
     dist_matrix = np.zeros((n, n))
     
-    persons_list = list(persons)
+    all_names = list(all_names)
     for i in range(n):
         for j in range(i+1, n):
-            dist = 100 - fuzz.token_sort_ratio(persons_list[i].compare_name(), persons_list[j].compare_name())
+            dist = 100 - fuzz.token_sort_ratio(all_names[i], all_names[j])
             dist_matrix[i, j] = dist
             dist_matrix[j, i] = dist
 
@@ -131,31 +131,102 @@ def cluster_relatives(persons):
     labels = clustering.fit_predict(dist_matrix)
 
     # Group lines by cluster
-    from collections import defaultdict
     clusters = defaultdict(list)
-    for label, person in zip(labels, persons):
-        clusters[label].append(person)
+    for label, all_names in zip(labels, all_names):
+        clusters[label].append(all_names)
 
     cluster_memebers = [members for members in clusters.values() if len(members) > 1]
     print(f"Found {len(cluster_memebers)} clusters")
     for members in cluster_memebers:
         if len(members) > 1:
-            # print("Choose the best variant from the following:")
-            # for num, m in enumerate(members):
-            #     print(f"{num} => {m})") 
-            # choice = input(f"Cluster {cl} has {len(members)} members. Enter the number of the best variant (or 's' to skip): ")
             print("==================================================================")
-            for num, m in enumerate(members, start=1):
-                print(f"{num} => {m})") 
-            choice = typer.prompt(f"Choose the best variant")
+            print(f"Cluster members: f{members}")
+    
+#     if not (os.path.exists(raw_persons_file) or os.path.exists(raw_publishers_file)):
+#         _prepare_raw_materials(raw_persons_file, raw_publishers_file)
+        
+#     new_persons = _create_persons(raw_persons_file)
+#     full_name_persons = [p for p in new_persons if p.fathername]
+    
+#     merged_persons = sorted(_merged_persons(existing_persons, full_name_persons))
+    
+#     try:
+#         cluster_relatives(merged_persons)
+#     except KeyboardInterrupt:
+#         print("Interrupted by user, saving progress...")
+#     finally:
+#         with open(normalized_persons_path, "w") as f:
+#             json.dump([p.dict() for p in merged_persons], f, ensure_ascii=False, indent=4)
             
-            chosen_variant = members[int(choice)-1]
-            for m in members:
-                if m != chosen_variant:
-                    chosen_variant.consume(m)
-                    persons.remove(m)
-            print(f"You chose: {choice}: {chosen_variant}")
-    return set(persons)
+            
+# def _merged_persons(existing_persons, new_persons):
+#     aliases_to_person = {}
+#     for p in existing_persons:
+#         for alias in p.aliases:
+#             aliases_to_person[alias] = p
+            
+#     all_persons = set(existing_persons)
+#     for np in new_persons:
+#         for alias in np.aliases:
+#             if alias in aliases_to_person:
+#                 break
+#         else:
+#             all_persons.add(np)
+#             for alias in np.aliases:
+#                 aliases_to_person[alias] = np
+#     return all_persons
+        
+
+# def cluster_relatives(persons):
+#     # Precompute distance matrix
+#     n = len(persons)
+#     dist_matrix = np.zeros((n, n))
+    
+#     persons_list = list(persons)
+#     for i in range(n):
+#         for j in range(i+1, n):
+#             dist = 100 - fuzz.token_sort_ratio(persons_list[i].compare_name(), persons_list[j].compare_name())
+#             dist_matrix[i, j] = dist
+#             dist_matrix[j, i] = dist
+
+#     # Agglomerative clustering
+#     clustering = AgglomerativeClustering(
+#         n_clusters=None, 
+#         metric='precomputed', 
+#         linkage='complete', 
+#         distance_threshold=15  # lines with >=85 similarity are clustered together
+#     )
+    
+#     labels = clustering.fit_predict(dist_matrix)
+
+#     # Group lines by cluster
+#     clusters = defaultdict(list)
+#     for label, person in zip(labels, persons):
+#         clusters[label].append(person)
+
+#     cluster_memebers = [members for members in clusters.values() if len(members) > 1]
+#     print(f"Found {len(cluster_memebers)} clusters")
+#     for members in cluster_memebers:
+#         if len(members) > 1:
+#             # print("Choose the best variant from the following:")
+#             # for num, m in enumerate(members):
+#             #     print(f"{num} => {m})") 
+#             # choice = input(f"Cluster {cl} has {len(members)} members. Enter the number of the best variant (or 's' to skip): ")
+#             print("==================================================================")
+#             for num, m in enumerate(members, start=1):
+#                 print(f"{num} => {m})") 
+#             choice = typer.prompt(f"Choose the best variant")
+            
+#             try:
+#                 chosen_variant = members[int(choice)-1]
+#                 for m in members:
+#                     if m != chosen_variant:
+#                         chosen_variant.consume(m)
+#                         persons.remove(m)
+#                 print(f"You chose: {choice}: {chosen_variant}")
+#             except (ValueError, IndexError):
+#                 print("Invalid choice, skipping this cluster.")
+#     return set(persons)
             
             
     # # Threshold for similarity (0-100)

@@ -274,7 +274,7 @@ def layouts(
 @app.command()
 def match_limited():
     """
-    Match limited and full books and remove matched 
+    Match limited and full books and check unmatched 
     """
     import match_limited
     match_limited.match_limited()
