@@ -110,7 +110,11 @@ def download_file_locally(ya_client, doc, config):
         else:
             raise ValueError("Unexpected mime type")
         
-    _, ext = os.path.splitext(doc.file_name)
+    # temporary soiluttion until we have ya_path in Document
+    ya_doc_meta = ya_client.get_public_meta(doc.ya_public_url, fields=['path'])
+    _, ext = os.path.splitext(ya_doc_meta.path.removeprefix('disk:'))
+
+    # _, ext = os.path.splitext(doc.ya_path)
     if not ext:
         # If the file has no extension, we try to guess it by mime type
         # or use a default extension if mime type is unknown

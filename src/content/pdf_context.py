@@ -6,7 +6,7 @@ class Context():
         self.local_doc_path = local_doc_path
         self.chunk_paths = []
     
-        self.ya_file_name = None
+        self.ya_path = None
         self.ya_public_key = None 
         self.ya_resource_id = None
         self.local_content_path = None

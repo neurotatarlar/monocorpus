@@ -42,7 +42,8 @@ not_document_types = [
     'audio/midi',
     'image/vnd.adobe.photoshop',
     'video/3gpp',
-    'application/x-7z-compressed'
+    'application/x-7z-compressed',
+    'image/png',
 ]
 
 def sync():
@@ -61,11 +62,11 @@ def sync():
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
         
-        if docs_for_wiping:
-            print("Removing objects from s3 storage")
-            _remove_from_s3(docs_for_wiping.keys(), s3client, config)
-        else:
-            print("No docs for wiping found")
+        # if docs_for_wiping:
+        #     print("Removing objects from s3 storage")
+        #     _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        # else:
+        #     print("No docs for wiping found")
             
         print("Syncing yadisk with Google sheets")
         entry_point = config['yandex']['disk']['entry_point']
@@ -143,21 +144,21 @@ def _remove_from_s3(md5s, s3client, config):
 def _define_docs_for_wiping(yaclient, config):
     docs_for_wiping = _get_wiping_plan()
 
-    print("Querying non tatar documents")
-    non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-    non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-    print(f"Found {len(non_tatar_docs)} nontatar docs")
-    docs_for_wiping.update(non_tatar_docs)
-    flush(docs_for_wiping)
+    # print("Querying non tatar documents")
+    # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+    # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+    # print(f"Found {len(non_tatar_docs)} nontatar docs")
+    # docs_for_wiping.update(non_tatar_docs)
+    # flush(docs_for_wiping)
     
-    print("Querying non textual docs")
-    nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
-    nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-    print(f"Found {len(nontextual_docs)} nontextual docs")
-    docs_for_wiping.update(nontextual_docs)
-    flush(docs_for_wiping)
+    # print("Querying non textual docs")
+    # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+    # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+    # print(f"Found {len(nontextual_docs)} nontextual docs")
+    # docs_for_wiping.update(nontextual_docs)
+    # flush(docs_for_wiping)
     
-    _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
     
     return docs_for_wiping
     
@@ -272,6 +273,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     if not (ya_public_key and ya_public_url):
         ya_public_key, ya_public_url = _publish_file(ya_client, file.path)
     
+    ya_path = file.path.removeprefix('disk:')
     if file.md5 in all_md5s:
         # compare with ya_resource_id
         # if 'resource_id' is the same, then skip, due to we have it in gsheet
@@ -279,7 +281,10 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         if all_md5s[file.md5]['resource_id'] != file.resource_id:
             print(f"File '{file.path}' already exists in gsheet, but with different resource_id: '{file.resource_id}' with md5 '{file.md5}', removing it from yadisk")
             ya_client.remove(file.path, md5=file.md5)
-        return
+            return
+        # if md5 is the same and path is the same, just skip the document
+        if all_md5s[file.md5]['ya_path'] == ya_path:
+            return
     
     print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[/green]")
 
@@ -287,7 +292,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     doc = Document(
         md5=file.md5,
         mime_type=mime_type,
-        file_name=file.name,
+        ya_path=ya_path,
         ya_public_key=ya_public_key,
         ya_public_url=encrypt(ya_public_url, config) if sharing_restricted else ya_public_url,
         sharing_restricted=sharing_restricted,
@@ -322,10 +327,10 @@ def get_all_md5s():
     """
     with Session() as s:
         res = s._get_session().execute(
-            select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url)
+            select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url, Document.ya_path)
         ).all()
         return { 
-                i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2]} 
+                i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2], "ya_path": i[3]} 
                 for i 
                 in res 
                 if i[1] is not None

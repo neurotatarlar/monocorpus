@@ -33,7 +33,7 @@ class ExtractionResult(BaseModel):
     content: str
     
 class ChunkPlanner:
-    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[10, 5, 2, 1]):
+    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[2, 1]):
         self.chunked_results_dir = chunked_results_dir
         self.pages_count = pages_count
         self.chunk_sizes = chunk_sizes
@@ -315,8 +315,8 @@ class PdfExtractor:
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
-                            # if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
-                            if e.code == 429:
+                            if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
+                            # if e.code == 429:
                                 self.log(f"Free tier limit reached for model {model}, stopping worker...")
                                 # return task to the queue for later processing
                                 self.tasks_queue.put(doc)
@@ -468,9 +468,9 @@ class PdfExtractor:
 
 
     def _enrich_context(self, ya_client, context):
-        ya_doc_meta = ya_client.get_public_meta(context.doc.ya_public_url, fields=['md5', 'name', 'public_key', 'resource_id', 'sha256'])
+        ya_doc_meta = ya_client.get_public_meta(context.doc.ya_public_url, fields=['md5', 'path', 'public_key', 'resource_id', 'sha256'])
         context.md5 = ya_doc_meta.md5
-        context.ya_file_name = ya_doc_meta.name
+        context.ya_path = ya_doc_meta.path
         context.ya_public_key = ya_doc_meta.public_key
         context.ya_resource_id = ya_doc_meta.resource_id
         
@@ -548,7 +548,7 @@ class PdfExtractor:
     
     def _upsert_document(self, gsheets_session, context):
         doc = context.doc
-        doc.file_name = context.ya_file_name
+        doc.ya_path = context.ya_path
         doc.ya_public_key=context.ya_public_key
         doc.ya_resource_id=context.ya_resource_id
 
