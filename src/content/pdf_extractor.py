@@ -33,7 +33,7 @@ class ExtractionResult(BaseModel):
     content: str
     
 class ChunkPlanner:
-    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[2, 1]):
+    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[5, 3, 2, 1]):
         self.chunked_results_dir = chunked_results_dir
         self.pages_count = pages_count
         self.chunk_sizes = chunk_sizes
@@ -216,10 +216,6 @@ class PdfExtractor:
             except (JSONDecodeError, RecursionError, IndexError) as e:
                 if doc:
                     self.channel.add_repairable_doc(doc.md5)
-            except PathNotFoundError as e:
-                print(f"PathNotFoundError {e}")
-                if doc:
-                    self.channel.add_unprocessable_doc(doc.md5)
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract content from doc {doc.md5}({doc.ya_public_url}): {e} \n{traceback.format_exc()}")

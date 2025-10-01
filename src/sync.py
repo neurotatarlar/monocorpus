@@ -282,8 +282,8 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
             print(f"File '{file.path}' already exists in gsheet, but with different resource_id: '{file.resource_id}' with md5 '{file.md5}', removing it from yadisk")
             ya_client.remove(file.path, md5=file.md5)
             return
-        # if md5 is the same and path is the same, just skip the document
-        if all_md5s[file.md5]['ya_path'] == ya_path:
+        # if md5 is the same but path or ya_public_url is different, proceed to updating
+        if all_md5s[file.md5]['ya_path'] == ya_path and all_md5s[file.md5]['ya_public_url'] == ya_public_url:
             return
     
     print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[/green]")
@@ -327,10 +327,10 @@ def get_all_md5s():
     """
     with Session() as s:
         res = s._get_session().execute(
-            select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url, Document.ya_path)
+            select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url, Document.ya_path, Document.ya_public_url)
         ).all()
         return { 
-                i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2], "ya_path": i[3]} 
+                i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2], "ya_path": i[3], "ya_public_url": i[4]} 
                 for i 
                 in res 
                 if i[1] is not None
