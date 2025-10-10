@@ -57,13 +57,13 @@ skip_pdf = set()  # --- IGNORE ---
 # python src/main.py select 'count(md5) from Documents where metadata_extraction_method is not "gemini-2.5-pro/prompt.v2" and (content_url is not NULL or mime_type is "application/pdf")'
 
 def extract_metadata():
-    # print("Processing documents without metadata")
-    # predicate = Document.metadata_json.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
-    # _process_by_predicate(predicate)
-    
-    predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
-    print("Processing documents with older metadata extraction method...")
+    print("Processing documents without metadata")
+    predicate = Document.metadata_json.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
     _process_by_predicate(predicate)
+    
+    # predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
+    # print("Processing documents with older metadata extraction method...")
+    # _process_by_predicate(predicate)
 
     
 def _process_by_predicate(predicate, docs_batch_size=96, keys_batch_size=8):

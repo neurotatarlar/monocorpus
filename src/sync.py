@@ -62,11 +62,11 @@ def sync():
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
         
-        # if docs_for_wiping:
-        #     print("Removing objects from s3 storage")
-        #     _remove_from_s3(docs_for_wiping.keys(), s3client, config)
-        # else:
-        #     print("No docs for wiping found")
+        if docs_for_wiping:
+            print("Removing objects from s3 storage")
+            _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        else:
+            print("No docs for wiping found")
             
         print("Syncing yadisk with Google sheets")
         entry_point = config['yandex']['disk']['entry_point']
@@ -144,21 +144,21 @@ def _remove_from_s3(md5s, s3client, config):
 def _define_docs_for_wiping(yaclient, config):
     docs_for_wiping = _get_wiping_plan()
 
-    # print("Querying non tatar documents")
-    # non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-    # non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-    # print(f"Found {len(non_tatar_docs)} nontatar docs")
-    # docs_for_wiping.update(non_tatar_docs)
-    # flush(docs_for_wiping)
+    print("Querying non tatar documents")
+    non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+    non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+    print(f"Found {len(non_tatar_docs)} nontatar docs")
+    docs_for_wiping.update(non_tatar_docs)
+    flush(docs_for_wiping)
     
-    # print("Querying non textual docs")
-    # nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
-    # nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-    # print(f"Found {len(nontextual_docs)} nontextual docs")
-    # docs_for_wiping.update(nontextual_docs)
-    # flush(docs_for_wiping)
+    print("Querying non textual docs")
+    nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+    nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+    print(f"Found {len(nontextual_docs)} nontextual docs")
+    docs_for_wiping.update(nontextual_docs)
+    flush(docs_for_wiping)
     
-    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    _dedup_by_isbn(docs_for_wiping, yaclient, config)
     
     return docs_for_wiping
     
@@ -273,7 +273,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     if not (ya_public_key and ya_public_url):
         ya_public_key, ya_public_url = _publish_file(ya_client, file.path)
     
-    ya_path = file.path.removeprefix('disk:')
+    ya_path = file.path.removeprefix('disk:')    
     if file.md5 in all_md5s:
         # compare with ya_resource_id
         # if 'resource_id' is the same, then skip, due to we have it in gsheet
@@ -283,9 +283,15 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
             ya_client.remove(file.path, md5=file.md5)
             return
         # if md5 is the same but path or ya_public_url is different, proceed to updating
-        if all_md5s[file.md5]['ya_path'] == ya_path and all_md5s[file.md5]['ya_public_url'] == ya_public_url:
+        if (all_md5s[file.md5]['ya_path'] == ya_path 
+            # and 
+            # (
+            #     (sharing_restricted and all_md5s[file.md5]['ya_public_url'] == encrypt(ya_public_url, config))
+            #     or
+            #     (not sharing_restricted and all_md5s[file.md5]['ya_public_url'] == ya_public_url))
+            ):
             return
-    
+        
     print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[/green]")
 
     sharing_restricted = config["yandex"]["disk"]["hidden"] in file.path 

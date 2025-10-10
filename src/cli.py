@@ -291,18 +291,12 @@ def sharing_restricted():
     
 @app.command()
 def check_artifacts():
-    """
-    Check for artifactes like repated parts and broken utf-8 
-    """
     import check_artifacts
     check_artifacts.check()
     
 
 @app.command()
 def normalize_metadata():
-    """
-    Check for artifactes like repated parts and broken utf-8 
-    """
     import metadata.normalize.normalizer as normalizer
     normalizer.normalize()
     
@@ -313,3 +307,7 @@ def upload_metadata():
     uploader.upload()
     
     
+@app.command()
+def restore_lost():
+    import restore_lost
+    restore_lost.restore()
