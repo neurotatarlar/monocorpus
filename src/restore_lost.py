@@ -1,6 +1,6 @@
 from monocorpus_models import Document, Session
-from sqlalchemy import text, select, delete
-from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally
+from sqlalchemy import select
+from utils import read_config, encrypt, get_in_workdir, decrypt
 from yadisk_client import YaDisk
 from rich import print
 from s3 import create_session
@@ -15,21 +15,24 @@ def restore():
     documents_bucket = config["yandex"]["cloud"]["bucket"]["document"]
 
     with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        res = session.query(select(Document))
+        res = session.query(select(Document).where(Document.sharing_restricted.is_(True)))
     with Session() as session:
         for doc in track(res):
             try:
                 if not doc.ya_public_url:
-                    _restore(doc, s3client, documents_bucket, ya_client, session)
+                    _restore(doc, s3client, documents_bucket, ya_client, session, config)
+                    continue
                 try:
-                    _ = ya_client.get_public_meta(doc.ya_public_url, fields=["type"])
+                    pub_url = decrypt(doc.ya_public_url, config) if doc.sharing_restricted else doc.ya_public_url
+                    _ = ya_client.get_public_meta(pub_url, fields=["type"])
                 except PathNotFoundError:
-                    _restore(doc, s3client, documents_bucket, ya_client, session)
+                    _restore(doc, s3client, documents_bucket, ya_client, session, config)
             except Exception as e:
                 import traceback
                 print(f"[red]Error during processing document: {e}: {traceback.format_exc()}[/red]")
                 
-def _restore(doc, s3client, documents_bucket, ya_client, session):
+                
+def _restore(doc, s3client, documents_bucket, ya_client, session, config):
     # print(f"File not found in Yandex Disk by public url `{doc.md5}`")
     if (meta := get_meta(doc.ya_path, ya_client)) and meta.md5 == doc.md5:
         # here if file exists and it is the same as in ghseets
@@ -57,10 +60,9 @@ def _restore(doc, s3client, documents_bucket, ya_client, session):
             print(f"Found file `{file}` locally")
         upload_res = ya_client.upload(local_path, doc.ya_path, overwrite=True)
         remote_path = upload_res.path
-    # print(f'Remote path {remote_path}')
     ya_public_key, ya_public_url, ya_path, ya_resource_id = _publish_file(ya_client, remote_path)
     doc.ya_public_key = ya_public_key
-    doc.ya_public_url = ya_public_url
+    doc.ya_public_url=encrypt(ya_public_url, config) if doc.sharing_restricted else ya_public_url
     doc.ya_path = ya_path.removeprefix('disk:') 
     doc.ya_resource_id = ya_resource_id
     session.update(doc)

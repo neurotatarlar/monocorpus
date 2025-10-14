@@ -28,6 +28,8 @@ from google.genai.errors import ServerError
 
 model = 'gemini-2.5-pro'
 
+FIGURE_TAG_PATTERN = re.compile(r"<figure\b[^>]*>", re.IGNORECASE)
+
 
 class ExtractionResult(BaseModel):
     content: str
@@ -212,9 +214,12 @@ class PdfExtractor:
                 self.log("No tasks for processing, shutting down thread...")
                 return
             except NoBboxError as e:
+                print("No bbox")
                 self.channel.add_repairable_doc(e.md5)
             except (JSONDecodeError, RecursionError, IndexError) as e:
                 if doc:
+                    import traceback
+                    print(f"Error:", "\n", e, "\n", traceback.format_exc())
                     self.channel.add_repairable_doc(doc.md5)
             except Exception as e:
                 import traceback
@@ -254,8 +259,10 @@ class PdfExtractor:
                 if os.path.exists(chunk_result_complete_path):
                     self.log(f"Chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
-                        content = ExtractionResult.model_validate_json(f.read()).content
-                      
+                        deserialized = ExtractionResult.model_validate_json(f.read()).content
+                        if not _has_figure_tag_with_missing_attributes(deserialized):
+                            content = deserialized
+
                 if not content:
                     self.log(f"Extracting chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
                     
@@ -298,6 +305,8 @@ class PdfExtractor:
                         # validating schema
                         with open(chunk_result_incomplete_path, "r") as f:
                             content = ExtractionResult.model_validate_json(f.read()).content
+                            if _has_figure_tag_with_missing_attributes(content):
+                                raise ValidationError("Chunk has figure tag with missing attributes")
                             
                         # "mark" batch as extracted by renaming file
                         shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
@@ -311,8 +320,8 @@ class PdfExtractor:
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
-                            if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
-                            # if e.code == 429:
+                            # if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
+                            if e.code == 429:
                                 self.log(f"Free tier limit reached for model {model}, stopping worker...")
                                 # return task to the queue for later processing
                                 self.tasks_queue.put(doc)
@@ -323,6 +332,7 @@ class PdfExtractor:
                                 # try to decrease chunk size
                                 pass
                             else:
+                                print(e)
                                 self.channel.add_repairable_doc(context.md5)
                                 return {"stop_worker": False}
 
@@ -530,6 +540,17 @@ class PdfExtractor:
         gsheets_session.update(doc)
 
 
+def _has_figure_tag_with_missing_attributes(content):
+    for match in FIGURE_TAG_PATTERN.finditer(content):
+        tag = match.group(0)
+        if 'data-bbox=' not in tag:
+            print(f"Attribute `data-bbox` is missing")
+            return True
+        if 'data-page=' not in tag:
+            print(f"Attribute `data-page` is missing")
+            return True
+    return False
+    
 
 def _tokens_info(usage_meta):
     if usage_meta:

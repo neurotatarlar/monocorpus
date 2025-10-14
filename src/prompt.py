@@ -104,7 +104,7 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
      - For example, `[100, 150, 300, 450]` means the image starts 100 units from the top, 150 units from the left, and extends to 300 units down and 450 units across.
    - If a caption is present, format it inside `<figcaption>`, for example:
       ```html
-      <figure data-bbox="[100, 150, 300, 450]"><figcaption>Рәсем 5</figcaption></figure>
+      <figure data-bbox="[100, 150, 300, 450]" data-page="85"><figcaption>Рәсем 5</figcaption></figure>
      ```
    - The `data-page` attribute is exact index in the full PDF (not visible printed page number).
       - The first page you are analyzing might be page 50 in the full document. If so, that is `data-page="50"`.
