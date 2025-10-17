@@ -1,5 +1,5 @@
 from rich import print
-from utils import get_in_workdir, download_file_locally, encrypt
+from utils import get_in_workdir, download_file_locally, encrypt, decrypt
 from dirs import Dirs
 import zipfile
 import re
@@ -331,10 +331,10 @@ class PdfExtractor:
                             elif e.code == 429 and "GenerateContentInputTokensPerModelPerMinute-FreeTier" in message:
                                 # try to decrease chunk size
                                 pass
-                            else:
-                                print(e)
-                                self.channel.add_repairable_doc(context.md5)
-                                return {"stop_worker": False}
+                            # else:
+                            #     print(e)
+                            #     self.channel.add_repairable_doc(context.md5)
+                            #     return {"stop_worker": False}
 
                         if chunk_planner.decrease_chunk_size():
                             chunk_size = f"with size {chunk.end - chunk.start + 1}" if chunk else ""
@@ -474,7 +474,8 @@ class PdfExtractor:
 
 
     def _enrich_context(self, ya_client, context):
-        ya_doc_meta = ya_client.get_public_meta(context.doc.ya_public_url, fields=['md5', 'path', 'public_key', 'resource_id', 'sha256'])
+        pub_url = decrypt(context.doc.ya_public_url, self.config) if context.doc.sharing_restricted else context.doc.ya_public_url
+        ya_doc_meta = ya_client.get_public_meta(pub_url, fields=['md5', 'path', 'public_key', 'resource_id'])
         context.md5 = ya_doc_meta.md5
         context.ya_path = ya_doc_meta.path
         context.ya_public_key = ya_doc_meta.public_key

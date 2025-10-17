@@ -15,7 +15,7 @@ def restore():
     documents_bucket = config["yandex"]["cloud"]["bucket"]["document"]
 
     with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        res = session.query(select(Document).where(Document.sharing_restricted.is_(True)))
+        res = session.query(select(Document))
     with Session() as session:
         for doc in track(res):
             try:

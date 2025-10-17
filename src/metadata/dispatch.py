@@ -59,6 +59,7 @@ skip_pdf = set()  # --- IGNORE ---
 def extract_metadata():
     print("Processing documents without metadata")
     predicate = Document.metadata_json.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
+    predicate = predicate & ~Document.ya_path.contains("__ТАРАТМАСКА_DONT_SHARE_НЕ_ДЕЛИТЬСЯ__")
     _process_by_predicate(predicate)
     
     # predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
@@ -66,7 +67,7 @@ def extract_metadata():
     # _process_by_predicate(predicate)
 
     
-def _process_by_predicate(predicate, docs_batch_size=96, keys_batch_size=8):
+def _process_by_predicate(predicate, docs_batch_size=200, keys_batch_size=72):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = load_expired_keys()
@@ -123,6 +124,9 @@ def _process_by_predicate(predicate, docs_batch_size=96, keys_batch_size=8):
                 for t in threads:
                     t.join(timeout=60)
             return
+        finally:
+            dump_expired_keys(exceeded_keys_set)
+
         break
         
        
