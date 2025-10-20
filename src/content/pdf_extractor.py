@@ -320,21 +320,17 @@ class PdfExtractor:
                         if isinstance(e, ClientError):
                             self.log(f"Client error during extraction of content of doc {context.md5}({context.doc.ya_public_url}: {e}")
                             message = json.dumps(e.details)
-                            # if e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
-                            if e.code == 429:
+                            if e.code == 429 and "GenerateContentInputTokensPerModelPerMinute-FreeTier" in message:
+                                # try to decrease chunk size
+                                pass
+                            # elif e.code == 429 and "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in message:
+                            elif e.code == 429:
                                 self.log(f"Free tier limit reached for model {model}, stopping worker...")
                                 # return task to the queue for later processing
                                 self.tasks_queue.put(doc)
                                 # add key to the exceeded keys set
                                 self.channel.add_exceeded_key(self.key)
                                 return {"stop_worker": True}
-                            elif e.code == 429 and "GenerateContentInputTokensPerModelPerMinute-FreeTier" in message:
-                                # try to decrease chunk size
-                                pass
-                            # else:
-                            #     print(e)
-                            #     self.channel.add_repairable_doc(context.md5)
-                            #     return {"stop_worker": False}
 
                         if chunk_planner.decrease_chunk_size():
                             chunk_size = f"with size {chunk.end - chunk.start + 1}" if chunk else ""

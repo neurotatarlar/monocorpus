@@ -41,7 +41,7 @@ next_footnote_num = {next_footnote_num}
 
 # TASK: STRUCTURED_CONTENT
 
-You are extracting structured content from a specific range of pages in a PDF document written in the Tatar language. The page range is defined by the `pages_from` and `pages_to` values above (inclusive), and refers to the actual page indices in the PDF (not printed page numbers).
+You are extracting structured content from a specific range of pages in a PDF document. The major language is Tatar, but can have some inclusions of other languages. The page range is defined by the `pages_from` and `pages_to` values above (inclusive), and refers to the actual page indices in the PDF (not printed page numbers).
 
 Your task is to return a cleaned and structured version of the selected content, formatted in Markdown + HTML, and wrapped under the "content" key of a JSON object.
 '''.strip()
@@ -154,21 +154,16 @@ EXTRACT_CONTENT_PROMPT_STATIC_BODY = """
    - Assume the first page provided corresponds to ${_from}.
    - Use this logic for referencing page numbers in images or figure tags.
    
-12. Language
-   - The document is written in Tatar using the Zamanalif variant of Latin script. This alphabet is the same as common turkic alphabet.
-   - Be cautious not to delete or alter meaningful Tatar-language content.
-
-13. Output format
+12. Output format
    - Return a JSON object:
    ```json
    {{
       "content": "..."
    }}
    ```
-14. General requirements:
+13. General requirements:
    - Output a clean, continuous version of the document, improving structure and readability.
    - Do not translate, rewrite, or modify the original Tatar text.
-   - The document language is Tatar, written in Zamanalif tatar script.
    - Be careful not to accidentally remove important content.
 """.strip()
 
