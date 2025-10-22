@@ -1,4 +1,3 @@
-from monocorpus_models import Document, Session, SCOPES
 from yadisk_client import YaDisk
 import mdformat
 from dirs import Dirs
@@ -9,14 +8,14 @@ import zipfile
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from queue import Queue
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, encrypt, load_expired_keys, dump_expired_keys
+from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, encrypt, load_expired_keys, dump_expired_keys, get_session
 from .epub_extractor import EpubExtractor
 from .doc_like_extractor import DocLikeExtractor, to_docx_mime_types, check_encoding_mime_types
 import threading
 import time
 from .pdf_extractor import PdfExtractor
 import random
-
+from models import Document
 
 non_pdf_format_types = to_docx_mime_types | \
     check_encoding_mime_types | \
@@ -42,7 +41,7 @@ def _process_non_pdf(cli_params):
     )
     config = read_config()
     s3client = create_session(config)
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheets_session:
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, get_session() as session:
         docs = obtain_documents(cli_params, ya_client, predicate)
         if not docs:
             print("No documents for processing...")
@@ -164,14 +163,12 @@ def _process_pdf(cli_params):
         channel = Channel()
         predicate = (
             Document.content_url.is_(None) &
-            Document.mime_type.is_("application/pdf") &
-            Document.language.is_("tt-Cyrl") &
-            Document.full.is_(True) &
-            Document.md5.not_in(channel.get_all_unprocessable_docs())
-            # Document.title.notlike("%ш__талинчы%") &
-            # Document.title.notlike("%ЯШ_ СТАЛИНЧЫ%") &
-            # Document.title.notlike("%ызыл _атарстан%") &
-            # Document.title.notlike("%КЫЗЫЛ ТАТАРСТАН%")
+            (Document.mime_type ==  "application/pdf") &
+            (Document.language == "tt-Cyrl") &
+            (Document.full == True) & 
+            (
+                (Document.md5 == cli_params.md5) if cli_params.md5 else Document.md5.not_in(channel.get_all_unprocessable_docs())
+            )
         )
         
         try:
@@ -185,8 +182,8 @@ def _process_pdf(cli_params):
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {channel.exceeded_keys_set}, Extracting with keys: {keys_slice}")
             
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-                with Session() as gsheets_session:
-                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=cli_params.batch_size, gsheet_session=gsheets_session))
+                with get_session() as session:
+                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=cli_params.batch_size, session=session))
                     
                 if not docs:
                     print("No docs for processing, exiting...")
@@ -194,12 +191,8 @@ def _process_pdf(cli_params):
 
                 print(f"Got {len(docs)} docs for content extraction")
                 tasks_queue = Queue(maxsize=len(docs))
-                skip_docs = channel.get_all_unprocessable_docs()
                 for doc in docs:
-                    if doc.md5 not in skip_docs:
-                        tasks_queue.put(doc)
-                    else:
-                        print(f"Doc {doc.md5} in skip list")
+                    tasks_queue.put(doc)
                     
                 if tasks_queue.empty():
                     print("No documents for processing...")

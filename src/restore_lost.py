@@ -1,4 +1,3 @@
-from monocorpus_models import Document, Session
 from sqlalchemy import select
 from utils import read_config, encrypt, get_in_workdir, decrypt
 from yadisk_client import YaDisk
@@ -8,6 +7,7 @@ from rich.progress import track
 from yadisk.exceptions import PathNotFoundError
 import os
 from dirs import Dirs
+from models import Document
 
 def restore():
     config = read_config()

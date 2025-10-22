@@ -1,13 +1,12 @@
 from sqlalchemy import select
 from rich import print
 from s3 import upload_file, create_session
-from utils import read_config, get_in_workdir, download_file_locally, load_expired_keys, dump_expired_keys
+from utils import read_config, get_in_workdir, download_file_locally, load_expired_keys, dump_expired_keys, get_session
 from dirs import Dirs
 from gemini import create_client
 import zipfile
 import isbnlib
 import re
-from monocorpus_models import Document, Session
 import time
 from google.genai.errors import ClientError
 from queue import Queue, Empty
@@ -20,6 +19,7 @@ from yadisk_client import YaDisk
 import gc
 import datetime
 import time
+from models import Document
 
 model = 'gemini-2.5-pro'
 
@@ -175,10 +175,10 @@ class MetadataExtractionWorker:
                 self._upload_artifacts_to_s3(doc, local_meta_path, local_doc_path)
                 doc.metadata_extraction_method = f"{model}/prompt.v2"
                 doc.metadata_json = meta_json
-                with Session() as gsheet_session:
-                    self._update_document(doc, metadata, gsheet_session)
-                    gsheet_session._get_session().commit()
-                    gsheet_session._get_session().flush()
+                with get_session() as session:
+                    self._update_document(doc, metadata, session)
+                    session._get_session().commit()
+                    session._get_session().flush()
                 del gsheet_session
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
             except Empty:

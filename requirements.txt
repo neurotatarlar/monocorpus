@@ -1,32 +1,56 @@
 typer==0.15.3
 boto3
 pyyaml
-git+https:///github.com/tagay1n/monocorpus-models
 git+https:///github.com/tagay1n/yadisk-client
-portion
 pymupdf
 google-genai
 mdformat
 mdformat-toc
 mdformat-footnote
+
+# db
+alembic
+psycopg2-binary
+
+# other
+pandas
 isbnlib
-pillow
-beautifulsoup4
-ultralytics
-huggingface_hub
-spacy
-more-itertools
-# for compatibility with typer==0.15.3
-click<8.2
-ebooklib
-beautifulsoup4 
-markdownify
-huggingface-hub
 cryptography
-pyarrow
-fastparquet
+ebooklib
+beautifulsoup4
+markdownify
 chardet
-markitdown[pptx, docx, epub]
-surya-ocr
-rapidfuzz
-scikit-learn
+pillow
+ultralytics
+huggingface-hub
+spacy
+
+# Google services
+gspread
+google-api-python-client
+gspread-dataframe
+
+
+# git+https:///github.com/tagay1n/monocorpus-models
+# portion
+
+# 
+# pillow
+# beautifulsoup4
+# 
+# huggingface_hub
+# 
+# more-itertools
+# # for compatibility with typer==0.15.3
+# click<8.2
+# ebooklib
+#  
+# markdownify
+# huggingface-hub
+# pyarrow
+# fastparquet
+# chardet
+# markitdown[pptx, docx, epub]
+# surya-ocr
+# rapidfuzz
+# scikit-learn

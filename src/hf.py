@@ -1,19 +1,19 @@
 from rich import print 
 import os
-from utils import read_config, get_in_workdir
+from utils import read_config, get_in_workdir, get_session
 from s3 import download
 from dirs import Dirs
 import pandas as pd
 import zipfile
-from monocorpus_models import Document, Session
 from sqlalchemy import select
 from rich import print
+from models import Document
 
 def assemble_dataset():
     config = read_config()
     output_dir = get_in_workdir(Dirs.CONTENT)
     rows = []
-    with Session() as gsheet_session:
+    with get_session() as gsheet_session:
         empty_docs = set()
         not_in_gsheets = set()
         docs = {doc.md5 : doc for doc in gsheet_session.query(select(Document).where(Document.content_url.is_not(None)))}

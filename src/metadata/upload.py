@@ -1,13 +1,13 @@
-from monocorpus_models import Document, Session, SCOPES
 from rich import print 
 from rich.progress import track
 from s3 import download
-from utils import read_config, get_in_workdir
+from utils import read_config, get_in_workdir, get_session
 from dirs import Dirs
 import zipfile
 import json
 import os
 from sqlalchemy import select, text
+from models import Document
 
 
 def upload():
@@ -15,11 +15,9 @@ def upload():
     limit = 500
     files_without_metadata = set()
     while True:
-        with Session() as reader_session, Session() as uploader_session:
-            reader_session.query(text("select 1"))
-            uploader_session.query(text("select 1"))
+        with get_session() as session:
             statement = select(Document).where(Document.metadata_json.is_(None) & Document.md5.not_in(files_without_metadata)).limit(limit)
-            docs = list(reader_session.query(statement))
+            docs = list(session.query(statement))
             if not docs:
                 print("No more documents without metadata found, exiting...")
                 break
@@ -40,4 +38,4 @@ def upload():
                     
                     doc.metadata_json = json.dumps(json.loads(_content), ensure_ascii=False, indent=None, separators=(',', ':'))
                     print("Uploading metadata for document:", doc.md5)
-                    uploader_session.update(doc)
+                    session.update(doc)

@@ -1,9 +1,8 @@
-from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally
+from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally, get_session
 from yadisk_client import YaDisk
 from rich import print
-from monocorpus_models import Document
+from models import Document
 from s3 import  create_session
-from monocorpus_models import Document, Session
 from sqlalchemy import text, select, delete
 import json
 from dirs import Dirs
@@ -53,7 +52,7 @@ def sync():
     config = read_config()
     s3client = create_session(config)
 
-    with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
+    with get_session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
         session.query(text("select 1"))
         print("Requesting all upstream metadata urls") 
         upstream_metas = _lookup_upstream_metadata(s3client, config)
@@ -152,7 +151,7 @@ def _define_docs_for_wiping(yaclient, config):
     flush(docs_for_wiping)
     
     print("Querying non textual docs")
-    nontextual_docs = Session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+    nontextual_docs = get_session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
     nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
     print(f"Found {len(nontextual_docs)} nontextual docs")
     docs_for_wiping.update(nontextual_docs)
@@ -165,7 +164,7 @@ def _define_docs_for_wiping(yaclient, config):
 def _dedup_by_isbn(plan, yaclient, config):
     print("Deduplicating by ISBN")
     # Get all docs that have ISBNs
-    md5s_to_docs = { doc.md5 : doc for doc in  Session().query(select(Document).where(Document.isbn.is_not(None)))}
+    md5s_to_docs = { doc.md5 : doc for doc in  get_session().query(select(Document).where(Document.isbn.is_not(None)))}
     
     # Group them by ISBN
     isbns_to_docs = defaultdict(set)

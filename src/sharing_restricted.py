@@ -1,13 +1,12 @@
 from yadisk_client import YaDisk
-from utils import walk_yadisk, read_config
-from monocorpus_models import Document, Session
+from utils import walk_yadisk, read_config, get_session
 from sqlalchemy import select
-
+from utils import Document
 
 
 def check():
     config = read_config()
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, Session() as gsheet_session:
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, get_session() as gsheet_session:
         print("Quering sharing restricted documents in gsheets")
         predicate = Document.sharing_restricted.is_not(False) | Document.sharing_restricted.is_(True)
         sharing_restricted_docs_in_gsheets = {d.md5: d for d in gsheet_session.query(select(Document).where(predicate))}

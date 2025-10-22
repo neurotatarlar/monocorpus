@@ -1,9 +1,10 @@
-from monocorpus_models import Session, Document
 from sqlalchemy import text, select
 import re
 import time
 from rich.syntax import Syntax
 from rich.console import Console
+from models import Document
+from utils import get_session
 
 # python3 src/main.py select "SELECT COUNT(*) FROM DOCUMENT WHERE metadata_json IS NOT NULL"
 # SELECT COUNT(*) FROM DOCUMENT WHERE metadata_json IS NOT NULL
@@ -13,7 +14,7 @@ from rich.console import Console
 
 def sheets_introspect(query):
     start = time.time()
-    with Session() as s, Console() as console:
+    with get_session() as s, Console() as console:
         console.print(f'Executing query:')
         console.print(Syntax(query, "sql", theme="monokai"))
         

@@ -10,8 +10,7 @@
 # extract syria 
 # convert to intermediate format 
 # compare and choose layout 
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
-from monocorpus_models import Document, Session, SCOPES
+from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, get_session
 from yadisk_client import YaDisk
 from rich import print
 from rich.progress import track
@@ -23,6 +22,7 @@ from ultralytics import YOLO
 from PIL import Image, ImageFilter, ImageEnhance
 from surya.layout import LayoutPredictor
 import json
+from models import Document
     
     
 # class PageImage:

@@ -1,9 +1,8 @@
 from rich import print
-from utils import get_in_workdir, download_file_locally, encrypt, decrypt
+from utils import get_in_workdir, download_file_locally, encrypt, decrypt, get_session
 from dirs import Dirs
 import zipfile
 import re
-from monocorpus_models import  Session
 import time
 from google.genai.errors import ClientError
 from queue import Empty
@@ -24,6 +23,7 @@ from json.decoder import JSONDecodeError
 import datetime
 import time
 from google.genai.errors import ServerError
+from models import Document
 
 
 model = 'gemini-2.5-pro'
@@ -206,8 +206,8 @@ class PdfExtractor:
                 self._upload_artifacts(context)
                 
                 # update the document in the gsheet
-                with Session() as gsheets_session:
-                    self._upsert_document(gsheets_session, context)
+                with get_session() as _session:
+                    self._upsert_document(_session, context)
                 
                 self.log(f"[bold green]Content extraction complete {context.doc.md5}({context.doc.ya_public_url})[/bold green]")
             except Empty:
@@ -522,8 +522,8 @@ class PdfExtractor:
             upload_file(chunk_path_arc, doc_bucket, key, session)
     
     
-    def _upsert_document(self, gsheets_session, context):
-        doc = context.doc
+    def _upsert_document(self, session, context):
+        doc = session.get(Document, context.doc.md5)
         if context.ya_path and (ya_path := context.ya_path.removeprefix('disk:')) != '/':
             doc.ya_path = ya_path
         doc.ya_public_key=context.ya_public_key
@@ -533,8 +533,8 @@ class PdfExtractor:
         doc.document_url = encrypt(context.remote_doc_url, self.config) if doc.sharing_restricted else context.remote_doc_url
         doc.content_url = context.remote_content_url
             
+        session.commit()
         self.log(f"Updating doc details in gsheets {context.doc.md5}({context.doc.ya_public_url})")
-        gsheets_session.update(doc)
 
 
 def _has_figure_tag_with_missing_attributes(content):
