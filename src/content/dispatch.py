@@ -1,3 +1,64 @@
+"""
+Content Extraction Dispatcher Module
+
+This module orchestrates the extraction of content from various document types (PDF, EPUB, DOCX)
+using multiple processing strategies and parallel execution. It handles document downloading,
+processing, and uploading to cloud storage while managing API rate limits and error cases.
+
+Key Components:
+1. Document Processing
+   - PDF extraction using Gemini API
+   - EPUB extraction
+   - Office documents (DOCX, etc.) processing
+   - Markdown formatting and compression
+
+2. Cloud Integration
+   - Yandex.Disk document source
+   - S3 storage for processed content
+   - Google Cloud authentication for additional processing
+
+3. Parallel Processing
+   - Multi-threaded extraction for PDFs
+   - API key rotation and rate limit handling
+   - Queue-based task distribution
+
+4. State Management
+   - Tracking of unprocessable documents
+   - Management of rate-limited API keys
+   - Persistent state for interrupted operations
+
+Classes:
+    Channel: Manages shared state and persistence for document processing
+        - Tracks API key usage and rate limits
+        - Maintains lists of unprocessable/repairable documents
+        - Handles thread-safe state updates
+
+Functions:
+    extract_content(cli_params): Main entry point for content extraction
+    _process_non_pdf(cli_params): Handles extraction from EPUB and Office documents
+    _process_pdf(cli_params): Orchestrates parallel PDF content extraction
+    _upload_artifacts_to_s3(...): Handles upload of processed content to S3
+    _get_credentials(): Manages Google Cloud authentication
+
+Configuration:
+    - Requires configuration for:
+        - Yandex.Disk OAuth token
+        - S3 credentials
+        - Gemini API keys
+        - Google Cloud credentials
+
+Error Handling:
+    - Graceful shutdown on interruption
+    - API rate limit management
+    - Document processing failure tracking
+    - State persistence for recovery
+
+Usage:
+    The module is typically invoked through CLI commands that specify:
+    - Document selection (MD5 hash or path)
+    - Batch size and worker count
+    - Processing limits and filters
+"""
 from yadisk_client import YaDisk
 import mdformat
 from dirs import Dirs
@@ -16,6 +77,10 @@ import time
 from .pdf_extractor import PdfExtractor
 import random
 from models import Document
+
+
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+
 
 non_pdf_format_types = to_docx_mime_types | \
     check_encoding_mime_types | \
@@ -41,8 +106,9 @@ def _process_non_pdf(cli_params):
     )
     config = read_config()
     s3client = create_session(config)
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client, get_session() as session:
-        docs = obtain_documents(cli_params, ya_client, predicate)
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+        with get_session() as session:
+            docs = obtain_documents(cli_params, ya_client, predicate, session=session)
         if not docs:
             print("No documents for processing...")
             return
@@ -68,7 +134,9 @@ def _process_non_pdf(cli_params):
                 
             _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, s3client)
 
-            gsheets_session.update(doc)
+            with get_session() as session:
+                session.merge(doc)
+                session.commit()
             
             
 def _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, s3lient):        

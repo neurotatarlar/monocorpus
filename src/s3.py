@@ -14,6 +14,7 @@ def create_session(config=read_config()):
         aws_secret_access_key=aws_secret_access_key,
         endpoint_url='https://storage.yandexcloud.net'
     )
+    
 
 def upload_file(path, bucket, key, session, skip_if_exists=False):
     if not (skip_if_exists and session.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1).get("Contents", [])):
@@ -21,9 +22,9 @@ def upload_file(path, bucket, key, session, skip_if_exists=False):
             path,
             bucket,
             key
-        )
-    
+        )    
     return f"{session._endpoint.host}/{bucket}/{key}"
+
 
 def download(bucket, download_dir, prefix=''):
     s3 = create_session()

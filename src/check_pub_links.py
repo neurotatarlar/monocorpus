@@ -1,5 +1,64 @@
+"""
+Public Links Verification and Restoration Module
+
+This module verifies and restores public sharing links for documents stored in Yandex.Disk.
+It handles both regular and sharing-restricted documents, managing their encryption states
+and maintaining consistency between S3 storage and Yandex.Disk.
+
+Key Features:
+1. Link Verification
+   - Validates existing public URLs
+   - Handles encrypted URLs for restricted documents
+   - Checks document integrity via MD5 hashes
+
+2. Document Restoration
+   - Downloads documents from S3 when needed
+   - Re-uploads to Yandex.Disk if missing
+   - Recreates public sharing links
+   - Updates database records with new metadata
+
+3. Security Management
+   - Encrypts URLs for sharing-restricted documents
+   - Maintains proper access control during restoration
+   - Handles document republishing securely
+
+Functions:
+    check(): Main verification and restoration process
+    _restore(): Handles document restoration workflow
+    get_meta(): Retrieves Yandex.Disk metadata for a path
+    _extension_by_mime_type(): Maps MIME types to file extensions
+    _publish_file(): Manages document publishing process
+
+Process Flow:
+1. Query documents from database
+2. For each document:
+   - Verify public URL accessibility
+   - If URL is invalid or missing:
+     a. Check if file exists in Yandex.Disk
+     b. Download from S3 if needed
+     c. Upload to Yandex.Disk
+     d. Create new public link
+     e. Update database record
+
+Requirements:
+- Yandex.Disk OAuth token
+- S3 credentials and bucket configuration
+- Database access
+- Local storage for temporary files
+
+Error Handling:
+- Graceful handling of missing files
+- Recovery from failed uploads
+- Proper encryption state management
+- Transaction safety for database updates
+
+Usage:
+    The module is typically run as a maintenance task to ensure
+    all documents remain accessible through their public links.
+"""
+
 from sqlalchemy import select
-from utils import read_config, encrypt, get_in_workdir, decrypt
+from utils import read_config, encrypt, get_in_workdir, decrypt, get_session
 from yadisk_client import YaDisk
 from rich import print
 from s3 import create_session
@@ -9,15 +68,15 @@ import os
 from dirs import Dirs
 from models import Document
 
-def restore():
+def check():
     config = read_config()
     s3client = create_session(config)
     documents_bucket = config["yandex"]["cloud"]["bucket"]["document"]
 
-    with Session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
-        res = session.query(select(Document))
-    with Session() as session:
-        for doc in track(res):
+    with get_session() as session:
+        docs = list(session.scalars(select(Document)))
+    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+        for doc in track(docs, description="Checking public links"):
             try:
                 if not doc.ya_public_url:
                     _restore(doc, s3client, documents_bucket, ya_client, session, config)
@@ -32,7 +91,7 @@ def restore():
                 print(f"[red]Error during processing document: {e}: {traceback.format_exc()}[/red]")
                 
                 
-def _restore(doc, s3client, documents_bucket, ya_client, session, config):
+def _restore(doc, s3client, documents_bucket, ya_client, config):
     # print(f"File not found in Yandex Disk by public url `{doc.md5}`")
     if (meta := get_meta(doc.ya_path, ya_client)) and meta.md5 == doc.md5:
         # here if file exists and it is the same as in ghseets
@@ -65,7 +124,10 @@ def _restore(doc, s3client, documents_bucket, ya_client, session, config):
     doc.ya_public_url=encrypt(ya_public_url, config) if doc.sharing_restricted else ya_public_url
     doc.ya_path = ya_path.removeprefix('disk:') 
     doc.ya_resource_id = ya_resource_id
-    session.update(doc)
+    
+    with get_session() as session:
+        session.merge(doc)
+        session.commit()
     print(f"Restored file `{doc.md5}`")
     
 def get_meta(path, ya_client):

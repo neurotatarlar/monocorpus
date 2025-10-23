@@ -24,11 +24,12 @@ pillow
 ultralytics
 huggingface-hub
 spacy
+pyarrow
+fastparquet
 
 # Google services
 gspread
 google-api-python-client
-gspread-dataframe
 
 
 # git+https:///github.com/tagay1n/monocorpus-models
@@ -38,14 +39,11 @@ gspread-dataframe
 # pillow
 # beautifulsoup4
 # 
-# huggingface_hub
-# 
 # more-itertools
 # # for compatibility with typer==0.15.3
 # click<8.2
 # ebooklib
 #  
-# markdownify
 # huggingface-hub
 # pyarrow
 # fastparquet

@@ -1,4 +1,53 @@
+"""
+Limited Documents Matching and Migration Module
 
+This module handles the identification and migration of documents between limited and fully downloaded 
+collections in Yandex.Disk, along with their corresponding metadata in S3 storage.
+
+Key Features:
+1. Document Matching
+   - Compares documents between limited and fully downloaded directories
+   - Normalizes filenames for accurate matching
+   - Identifies overlapping documents between collections
+
+2. Metadata Migration
+   - Transfers upstream metadata between S3 objects
+   - Updates metadata references using new document hashes
+   - Maintains wiping plan for obsolete documents
+
+3. State Management
+   - Tracks documents marked for wiping
+   - Persists state between runs
+   - Handles incremental updates
+
+Functions:
+    match_limited(): Main entry point for matching and migration process
+    _lookup_upstream_metadata(): Retrieves existing metadata from S3
+    _get_wiping_plan(): Loads or creates document wiping state
+    _flush(): Persists updated wiping plan
+
+Directory Structure:
+    limited_dir: "/НейроТатарлар/kitaplar/monocorpus/милли.китапханә/limited"
+        Contains documents with limited/incomplete content
+
+    downloaded_fully_dir: "/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/milli_kitaphana_(un)limited"
+        Contains complete versions of previously limited documents
+
+Process Flow:
+1. Scan both directories and normalize document names
+2. Identify overlapping documents
+3. Lookup existing metadata in S3
+4. For each match:
+   - Copy metadata to new location with updated hash
+   - Remove old metadata
+   - Mark old document for wiping
+5. Save updated wiping plan
+
+Requirements:
+- Yandex.Disk access token
+- S3 credentials and bucket configuration
+- Local storage for wiping plan
+"""
 from utils import walk_yadisk, read_config, get_in_workdir
 import json 
 from yadisk_client import YaDisk
@@ -6,7 +55,6 @@ import unicodedata
 from s3 import  create_session
 from dirs import Dirs
 import os
-
 
 
 limited_dir = "/НейроТатарлар/kitaplar/monocorpus/милли.китапханә/limited"

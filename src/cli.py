@@ -74,19 +74,6 @@ def sync():
     sync.sync()
 
 
-@app.command()
-def select(query: list[str]):
-    """
-    Execute an SQL query on the monocorpus database.
-
-    This command allows users to run custom SQL queries directly on the monocorpus database. 
-    It provides a flexible way to retrieve, filter, or analyze data stored in the database 
-    based on the specified query.
-    """
-    import sheets_introspect
-    sheets_introspect.sheets_introspect(" ".join(query))
-
-
 # @extract_app.command(name="pdf")
 # def extract_pdf(
 #     md5: Annotated[
@@ -195,12 +182,18 @@ def select(query: list[str]):
     
 @app.command()
 def hf():
+    """
+    Assemble structured dataset from content files stored in S3.
+    """
     import hf 
     hf.assemble_dataset()
     
     
 @app.command()
 def meta():
+    """
+    Extract and normalize metadata for documents.
+    """
     import metadata
     metadata.extract_metadata()
     
@@ -236,6 +229,9 @@ def extract(
             help="Count of parallel workers to process documents. Each worker use separate Gemini API key. Cannot be more than count of available API keys.",
         )
     ] = 8):
+    """
+    Extract content from documents stored in Yandex Disk.
+    """
     import content
     cli_params = ExtractParams(
         md5=md5.strip() if md5 else None, 
@@ -294,57 +290,20 @@ def check_artifacts():
     import check_artifacts
     check_artifacts.check()
     
-
-@app.command()
-def normalize_metadata():
-    import metadata.normalize.normalizer as normalizer
-    normalizer.normalize()
-    
     
 @app.command()
-def upload_metadata():
-    import metadata.upload as uploader
-    uploader.upload()
+def check_pub_links():
+    """
+    Check public links of documents in Yandex Disk and restore if needed
+    """
+    import check_pub_links
+    check_pub_links.check()
     
-    
-@app.command()
-def restore_lost():
-    import restore_lost
-    restore_lost.restore()
-    
-    
-# @app.command()
-# def fill_db():
-#     import pandas as pd
-#     from sqlalchemy import create_engine
-#     from sqlalchemy.orm import sessionmaker
-#     import yaml
-    
-#     def _read_config(config_file: str = "config.yaml"):
-#         with open(config_file, 'r') as file:
-#             return yaml.safe_load(file)
-    
-#     def _get_db():
-#         db = None
-#         try:
-#             config = _read_config()
-#             engine = create_engine(config['database_url'], echo=True)
-#             yield sessionmaker(autocommit=False, autoflush=False, bind=engine)
-#         finally:
-#             if db:
-#                 db.close()
-    
-#     print("Going to read source file")
-#     with open("/home/tans1q/Downloads/monocorpus - monocorpus (9).csv", "r") as f:
-#         df = pd.read_csv(f)
-        
-#     print(df.head())
-#     print("Read source file, going to update db" )
-#     engine = create_engine('postgresql+psycopg2://tans1q:tans1q@localhost:5432/monocorpus', echo=True)
-#     df.to_sql("document", engine, if_exists="replace", index=False)
-#     print("Updated db" )
 
 @app.command()
 def dump_state():
+    """
+    Dump current database state into google sheets and google drive
+    """
     import dump_state
     dump_state.dump()

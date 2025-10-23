@@ -1,3 +1,68 @@
+"""
+Document Synchronization and Management Module
+
+This module handles synchronization between Yandex.Disk storage and database, manages document 
+filtering, and handles deduplication based on various criteria. It provides comprehensive 
+document management functionality including content verification, duplicate detection, and 
+automated file organization.
+
+Key Features:
+1. Document Synchronization
+   - Syncs files between Yandex.Disk and database
+   - Handles metadata updates and file publishing
+   - Manages document visibility and access control
+
+2. Document Filtering
+   - Identifies non-Tatar language documents
+   - Filters out non-textual content types
+   - Handles document deduplication by ISBN
+   - Manages restricted content separately
+
+3. Storage Management
+   - Handles S3 storage cleanup
+   - Manages file movement between directories
+   - Updates public sharing links
+
+Constants:
+    tatar_bcp_47_codes: List of BCP-47 language codes for Tatar variants
+    not_document_types: List of MIME types to be filtered out
+
+Key Functions:
+    sync(): Main synchronization process
+    _define_docs_for_wiping(): Identifies documents to be removed/moved
+    _dedup_by_isbn(): Handles ISBN-based deduplication
+    _process_file(): Processes individual files during sync
+    _move_to_filtered_out(): Moves files to appropriate filtered directories
+
+Process Flow:
+1. Initial Setup
+   - Load configuration
+   - Connect to S3 and database
+   - Retrieve upstream metadata
+
+2. Document Processing
+   - Identify documents for removal
+   - Process each file in Yandex.Disk
+   - Handle duplicates and invalid content
+   - Update database records
+
+3. Cleanup
+   - Remove filtered content from S3
+   - Move files to appropriate directories
+   - Update wiping plan
+
+Requirements:
+- Yandex.Disk OAuth token
+- S3 credentials and bucket configuration
+- Database access
+- Local storage for wiping plan
+
+Error Handling:
+- Graceful handling of API failures
+- Transaction safety for database updates
+- State persistence for interrupted operations
+"""
+
 from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally, get_session
 from yadisk_client import YaDisk
 from rich import print
@@ -52,12 +117,12 @@ def sync():
     config = read_config()
     s3client = create_session(config)
 
-    with get_session() as session, YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
-        session.query(text("select 1"))
+    with YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
         print("Requesting all upstream metadata urls") 
         upstream_metas = _lookup_upstream_metadata(s3client, config)
         print("Requesting all md5s") 
         all_md5s = get_all_md5s()
+        
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
         
@@ -75,7 +140,11 @@ def sync():
                 if dir_to_move := docs_for_wiping.get(file.md5, None):
                     # the file marked for wiping
                     _move_to_filtered_out(file, config, yaclient, dir_to_move)
-                    session._get_session().execute(delete(Document).where(Document.md5.is_(file.md5)))
+                    # delete record in database
+                    with get_session() as session:
+                        if doc := session.get(Document, file.md5):
+                            session.delete(doc)
+                            session.commit()
                     del docs_for_wiping[file.md5]
                     flush(docs_for_wiping)
                 else:
@@ -84,7 +153,10 @@ def sync():
                         yaclient, file, all_md5s,
                         skipped, meta, config
                     ):
-                        session.upsert([doc])
+                        with get_session() as session:
+                            session.merge(doc)
+                            session.commit()
+
             except Exception as e:
                 import traceback
                 print(f"[red]Error during syncing: {type(e).__name__}: {e} {traceback.format_exc()}[/red]")
@@ -144,14 +216,16 @@ def _define_docs_for_wiping(yaclient, config):
     docs_for_wiping = _get_wiping_plan()
 
     print("Querying non tatar documents")
-    non_tatar_docs = Session().query(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+    with get_session() as session:
+        non_tatar_docs = session.scalars(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
     non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
     print(f"Found {len(non_tatar_docs)} nontatar docs")
     docs_for_wiping.update(non_tatar_docs)
     flush(docs_for_wiping)
     
     print("Querying non textual docs")
-    nontextual_docs = get_session().query(select(Document).where(Document.mime_type.in_(not_document_types)))
+    with get_session() as session:
+        nontextual_docs = session.scalars(select(Document).where(Document.mime_type.in_(not_document_types)))
     nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
     print(f"Found {len(nontextual_docs)} nontextual docs")
     docs_for_wiping.update(nontextual_docs)
@@ -164,7 +238,8 @@ def _define_docs_for_wiping(yaclient, config):
 def _dedup_by_isbn(plan, yaclient, config):
     print("Deduplicating by ISBN")
     # Get all docs that have ISBNs
-    md5s_to_docs = { doc.md5 : doc for doc in  get_session().query(select(Document).where(Document.isbn.is_not(None)))}
+    with get_session() as session:
+        md5s_to_docs = { doc.md5 : doc for doc in  session.scalars(select(Document).where(Document.isbn.is_not(None)))}
     
     # Group them by ISBN
     isbns_to_docs = defaultdict(set)
@@ -330,15 +405,14 @@ def get_all_md5s():
     Returns a dict of all md5s in the database with ya_resource_id
     :return: set of md5s
     """
-    with Session() as s:
-        res = s._get_session().execute(
+    with get_session() as session:
+        res = session.execute(
             select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url, Document.ya_path, Document.ya_public_url)
         ).all()
         return { 
                 i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2], "ya_path": i[3], "ya_public_url": i[4]} 
                 for i 
                 in res 
-                if i[1] is not None
         }
         
 def should_be_skipped(file):

@@ -1,3 +1,19 @@
+"""
+Metadata Extraction Dispatcher Module
+
+This module handles the orchestration of metadata extraction from different document types
+using the Gemini AI model. It manages parallel processing, error handling, and state management
+for extracting metadata from PDF and text documents.
+
+Key Features:
+- Parallel metadata extraction using multiple API keys
+- Handling of both PDF and text-based documents
+- Automatic retries on API rate limits
+- Skip list management for problematic documents
+- State persistence for failed extractions
+"""
+
+
 from sqlalchemy import select
 from rich import print
 from s3 import upload_file, create_session
@@ -24,49 +40,35 @@ from models import Document
 model = 'gemini-2.5-pro'
 
 
-skip_pdf = set([
-    "d18af226805d9d352af7b97c8140f1b8",
-    "cfa071b659e0fc9971ff62ed1659b035",
-    "ec0a9711b045acfdbd6aa8a00806296d",
-    "d2b2822611cbdbbdda716e084896f361",
-    "34cc2bb7f6b8912a187efd7dcda0cf67",
-    "af08b326ce7ba90fd1142d87d4e59115",
-    "99fbf9040145fd330cdd91ef7838faeb",
-    "41be0586ebef64bbabeb905a93288809",
-    "11a9083e437bd5d61d97102799597084",
-    "dd713e13dd749131652b7eef5fedf4ac",
-    "11a9083e437bd5d61d97102799597084"
-    "dd713e13dd749131652b7eef5fedf4ac",
-    "b2d56b82efc561e9e74f56d8701fd646",
-    "913471a88265ebb27423b67477ea5f8a",
-    "32fdbabed0d8c5542cc4cf6dfa69d9ee",
-    "31a91979335f7c39e34ce764965f41d8",
-    "d4aa4ac8fdcd996d985f5bdafe3244d7",
-    "edadf934d54bb952958c9798b72af2fd",
-    "779f5587af3faee67d767ae4170d7c7e",
-    "2cd6ab2836e3062b322701da834ffb3e",
-    "60be21a1742e1c5723a034651314fc96",
-    "8f06ce5728c80dd2564eb0e7ada9b601",
-    "ae032d9ba4b2d7a32e2862439c848099",
-    "41752f8460921044a5909ff348b01b05",
-    "63092bd67e856d3a2ee93066737a4640",
-])
-
 skip_pdf = set()  # --- IGNORE ---
 
-# python src/main.py select 'count(md5) from Documents where metadata_extraction_method is not "gemini-2.5-pro/prompt.v2" and (content_url is not NULL or mime_type is "application/pdf")'
 
 def extract_metadata():
+    """
+    Main entry point for metadata extraction process.
+    
+    Processes all documents that don't have metadata and either:
+    - Have content URL stored
+    - Are PDF files
+    """
     print("Processing documents without metadata")
-    predicate = Document.metadata_json.is_(None) & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
+    predicate = (
+        Document.metadata_json.is_(None) & (
+            Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+        )
+    )
     _process_by_predicate(predicate)
     
-    # predicate = Document.metadata_extraction_method.is_not("gemini-2.5-pro/prompt.v2") & (Document.content_url.is_not(None) | Document.mime_type.is_('application/pdf'))
-    # print("Processing documents with older metadata extraction method...")
-    # _process_by_predicate(predicate)
-
     
-def _process_by_predicate(predicate, docs_batch_size=96, keys_batch_size=8):
+def _process_by_predicate(predicate, docs_batch_size=16, keys_batch_size=2):
+    """
+    Process documents matching the given predicate using parallel workers.
+    
+    Args:
+        predicate: SQLAlchemy filter predicate
+        docs_batch_size: Number of documents to process in one batch
+        keys_batch_size: Number of API keys to use in parallel
+    """
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = load_expired_keys()
@@ -86,9 +88,8 @@ def _process_by_predicate(predicate, docs_batch_size=96, keys_batch_size=8):
             else:
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
-            with Session() as read_session:
-                docs = read_session.query(select(Document).where(predicate).limit(docs_batch_size))
-            del read_session
+            with get_session() as session:
+                docs = list(session.scalars(select(Document).where(predicate).limit(docs_batch_size)))
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
@@ -128,9 +129,17 @@ def _process_by_predicate(predicate, docs_batch_size=96, keys_batch_size=8):
 
         break
         
+        
        
 class MetadataExtractionWorker:
+    """
+    Worker thread for parallel metadata extraction.
     
+    Attributes:
+        api_key: Gemini API key
+        docs_queue: Queue of documents to process
+        results_queue: Queue for processing results
+    """
     
     def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set):
         self.key = gemini_api_key
@@ -143,6 +152,7 @@ class MetadataExtractionWorker:
         
         
     def __call__(self):
+        """Process documents from queue until receiving None"""
         gemini_client = create_client(self.key)
         prev_req_time = None
         while True:
@@ -173,13 +183,8 @@ class MetadataExtractionWorker:
 
                 # upload metadata to s3
                 self._upload_artifacts_to_s3(doc, local_meta_path, local_doc_path)
-                doc.metadata_extraction_method = f"{model}/prompt.v2"
-                doc.metadata_json = meta_json
                 with get_session() as session:
-                    self._update_document(doc, metadata, session)
-                    session._get_session().commit()
-                    session._get_session().flush()
-                del gsheet_session
+                    self._update_document(doc.md5, metadata, session, meta_json)
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
             except Empty:
                 self.log("No tasks for processing, shutting down thread...")
@@ -220,7 +225,8 @@ class MetadataExtractionWorker:
             doc.document_url = encrypt(remote_doc_url, self.config) if doc.sharing_restricted else remote_doc_url
 
 
-    def _update_document(self, doc, meta, gsheet_session):
+    def _update_document(self, doc_md5, meta, session, meta_json):
+        doc = session.get(Document, doc_md5)
         doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
         doc.author =  ", ".join([a.name for a in meta.author if a.name.lower() != 'unknown' ]) if meta.author else None
         doc.title = meta.name if meta.name and meta.name.lower() != 'unknown' else None
@@ -258,8 +264,11 @@ class MetadataExtractionWorker:
             # if model detected count of pages in the document 
             # and the pages count is not too far from count of pages in pdf file
             doc.page_count = meta.numberOfPages
+         
+        doc.metadata_json = meta_json
+        doc.metadata_extraction_method = f"{model}/prompt.v2"
             
-        gsheet_session.update(doc)
+        session.commit()
 
 
     def log(self, message):
