@@ -218,18 +218,17 @@ def _define_docs_for_wiping(yaclient, config):
     print("Querying non tatar documents")
     with get_session() as session:
         non_tatar_docs = session.scalars(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
-    non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
-    print(f"Found {len(non_tatar_docs)} nontatar docs")
-    docs_for_wiping.update(non_tatar_docs)
-    flush(docs_for_wiping)
-    
-    print("Querying non textual docs")
-    with get_session() as session:
+        non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
+        print(f"Found {len(non_tatar_docs)} nontatar docs")
+        docs_for_wiping.update(non_tatar_docs)
+        flush(docs_for_wiping)
+        
+        print("Querying non textual docs")
         nontextual_docs = session.scalars(select(Document).where(Document.mime_type.in_(not_document_types)))
-    nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-    print(f"Found {len(nontextual_docs)} nontextual docs")
-    docs_for_wiping.update(nontextual_docs)
-    flush(docs_for_wiping)
+        nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+        print(f"Found {len(nontextual_docs)} nontextual docs")
+        docs_for_wiping.update(nontextual_docs)
+        flush(docs_for_wiping)
     
     _dedup_by_isbn(docs_for_wiping, yaclient, config)
     

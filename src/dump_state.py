@@ -43,7 +43,7 @@ def dump():
         
         print("Exporting to Google Sheets...")
         _export_to_gsheets(csv_path, creds)
-        print(f"✅ Exported to Google Sheets with title")
+        print(f"✅ Exported to Google Sheets")
     finally:
         if os.path.exists(csv_path):
             os.remove(csv_path)

@@ -18,7 +18,6 @@ import json
 from content.continuity_checker import continue_smoothly
 from pydantic import BaseModel, ValidationError
 from s3 import upload_file, create_session
-from yadisk.exceptions import PathNotFoundError
 from json.decoder import JSONDecodeError
 import datetime
 import time

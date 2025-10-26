@@ -57,10 +57,11 @@ def extract_metadata():
             Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
         )
     )
+    predicate = predicate & (Document.ya_path.not_like('/НейроТатарлар/kitaplar/monocorpus/common_crawl/%'))
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=16, keys_batch_size=2):
+def _process_by_predicate(predicate, docs_batch_size=200, keys_batch_size=4):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -101,33 +102,29 @@ def _process_by_predicate(predicate, docs_batch_size=16, keys_batch_size=2):
             if tasks_queue.empty():
                 print("No documents for processing...")
                 return
-            
-            s3lient = create_session(config)
-                
+                            
             threads = []
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
-                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set))
+                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests
 
             # Shutdown workers gracefully
             for t in threads:
-                t.join(timeout=120)
+                t.join()
         except KeyboardInterrupt:
             print("Interrupted, shutting down workers...")
             if tasks_queue:
                 tasks_queue.queue.clear()  # Clear the queue to stop workers
             if threads:
                 for t in threads:
-                    t.join(timeout=60)
-            return
+                    t.join(timeout=120)
         finally:
             dump_expired_keys(exceeded_keys_set)
 
-        break
         
         
        
@@ -141,11 +138,10 @@ class MetadataExtractionWorker:
         results_queue: Queue for processing results
     """
     
-    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, exceeded_keys_lock, exceeded_keys_set):
+    def __init__(self, gemini_api_key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
-        self.s3lient = s3lient
         self.ya_client = ya_client
         self.exceeded_keys_lock = exceeded_keys_lock
         self.exceeded_keys_set = exceeded_keys_set
@@ -163,11 +159,11 @@ class MetadataExtractionWorker:
                 
                 if doc.content_url:
                     prev_req_time = self._sleep_if_needed(prev_req_time)
-                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model=model).extract()
+                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, model=model).extract()
                 elif doc.mime_type == 'application/pdf':
                     local_doc_path = local_doc_path = download_file_locally(self.ya_client, doc, self.config)
                     prev_req_time = self._sleep_if_needed(prev_req_time)
-                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, self.s3lient, model, local_doc_path).extract()
+                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, model, local_doc_path).extract()
                 else:
                     self.log(f"Document {doc.md5} has no content_url or is not a PDF, skipping...")
                     continue
@@ -207,21 +203,22 @@ class MetadataExtractionWorker:
         if prev_req_time:
             elapsed = datetime.datetime.now() - prev_req_time
             if elapsed < datetime.timedelta(minutes=1):
-                time_to_sleep = int(60 - elapsed.total_seconds()) + 1
+                time_to_sleep = int(90 - elapsed.total_seconds()) + 1
                 self.log(f"Sleeping for {time_to_sleep} seconds")
                 time.sleep(time_to_sleep)
         return datetime.datetime.now()
             
             
-    def _upload_artifacts_to_s3(self, doc, local_meta_path, local_doc_path):        
+    def _upload_artifacts_to_s3(self, doc, local_meta_path, local_doc_path):   
+        s3lient = create_session(self.config)
         meta_key = f"{doc.md5}-meta.zip"
         meta_bucket = self.config["yandex"]["cloud"]['bucket']['metadata']
-        upload_file(local_meta_path, meta_bucket, meta_key, self.s3lient, skip_if_exists=False)
+        upload_file(local_meta_path, meta_bucket, meta_key, s3lient, skip_if_exists=False)
         
         if local_doc_path:
             doc_bucket = self.config["yandex"]["cloud"]['bucket']['document']
             doc_key = os.path.basename(local_doc_path)
-            remote_doc_url = upload_file(local_doc_path, doc_bucket, doc_key, self.s3lient, skip_if_exists=True)
+            remote_doc_url = upload_file(local_doc_path, doc_bucket, doc_key, s3lient, skip_if_exists=True)
             doc.document_url = encrypt(remote_doc_url, self.config) if doc.sharing_restricted else remote_doc_url
 
 

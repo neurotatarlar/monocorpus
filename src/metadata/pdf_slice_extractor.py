@@ -16,11 +16,10 @@ import json
 class FromPdfSliceMetadataExtractor:
     
     
-    def __init__(self, doc, config, gemini_client, s3lient, model, local_doc_path): 
+    def __init__(self, doc, config, gemini_client, model, local_doc_path): 
         self.doc = doc
         self.config = config
         self.gemini_client = gemini_client
-        self.s3lient = s3lient
         self.model = model
         self.local_doc_path = local_doc_path
         

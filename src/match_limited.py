@@ -58,7 +58,9 @@ import os
 
 
 limited_dir = "/НейроТатарлар/kitaplar/monocorpus/милли.китапханә/limited"
-downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/milli_kitaphana_(un)limited" 
+# downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/milli_kitaphana_(un)limited" 
+downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/милли.китапханә/full" 
+
 
 def match_limited():
     config = read_config()

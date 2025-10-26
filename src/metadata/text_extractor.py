@@ -11,11 +11,10 @@ import requests
 class FromTextMetadataExtractor:
     
     
-    def __init__(self, doc, config, gemini_client, s3lient, model):
+    def __init__(self, doc, config, gemini_client, model):
         self.doc = doc
         self.config = config
         self.gemini_client = gemini_client
-        self.s3lient = s3lient
         self.model = model
     
                 
