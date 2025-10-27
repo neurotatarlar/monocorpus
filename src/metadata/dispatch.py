@@ -36,6 +36,7 @@ import gc
 import datetime
 import time
 from models import Document
+import random
 
 model = 'gemini-2.5-pro'
 
@@ -57,11 +58,10 @@ def extract_metadata():
             Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
         )
     )
-    predicate = predicate & (Document.ya_path.not_like('/НейроТатарлар/kitaplar/monocorpus/common_crawl/%'))
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=200, keys_batch_size=4):
+def _process_by_predicate(predicate, docs_batch_size=64, keys_batch_size=1):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -81,8 +81,9 @@ def _process_by_predicate(predicate, docs_batch_size=200, keys_batch_size=4):
         gc.collect()
         try: 
             with exceeded_keys_lock:
-                available_keys =  set(config["gemini_api_keys"]) - exceeded_keys_set
-            keys_slice = list(available_keys)[:keys_batch_size]
+                available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
+            random.shuffle(available_keys)
+            keys_slice = available_keys[:keys_batch_size]
             if not keys_slice:
                 print("No keys available, exiting...")
                 return
@@ -122,6 +123,7 @@ def _process_by_predicate(predicate, docs_batch_size=200, keys_batch_size=4):
             if threads:
                 for t in threads:
                     t.join(timeout=120)
+            return
         finally:
             dump_expired_keys(exceeded_keys_set)
 

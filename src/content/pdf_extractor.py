@@ -371,7 +371,7 @@ class PdfExtractor:
         if self.gemini_query_time:
             elapsed = now - self.gemini_query_time
             if elapsed < datetime.timedelta(minutes=1):
-                time_to_sleep = int(60 - elapsed.total_seconds()) + 1
+                time_to_sleep = int(90 - elapsed.total_seconds()) + 1
                 self.log(f"Sleeping for {time_to_sleep} seconds")
                 time.sleep(time_to_sleep)
         self.gemini_query_time = now

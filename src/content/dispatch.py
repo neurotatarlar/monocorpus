@@ -77,7 +77,7 @@ import time
 from .pdf_extractor import PdfExtractor
 import random
 from models import Document
-
+from rich.progress import track
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
@@ -108,13 +108,15 @@ def _process_non_pdf(cli_params):
     s3client = create_session(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         with get_session() as session:
-            docs = obtain_documents(cli_params, ya_client, predicate, session=session)
+            docs = list(obtain_documents(cli_params, ya_client, predicate, session=session))
         if not docs:
             print("No documents for processing...")
             return
         
+        print(f"Got {len(docs)} docs for content extraction")
+        
         gcloud_creds = _get_credentials()
-        for doc in docs:
+        for doc in track(docs, description="Processing documents..."):
             print(f"Extracting content from file {doc.md5}({doc.ya_public_url})")
             local_doc_path = download_file_locally(ya_client, doc, config)
             if doc.mime_type == 'application/epub+zip':
