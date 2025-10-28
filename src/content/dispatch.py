@@ -93,7 +93,7 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    # _process_non_pdf(cli_params)
+    _process_non_pdf(cli_params)
     
     _process_pdf(cli_params)
     

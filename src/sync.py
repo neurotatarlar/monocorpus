@@ -76,6 +76,9 @@ from collections import defaultdict
 import pymupdf
 import typer
 from rich import print
+from rich.console import Console
+from rich.table import Table
+
 
 tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
 not_document_types = [
@@ -125,12 +128,12 @@ def sync():
         
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
-        
         if docs_for_wiping:
             print("Removing objects from s3 storage")
             _remove_from_s3(docs_for_wiping.keys(), s3client, config)
         else:
             print("No docs for wiping found")
+            return
             
         print("Syncing yadisk with Google sheets")
         entry_point = config['yandex']['disk']['entry_point']
@@ -269,6 +272,7 @@ def _dedup_by_isbn(plan, yaclient, config):
     }
     del duplicated_docs_md5s
         
+    console = Console()
     for isbn, md5s in duplicated_isbn_to_md5s.items():
         
         def _define_docs_to_move(_docs):
@@ -286,7 +290,10 @@ def _dedup_by_isbn(plan, yaclient, config):
                 return _docs - _extracted_pdf_docs
             
             _choices = {idx: doc for idx, doc in enumerate(sorted(_docs, key=lambda d: d.ya_public_url), start=1)}
-            _hint = []
+            # _hint = []
+            table = Table(title=isbn, expand=True, show_lines=True, show_header=False)
+            table.add_column("#", justify="center", style="cyan", no_wrap=True)
+            table.add_column(" ", )
             _params = set()
             for idx, doc in _choices.items():
                 local_path = md5_to_local_path[doc.md5]
@@ -296,15 +303,18 @@ def _dedup_by_isbn(plan, yaclient, config):
                 else:
                     pages_count = "N/A"
                 size = round(os.path.getsize(local_path) / 1024 / 1024, 2)
-                _hint.append(f"{idx}: {doc.md5} '{local_path}' {size} {pages_count} {doc.full} {doc.mime_type} {f' {doc.content_url}' if doc.content_url else ''}")
+                table.add_row(
+                    str(idx),
+                    f"md5: {doc.md5}\nlocal_path: {local_path}\nya_path: {doc.ya_path}\nsize: {size}\npages_count: {pages_count}\nfull: {doc.full}\nmime_type: {doc.mime_type}\ncontent_url: {doc.content_url if doc.content_url else 'N/A'}",
+                )
                 _params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}-{doc.full}")
             if len(_params) == 1:
                 # all files have same size and pages count, just pick the first
                 return _docs - {_choices[1]}
             else:
                 # ask user to choose which document to keep
-                _hint = "\n".join(_hint)
-                res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep:\n{_hint}\n", prompt_suffix="> ")
+                console.print(table)
+                res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep", prompt_suffix="> ")
                 if res.isdigit() and int(res) in _choices:
                     return _docs - {_choices[int(res)]}
                 else:
