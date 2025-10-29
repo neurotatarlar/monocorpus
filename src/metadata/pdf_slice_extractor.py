@@ -35,14 +35,21 @@ class FromPdfSliceMetadataExtractor:
         
         # send to gemini
         files = {slice_file_path: self.doc.mime_type}
-        response = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
-        del prompt
-        
-        # validate response
-        if not (raw_response := "".join([ch.text for ch in response if ch.text])):
-            return None
-        else:
-            return Book.model_validate_json(raw_response)
+        uploaded_files = []
+        try:
+            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
+            
+            # validate response
+            if not (raw_response := "".join([ch.text for ch in response if ch.text])):
+                return None
+            else:
+                return Book.model_validate_json(raw_response)
+        finally:
+            for file in uploaded_files:
+                try:
+                    self.gemini_client.files.delete(name=file.name)
+                except Exception as e:
+                    print(f"Failed to delete file {file.name}: {e}")
 
         
     def _prepare_slices(self, dest_path, n):

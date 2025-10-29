@@ -33,14 +33,12 @@ def create_client(api_key):
     return genai.Client(api_key=api_key)
 
 def gemini_api(prompt, model, client, files = {}, temperature=0.1, schema=None, timeout_sec=60*10):
+    uploaded_files = []
     for path, mime_type in files.items():
-        # _f = client.files.upload(
-        #     file=path,
-        #     config={"mime_type": mime_type}
-        # )
         _f = upload_and_wait(client, path, mime_type)
-        prompt.append(_f)
-    return client.models.generate_content_stream(
+        uploaded_files.append(_f)
+    prompt.extend(uploaded_files)
+    resp_stream = client.models.generate_content_stream(
         model=model,
         contents=prompt,
         # docs https://ai.google.dev/gemini-api/docs/text-generation#configuration-parameters
@@ -55,6 +53,7 @@ def gemini_api(prompt, model, client, files = {}, temperature=0.1, schema=None, 
             ),
         )
     )
+    return resp_stream, uploaded_files
 
 def upload_and_wait(client, path, mime_type, poll_interval=0.3, timeout=10):
     _f = client.files.upload(file=path, config={"mime_type": mime_type})

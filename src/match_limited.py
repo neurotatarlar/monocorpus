@@ -75,6 +75,8 @@ def match_limited():
         if not intersected:
             print("No intersections found, exiting...")
             return
+        else:
+            print(f"Found {len(intersected)} intersected docs between limited and fully downloaded docs")
         
         s3client = create_session(config)
         upstream_metadata_bucket = config['yandex']['cloud']['bucket']['upstream_metadata']

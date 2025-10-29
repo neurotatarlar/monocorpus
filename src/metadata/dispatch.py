@@ -55,13 +55,14 @@ def extract_metadata():
     print("Processing documents without metadata")
     predicate = (
         Document.metadata_json.is_(None) & (
-            Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+            # Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+            Document.mime_type == 'application/pdf' and Document.full == True
         )
     )
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=64, keys_batch_size=1):
+def _process_by_predicate(predicate, docs_batch_size=4, keys_batch_size=1):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -176,7 +177,7 @@ class MetadataExtractionWorker:
                 # write metadata to zip
                 local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
                 with zipfile.ZipFile(local_meta_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                    meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True)
+                    meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True, ensure_ascii=False)
                     zf.writestr("metadata.json", meta_json)
 
                 # upload metadata to s3
@@ -205,7 +206,7 @@ class MetadataExtractionWorker:
         if prev_req_time:
             elapsed = datetime.datetime.now() - prev_req_time
             if elapsed < datetime.timedelta(minutes=1):
-                time_to_sleep = int(90 - elapsed.total_seconds()) + 1
+                time_to_sleep = int(65 - elapsed.total_seconds()) + 1
                 self.log(f"Sleeping for {time_to_sleep} seconds")
                 time.sleep(time_to_sleep)
         return datetime.datetime.now()

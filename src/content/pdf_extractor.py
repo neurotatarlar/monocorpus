@@ -284,8 +284,9 @@ class PdfExtractor:
                     files = {slice_file_path: "application/pdf"}
                                         
                     self._sleep_if_needed()
+                    uploaded_files = []
                     try:
-                        resp = gemini_api(
+                        resp, uploaded_files = gemini_api(
                             client=gemini_client,
                             model=model,
                             prompt=prompt,
@@ -339,6 +340,12 @@ class PdfExtractor:
                             self.channel.add_unprocessable_doc(context.md5)
                             self.log(f"Could not extract chunk with any size of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
                             return {"stop_worker": False}
+                    finally:
+                        for file in uploaded_files:
+                            try:
+                                gemini_client.files.delete(name=file.name)
+                            except Exception as e:
+                                print(f"Failed to delete file {file.name}: {e}")
 
                     chunk_planner.mark_success(chunk)
                     
@@ -371,7 +378,7 @@ class PdfExtractor:
         if self.gemini_query_time:
             elapsed = now - self.gemini_query_time
             if elapsed < datetime.timedelta(minutes=1):
-                time_to_sleep = int(90 - elapsed.total_seconds()) + 1
+                time_to_sleep = int(70 - elapsed.total_seconds()) + 1
                 self.log(f"Sleeping for {time_to_sleep} seconds")
                 time.sleep(time_to_sleep)
         self.gemini_query_time = now
