@@ -87,7 +87,7 @@ def assemble_dataset():
             # Add document to dataset
             rows.append({
                 "id": md5,
-                "publish_year": str(doc.publish_date),
+                "publish_year": int(doc.publish_date) if doc.publish_date else None,
                 "genre" : doc.genre,
                 "text": content.decode('utf-8')
             })
@@ -97,6 +97,7 @@ def assemble_dataset():
     print(f"Final dataset size: {len(df)} documents")
     print("Exporting to parquet...")
     result_file = get_in_workdir(file="tatar_structured_content.parquet")
+    df['publish_year'] = df['publish_year'].astype('UInt16')
     df.to_parquet(result_file, index=False)
     print(f"✅ Exported to '{result_file}'")    
     

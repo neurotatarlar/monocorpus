@@ -55,14 +55,13 @@ def extract_metadata():
     print("Processing documents without metadata")
     predicate = (
         Document.metadata_json.is_(None) & (
-            # Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
-            Document.mime_type == 'application/pdf' and Document.full == True
+            Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
         )
     )
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=4, keys_batch_size=1):
+def _process_by_predicate(predicate, docs_batch_size=500, keys_batch_size=4):
     """
     Process documents matching the given predicate using parallel workers.
     
