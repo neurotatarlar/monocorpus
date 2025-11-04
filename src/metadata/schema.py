@@ -18,29 +18,30 @@ class CreativeWork(BaseModel):
     inLanguage: Optional[str] = None
     url: Optional[List[str]] = None
 
+
 class Book(BaseModel):
     context: str = Field(alias="@context")
     type: str = Field(alias="@type")
 
     # Core metadata
-    name: Optional[str]
-    author: Optional[List[PersonOrOrganization]]
-    contributor: Optional[List[PersonOrOrganization]]
-    publisher: Optional[PersonOrOrganization]
-    datePublished: Optional[str]
-    isbn: Optional[List[str]]
-    inLanguage: Optional[str]
-    description: Optional[str]
-    numberOfPages: Optional[int]
-    bookEdition: Optional[int]
-    additionalProperty: Optional[List[PropertyValue]]
+    name: Optional[str] = None
+    author: Optional[List[PersonOrOrganization]] = None
+    contributor: Optional[List[PersonOrOrganization]] = None
+    publisher: Optional[PersonOrOrganization] = None
+    datePublished: Optional[str] = None
+    isbn: Optional[List[str]] = None
+    inLanguage: Optional[str] = None
+    description: Optional[str] = None
+    numberOfPages: Optional[int] = None
+    bookEdition: Optional[int] = None
+    additionalProperty: Optional[List[PropertyValue]] = None
 
     # Optional enhancements
-    genre: Optional[List[str]]
-    audience: Optional[str]
-    accessMode: Optional[str]
-    accessModeSufficient: Optional[List[str]]
-    suggestedMinAge: Optional[int]
+    genre: Optional[List[str]] = None
+    audience: Optional[str] = None
+    accessMode: Optional[str] = None
+    accessModeSufficient: Optional[List[str]] = None
+    suggestedMinAge: Optional[int] = None
     isBasedOn: Optional[CreativeWork] = None 
     
     class Config:

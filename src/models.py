@@ -55,7 +55,7 @@ class Document(Base):
     sharing_restricted=Column(Boolean)
     document_url = Column(String)
     content_url = Column(String)
-    metadata_json = Column(JSON)
+    metadata_json = Column(String)
     upstream_metadata_url=Column(String)
 
     def __str__(self):

@@ -61,7 +61,7 @@ def extract_metadata():
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=500, keys_batch_size=4):
+def _process_by_predicate(predicate, docs_batch_size=500, keys_batch_size=8):
     """
     Process documents matching the given predicate using parallel workers.
     
