@@ -57,6 +57,7 @@ class Document(Base):
     content_url = Column(String)
     metadata_json = Column(String)
     upstream_metadata_url=Column(String)
+    in_library = Column(Boolean, nullable=False, default=True)
 
     def __str__(self):
         return '%s(%s)' % (

@@ -305,9 +305,3 @@ def dump_state():
     """
     import dump_state
     dump_state.dump()
-    
-
-@app.command()
-def fix_meta():
-    from fix_meta import fix_meta
-    fix_meta()
