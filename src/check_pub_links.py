@@ -79,13 +79,13 @@ def check():
         for doc in track(docs, description="Checking public links"):
             try:
                 if not doc.ya_public_url:
-                    _restore(doc, s3client, documents_bucket, ya_client, session, config)
+                    _restore(doc, s3client, documents_bucket, ya_client, config)
                     continue
                 try:
                     pub_url = decrypt(doc.ya_public_url, config) if doc.sharing_restricted else doc.ya_public_url
                     _ = ya_client.get_public_meta(pub_url, fields=["type"])
                 except PathNotFoundError:
-                    _restore(doc, s3client, documents_bucket, ya_client, session, config)
+                    _restore(doc, s3client, documents_bucket, ya_client, config)
             except Exception as e:
                 import traceback
                 print(f"[red]Error during processing document: {e}: {traceback.format_exc()}[/red]")

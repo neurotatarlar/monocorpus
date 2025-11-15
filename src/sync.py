@@ -133,7 +133,6 @@ def sync():
             _remove_from_s3(docs_for_wiping.keys(), s3client, config)
         else:
             print("No docs for wiping found")
-            return
             
         print("Syncing yadisk with Google sheets")
         entry_point = config['yandex']['disk']['entry_point']

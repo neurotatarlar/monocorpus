@@ -61,7 +61,7 @@ def extract_metadata():
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=400, keys_batch_size=6):
+def _process_by_predicate(predicate, docs_batch_size=300, keys_batch_size=6):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -91,7 +91,7 @@ def _process_by_predicate(predicate, docs_batch_size=400, keys_batch_size=6):
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with get_session() as session:
-                docs = list(session.scalars(select(Document).where(predicate).limit(docs_batch_size).offset(16)))
+                docs = list(session.scalars(select(Document).where(predicate).limit(docs_batch_size)))
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
