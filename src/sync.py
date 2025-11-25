@@ -226,7 +226,7 @@ def _define_docs_for_wiping(yaclient, config):
         flush(docs_for_wiping)
         
         print("Querying non textual docs")
-        nontextual_docs = session.scalars(select(Document).where(Document.mime_type.in_(not_document_types)))
+        nontextual_docs = session.scalars(select(Document).where(Document.mime_type.in_(not_document_types) | Document.ya_path.endswith('.eaf')))
         nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
         print(f"Found {len(nontextual_docs)} nontextual docs")
         docs_for_wiping.update(nontextual_docs)

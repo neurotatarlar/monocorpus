@@ -61,7 +61,7 @@ def extract_metadata():
     _process_by_predicate(predicate)
     
     
-def _process_by_predicate(predicate, docs_batch_size=300, keys_batch_size=6):
+def _process_by_predicate(predicate, docs_batch_size=20, keys_batch_size=5):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -188,7 +188,7 @@ class MetadataExtractionWorker:
                 self.log("No tasks for processing, shutting down thread...")
                 return
             except ClientError as e:
-                print(e)
+                print(f"ClientError during metadata extraction for doc '{doc.md5}({doc.ya_path})' with key '{self.key}': {e}")
                 if e.code == 429:
                     self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
                     self.tasks_queue.put(doc)
