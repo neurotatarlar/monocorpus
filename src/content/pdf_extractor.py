@@ -296,11 +296,18 @@ class PdfExtractor:
                         )
                         # write result into file
                         with open(chunk_result_incomplete_path, "w") as f:
+                            raw_content = ""
                             for p in resp:
                                 if p.usage_metadata:
                                     usage_meta = p.usage_metadata
                                 if text := p.text:
-                                    f.write(text)
+                                    raw_content += text
+                                    
+                            # replace all exsessive underscores (more than 10 in a row) with 10 underscores
+                            content = re.sub(r'_{11,}', '__________', raw_content)
+                            if content != raw_content:
+                                self.log(f"Replaced excessive underscores in chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
+                            f.write(content)
                                     
                         # validating schema
                         with open(chunk_result_incomplete_path, "r") as f:

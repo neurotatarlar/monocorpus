@@ -42,6 +42,14 @@ model = 'gemini-2.5-pro'
 
 
 skip_pdf = set()  # --- IGNORE ---
+skip_pdf = set([
+    "e1f79aa93bf4f17984f4016ad33cccaa",
+    "df96436a1e139d338720d49af49c0b7a",
+    "716de3640c81991c5902ac2d7aab5efc",
+    "c25c0d522a32cd53a1f65f09a3f1dfab",
+    "6e6c83bf1f8971aa7b5395f6c44180d6",
+    "98f95cb0fef6e35717a834332e6a1dd8"
+])
 
 
 def extract_metadata():
@@ -57,6 +65,7 @@ def extract_metadata():
         Document.metadata_json.is_(None) & (
             Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
         )
+        & Document.md5.not_in(skip_pdf)
     )
     _process_by_predicate(predicate)
     

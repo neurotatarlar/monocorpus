@@ -94,7 +94,7 @@ def assemble_dataset():
     
     # Create and save dataset        
     df = pd.DataFrame(rows)
-    print(f"Final dataset size: {len(df)} documents")
+    print(f"Final dataset size: {df.shape[0]} documents")
     print("Exporting to parquet...")
     result_file = get_in_workdir(file="tatar_structured_content.parquet")
     df['publish_year'] = df['publish_year'].astype('UInt16')
