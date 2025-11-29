@@ -15,3 +15,4 @@ class Dirs(Enum):
     LOGS = "misc/logs"
     BOXES_PLOTS = "misc/plots"
     PREDICTIONS = "predictions"
+    PARQUET = "parquet"
