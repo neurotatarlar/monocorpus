@@ -343,6 +343,12 @@ def flush(plan):
 
         
 def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config):
+    if file.path.startswith("disk:/НейроТатарлар/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
+        print(f"Skipping Anna's archive file '{file.path}'")
+        return
+    if '/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/random_files_thru_yandex_search/ilbyak-school.narod.ru' in file.path:
+        print(f"Skipping ilbyak-school.narod.ru file '{file.path}'")
+        return
 
     _should_be_skipped, mime_type = should_be_skipped(file)
     if _should_be_skipped:
