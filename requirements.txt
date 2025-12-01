@@ -31,24 +31,4 @@ fastparquet
 gspread
 google-api-python-client
 
-
-# git+https:///github.com/tagay1n/monocorpus-models
-# portion
-
-# 
-# pillow
-# beautifulsoup4
-# 
-# more-itertools
-# # for compatibility with typer==0.15.3
-# click<8.2
-# ebooklib
-#  
-# huggingface-hub
-# pyarrow
-# fastparquet
-# chardet
-# markitdown[pptx, docx, epub]
-# surya-ocr
-# rapidfuzz
-# scikit-learn
+requests>=2.32.4
