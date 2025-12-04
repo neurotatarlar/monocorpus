@@ -66,7 +66,7 @@ Error Handling:
 from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally, get_session
 from yadisk_client import YaDisk
 from rich import print
-from models import Document
+from models import Document, DocumentCrh
 from s3 import  create_session
 from sqlalchemy import text, select, delete
 import json
@@ -81,6 +81,8 @@ from rich.table import Table
 
 
 tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
+crimean_tatar_bcp_47_codes = ['crh-Latn', 'crh-Cyrl']
+
 not_document_types = [
     'application/vnd.android.package-archive',
     'image/jpeg',
@@ -111,6 +113,7 @@ not_document_types = [
     'video/3gpp',
     'application/x-7z-compressed',
     'image/png',
+    "image/x-icon",
 ]
 
 def sync():
@@ -124,54 +127,56 @@ def sync():
         print("Requesting all upstream metadata urls") 
         upstream_metas = _lookup_upstream_metadata(s3client, config)
         print("Requesting all md5s") 
-        all_md5s = get_all_md5s()
+        all_md5s = get_all_md5s(Document)
+        all_md5s_crh = get_all_md5s(DocumentCrh)
+        all_md5s.update(all_md5s_crh)
         
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
-        if docs_for_wiping:
-            print("Removing objects from s3 storage")
-            _remove_from_s3(docs_for_wiping.keys(), s3client, config)
-        else:
-            print("No docs for wiping found")
+        # if docs_for_wiping:
+        #     print("Removing objects from s3 storage")
+        #     _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        # else:
+        #     print("No docs for wiping found")
             
         print("Syncing yadisk with Google sheets")
-        entry_point = config['yandex']['disk']['entry_point']
         skipped = []
-        for file in walk_yadisk(client=yaclient, root=entry_point):
-            try:
-                if dir_to_move := docs_for_wiping.get(file.md5, None):
-                    # the file marked for wiping
-                    _move_to_filtered_out(file, config, yaclient, dir_to_move)
-                    # delete record in database
-                    with get_session() as session:
-                        if doc := session.get(Document, file.md5):
-                            session.delete(doc)
-                            session.commit()
-                    del docs_for_wiping[file.md5]
-                    flush(docs_for_wiping)
-                else:
-                    meta = upstream_metas.get(file.md5)
-                    if doc := _process_file(
-                        yaclient, file, all_md5s,
-                        skipped, meta, config
-                    ):
+        for lang_tag, entry_point in config['yandex']['disk']['entry_points'].items():
+            print(f"Processing entry point '{entry_point}' for language tag '{lang_tag}'")
+            for file in walk_yadisk(client=yaclient, root=entry_point):
+                try:
+                    if dir_to_move := docs_for_wiping.get(file.md5, None):
+                        # the file marked for wiping
+                        _move_to_filtered_out(file, config, yaclient, dir_to_move, entry_point)
+                        # delete record in database
                         with get_session() as session:
-                            session.merge(doc)
-                            session.commit()
+                            if doc := session.get(Document, file.md5):
+                                session.delete(doc)
+                                session.commit()
+                        del docs_for_wiping[file.md5]
+                        flush(docs_for_wiping)
+                    else:
+                        meta = upstream_metas.get(file.md5)
+                        if doc := _process_file(
+                            yaclient, file, all_md5s,
+                            skipped, meta, config, lang_tag, entry_point
+                        ):
+                            with get_session() as session:
+                                session.merge(doc)
+                                session.commit()
 
-            except Exception as e:
-                import traceback
-                print(f"[red]Error during syncing: {type(e).__name__}: {e} {traceback.format_exc()}[/red]")
-        if skipped:
-            print("Skipped by MIME type files:")
-            print(*skipped, sep="\n")
+                except Exception as e:
+                    import traceback
+                    print(f"[red]Error during syncing: {type(e).__name__}: {e} {traceback.format_exc()}[/red]")
+            if skipped:
+                print("Skipped by MIME type files:")
+                print(*skipped, sep="\n")
             
-def _move_to_filtered_out(file, config, ya_client, parent_dir):
+def _move_to_filtered_out(file, config, ya_client, parent_dir, entry_point):
     # For each file
     # 1. move file to dedicated folder
     # 2. unpublish file if it has public link
     filtered_out_dir = config['yandex']['disk']['filtered_out']
-    entry_point = config['yandex']['disk']['entry_point']
     
     if parent_dir == 'void':
         print(f"[magenta]Removing file '{file.md5}'('{file.path}')[/magenta]")
@@ -231,16 +236,30 @@ def _define_docs_for_wiping(yaclient, config):
         print(f"Found {len(nontextual_docs)} nontextual docs")
         docs_for_wiping.update(nontextual_docs)
         flush(docs_for_wiping)
+        
+        non_crimean_tatar_docs = session.scalars(select(DocumentCrh).where(DocumentCrh.language.not_in(crimean_tatar_bcp_47_codes)))
+        non_crimean_tatar_docs = {d.md5: f"noncrimeantatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_crimean_tatar_docs}
+        print(f"Found {len(non_tatar_docs)} noncrimeantatar docs")
+        docs_for_wiping.update(non_crimean_tatar_docs)
+        flush(docs_for_wiping)
+        
+        print("Querying non textual docs")
+        nontextual_docs = session.scalars(select(DocumentCrh).where(DocumentCrh.mime_type.in_(not_document_types) | DocumentCrh.ya_path.endswith('.eaf')))
+        nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
+        print(f"Found {len(nontextual_docs)} nontextual docs")
+        docs_for_wiping.update(nontextual_docs)
+        flush(docs_for_wiping)
     
-    _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    # _dedup_by_isbn(docs_for_wiping, yaclient, config, entity_cls=DocumentCrh)
     
     return docs_for_wiping
     
-def _dedup_by_isbn(plan, yaclient, config):
+def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
     print("Deduplicating by ISBN")
     # Get all docs that have ISBNs
     with get_session() as session:
-        md5s_to_docs = { doc.md5 : doc for doc in  session.scalars(select(Document).where(Document.isbn.is_not(None)))}
+        md5s_to_docs = { doc.md5 : doc for doc in  session.scalars(select(entity_cls).where(entity_cls.isbn.is_not(None)))}
     
     # Group them by ISBN
     isbns_to_docs = defaultdict(set)
@@ -323,7 +342,7 @@ def _dedup_by_isbn(plan, yaclient, config):
         docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
         docs_for_wiping = _define_docs_to_move(docs_same_isbn)
         if docs_for_wiping:
-            plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
+            plan.update({d.md5: f"duplicated_isbn_crh/{isbn}" for d in docs_for_wiping})
             flush(plan)
 
     
@@ -342,7 +361,7 @@ def flush(plan):
         json.dump(plan, f, indent=4, ensure_ascii=False)
 
         
-def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config):
+def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config, lang_tag, entry_point):
     if file.path.startswith("disk:/НейроТатарлар/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
         print(f"Skipping Anna's archive file '{file.path}'")
         return
@@ -352,7 +371,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
 
     _should_be_skipped, mime_type = should_be_skipped(file)
     if _should_be_skipped:
-        _move_to_filtered_out(file, config, ya_client, 'nontextual')
+        _move_to_filtered_out(file, config, ya_client, 'nontextual', entry_point)
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
         return
     
@@ -383,19 +402,18 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[/green]")
 
     sharing_restricted = config["yandex"]["disk"]["hidden"] in file.path 
-    doc = Document(
-        md5=file.md5,
-        mime_type=mime_type,
-        ya_path=ya_path,
-        ya_public_key=ya_public_key,
-        ya_public_url=encrypt(ya_public_url, config) if sharing_restricted else ya_public_url,
-        sharing_restricted=sharing_restricted,
-        ya_resource_id=file.resource_id,
-        upstream_metadata_url=upstream_meta,
-        full=False if "милли.китапханә/limited" in file.path else True,
-    )
+    doc = Document() if lang_tag == 'tt' else DocumentCrh()
+    doc.md5=file.md5
+    doc.mime_type=mime_type
+    doc.ya_path=ya_path
+    doc.ya_public_key=ya_public_key
+    doc.ya_public_url=encrypt(ya_public_url, config) if sharing_restricted else ya_public_url
+    doc.sharing_restricted=sharing_restricted
+    doc.ya_resource_id=file.resource_id
+    doc.upstream_meta_url=upstream_meta
+    doc.full=False if "милли.китапханә/limited" in file.path else True
     # update gsheet
-    all_md5s[file.md5] = {"resource_id": doc.ya_resource_id, "upstream_metadata_url": doc.upstream_metadata_url} 
+    all_md5s[file.md5] = {"resource_id": doc.ya_resource_id, "upstream_meta_url": doc.upstream_meta_url} 
     return doc
 
 def _publish_file(client, path):
@@ -414,17 +432,17 @@ def _lookup_upstream_metadata(s3client, config):
          for obj in page['Contents']
     }
     
-def get_all_md5s():
+def get_all_md5s(entity_cls):
     """
     Returns a dict of all md5s in the database with ya_resource_id
     :return: set of md5s
     """
     with get_session() as session:
         res = session.execute(
-            select(Document.md5, Document.ya_resource_id, Document.upstream_metadata_url, Document.ya_path, Document.ya_public_url)
+            select(entity_cls.md5, entity_cls.ya_resource_id, entity_cls.upstream_meta_url, entity_cls.ya_path, entity_cls.ya_public_url)
         ).all()
         return { 
-                i[0]: {"resource_id": i[1], "upstream_metadata_url": i[2], "ya_path": i[3], "ya_public_url": i[4]} 
+                i[0]: {"resource_id": i[1], "upstream_meta_url": i[2], "ya_path": i[3], "ya_public_url": i[4]} 
                 for i 
                 in res 
         }

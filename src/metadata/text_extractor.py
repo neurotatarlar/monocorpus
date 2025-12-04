@@ -1,27 +1,31 @@
 from utils import decrypt
-from prompt import DEFINE_META_PROMPT_NON_PDF_HEADER, DEFINE_META_PROMPT_BODY
-from rich import print
+from prompt import DEFINE_META_PROMPT_NON_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
 from utils import get_in_workdir
 from dirs import Dirs
 from gemini import gemini_api
 from metadata.schema import Book
 import zipfile
 import requests
+import json
 
 class FromTextMetadataExtractor:
     
     
-    def __init__(self, doc, config, gemini_client, model):
+    def __init__(self, doc, config, gemini_client, model, lang_tag):
         self.doc = doc
         self.config = config
         self.gemini_client = gemini_client
         self.model = model
+        self.lang_tag = lang_tag
     
                 
     def extract(self):
         slice = self._load_extracted_content()
         # prepare prompt
         prompt = self._prepare_prompt(slice)
+        # write prompt to file for debugging
+        with open(get_in_workdir(Dirs.PROMPTS, file=f"{self.doc.md5}-meta-prompt.txt"), "w") as f:
+            f.write(json.dumps(prompt, ensure_ascii=False, indent=4))
         response, _ = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, schema=Book, timeout_sec=120)
         del prompt
         # validate response
@@ -52,6 +56,7 @@ class FromTextMetadataExtractor:
         prompt = DEFINE_META_PROMPT_NON_PDF_HEADER.format(n=len(slice))
         prompt = [{'text': prompt}]
         prompt.append({'text': DEFINE_META_PROMPT_BODY})
+        prompt.append({'text': DEFINE_META_PROMPT_TT_FOOTER if self.lang_tag == 'tt' else DEFINE_META_PROMPT_CRH_FOOTER})
         prompt.append({"text": "Now, extract metadata from the following extraction from the document"})
         prompt.append({"text": slice})
         return prompt

@@ -35,13 +35,46 @@ from yadisk_client import YaDisk
 import gc
 import datetime
 import time
-from models import Document
+from models import Document, DocumentCrh
 import random
 
 model = 'gemini-2.5-pro'
 
 
-skip_pdf = set()  # --- IGNORE ---
+skip_pdf = set([
+    "f8eba00ee3e0a74aa15439f83173a358",
+    "ecc476f02c8255e53ef76a019443f452",
+    "0139072f6aeb40a0b85d9e3513ff3c18",
+    "34a5f7d1f01d8bc7aadebf2bfba18a7f",
+    "89e7b6bdfc19e7e3ff3319e1e498e99c",
+    "73ab5e2215a6d0caa639af3adaa8dbe0",
+    "8ee3f0890cc5fcde8a8f124c41e2e484",
+    "67d74ff4b3437c4f4f36d93f2a565141",
+    "cead69d49dc5293c3784498dcdf1b1cf",
+    "e8d527cce10b132660a6225adfdd64ae",
+    "aedb220536b900cd51b34fc349993b62",
+    "40f582f43ed246b9c2510b64bc273bdf",
+    "560a3cfcabd9d37a1ccc5293523ccff0",
+    "743288b446c9489f218050df9ec85b28",
+    "fe3134f337e21ac4f72173f4c15875c2",
+    "f76fd2938d9c90e32df0935fe1a5d104",
+    "12730476a04202678e5ed8549aeb54b8",
+    "9a8773e8e2c524e6113c1061086e6d48",
+    "9e13ff7fd9740e3f4089b6fd63bc259b",    
+    "b56ff22e1fc6b2e834a9e6b34699c3cf",
+    'e73af3961941eda31ec13eb83e9f7b39',
+    '3e0e45b2353c99c80fa44f493b5f4d93',
+    '6aa21b915021ddc713dab5a0b43d813b',
+    '7349b5837efd90c5e0c0f9db79387916',
+    'a503f53802bab9df52733806202dd797',
+    '0bb284a498c012b690b26450a76ff581',
+    '487b7ccaac157c062d111d46f48ec2fb',
+    '30e52c059f85fc4701d0a66e9b1a4163',
+    '0993ad06508d849d26b06b5fb2481446',
+    'e06774a36d22c63fd420a49883569127',
+    '9d7fdbae61b1bb84d40d2f3303edac3e',
+    
+])  # --- IGNORE ---
 
 def extract_metadata():
     """
@@ -50,18 +83,27 @@ def extract_metadata():
     Processes all documents that don't have metadata and either:
     - Have content URL stored
     - Are PDF files
-    """
-    print("Processing documents without metadata")
+    # """
+    # print("Processing 'tt' documents without metadata")
+    # predicate = (
+    #     Document.meta.is_(None) & (
+    #         Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+    #     )
+    #     & Document.md5.not_in(skip_pdf)
+    # )
+    # _process_by_predicate(predicate, 'tt')
+    
+    print("Processing 'crh' documents without metadata")
     predicate = (
-        Document.metadata_json.is_(None) & (
-            Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+        DocumentCrh.meta.is_(None) & (
+            DocumentCrh.content_url.is_not(None) | (DocumentCrh.mime_type == 'application/pdf')
         )
-        & Document.md5.not_in(skip_pdf)
+        & DocumentCrh.md5.not_in(skip_pdf)
     )
-    _process_by_predicate(predicate)
+    _process_by_predicate(predicate, 'crh')
     
     
-def _process_by_predicate(predicate, docs_batch_size=20, keys_batch_size=5):
+def _process_by_predicate(predicate, lang_tag, docs_batch_size=60, keys_batch_size=6):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -91,7 +133,8 @@ def _process_by_predicate(predicate, docs_batch_size=20, keys_batch_size=5):
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with get_session() as session:
-                docs = list(session.scalars(select(Document).where(predicate).limit(docs_batch_size)))
+                entity_cls = Document if lang_tag == 'tt' else DocumentCrh
+                docs = list(session.scalars(select(entity_cls).where(predicate).limit(docs_batch_size).offset(10)))
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
@@ -108,7 +151,7 @@ def _process_by_predicate(predicate, docs_batch_size=20, keys_batch_size=5):
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
-                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set))
+                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set, lang_tag))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests
@@ -124,6 +167,9 @@ def _process_by_predicate(predicate, docs_batch_size=20, keys_batch_size=5):
                 for t in threads:
                     t.join(timeout=120)
             return
+        except Exception as e:
+            print(f"Error during processing: {e}")
+            continue
         finally:
             dump_expired_keys(exceeded_keys_set)
 
@@ -140,13 +186,14 @@ class MetadataExtractionWorker:
         results_queue: Queue for processing results
     """
     
-    def __init__(self, gemini_api_key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set):
+    def __init__(self, gemini_api_key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set, lang_tag):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.ya_client = ya_client
         self.exceeded_keys_lock = exceeded_keys_lock
         self.exceeded_keys_set = exceeded_keys_set
+        self.lang_tag=lang_tag
         
         
     def __call__(self):
@@ -161,11 +208,11 @@ class MetadataExtractionWorker:
                 
                 if doc.content_url:
                     prev_req_time = self._sleep_if_needed(prev_req_time)
-                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, model=model).extract()
+                    metadata = FromTextMetadataExtractor(doc, self.config, gemini_client, model=model, lang_tag=self.lang_tag).extract()
                 elif doc.mime_type == 'application/pdf':
                     local_doc_path = local_doc_path = download_file_locally(self.ya_client, doc, self.config)
                     prev_req_time = self._sleep_if_needed(prev_req_time)
-                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, model, local_doc_path).extract()
+                    metadata = FromPdfSliceMetadataExtractor(doc, self.config, gemini_client, model, local_doc_path, lang_tag=self.lang_tag).extract()
                 else:
                     self.log(f"Document {doc.md5} has no content_url or is not a PDF, skipping...")
                     continue
@@ -194,7 +241,7 @@ class MetadataExtractionWorker:
                     self.tasks_queue.put(doc)
                     with self.exceeded_keys_lock:
                         self.exceeded_keys_set.add(self.key)
-                return
+                continue
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
@@ -225,7 +272,7 @@ class MetadataExtractionWorker:
 
 
     def _update_document(self, doc_md5, meta, session, meta_json):
-        doc = session.get(Document, doc_md5)
+        doc = session.get(Document, doc_md5) if self.lang_tag == 'tt' else session.get(DocumentCrh, doc_md5)
         doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
         doc.author =  ", ".join([a.name for a in meta.author if a.name.lower() != 'unknown' ]) if meta.author else None
         doc.title = meta.name if meta.name and meta.name.lower() != 'unknown' else None
@@ -264,15 +311,15 @@ class MetadataExtractionWorker:
             # and the pages count is not too far from count of pages in pdf file
             doc.page_count = meta.numberOfPages
          
-        doc.metadata_json = meta_json
-        doc.metadata_extraction_method = f"{model}/prompt.v2"
+        doc.meta = meta_json
+        doc.meta_extraction_method = f"{model}/prompt.v2"
             
         session.commit()
 
 
     def log(self, message):
         message = f"{threading.current_thread().name} {time.strftime('%d-%m-%y %H:%M:%S')} {self.key[-7:]}: {message}"
-        log_file = get_in_workdir(Dirs.LOGS, file=f"metadata_extraction_{self.key}.log")
+        log_file = get_in_workdir(Dirs.LOGS, file=f"meta_extraction_{self.key}.log")
         with open(log_file, "a") as log:
             log.write(f"{message}\n")
         print(message)

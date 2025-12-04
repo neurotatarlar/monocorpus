@@ -8,7 +8,7 @@ import os
 from itertools import groupby
 import pymupdf
 import zipfile
-from prompt import DEFINE_META_PROMPT_PDF_HEADER, DEFINE_META_PROMPT_BODY
+from prompt import DEFINE_META_PROMPT_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
 import requests
 import json
 
@@ -16,12 +16,13 @@ import json
 class FromPdfSliceMetadataExtractor:
     
     
-    def __init__(self, doc, config, gemini_client, model, local_doc_path): 
+    def __init__(self, doc, config, gemini_client, model, local_doc_path, lang_tag): 
         self.doc = doc
         self.config = config
         self.gemini_client = gemini_client
         self.model = model
         self.local_doc_path = local_doc_path
+        self.lang_tag = lang_tag
         
         
     def extract(self):
@@ -32,6 +33,9 @@ class FromPdfSliceMetadataExtractor:
         
         # prepare prompt
         prompt = self._prepare_prompt(slice_page_count)
+        # write prompt to file for debugging
+        with open(get_in_workdir(Dirs.PROMPTS, file=f"{self.doc.md5}-meta-prompt.txt"), "w") as f:
+            f.write(json.dumps(prompt, ensure_ascii=False, indent=4))
         
         # send to gemini
         files = {slice_file_path: self.doc.mime_type}
@@ -78,6 +82,7 @@ class FromPdfSliceMetadataExtractor:
         prompt = DEFINE_META_PROMPT_PDF_HEADER.format(n=int(slice_page_count / 2),)
         prompt = [{'text': prompt}]
         prompt.append({'text': DEFINE_META_PROMPT_BODY})
+        prompt.append({'text': DEFINE_META_PROMPT_TT_FOOTER if self.lang_tag == 'tt' else DEFINE_META_PROMPT_CRH_FOOTER})
         if raw_input_metadata := self._load_upstream_metadata():
             prompt.append({
                 "text": "📌 In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
@@ -90,10 +95,10 @@ class FromPdfSliceMetadataExtractor:
     
     
     def _load_upstream_metadata(self):
-        if not (upstream_metadata_url := self.doc.upstream_metadata_url):
+        if not (upstream_meta_url := self.doc.upstream_meta_url):
             return None
         upstream_metadata_zip = get_in_workdir(Dirs.UPSTREAM_METADATA, file=f"{self.doc.md5}.zip")
-        with open(upstream_metadata_zip, "wb") as um_zip, requests.get(upstream_metadata_url, stream=True) as resp:
+        with open(upstream_metadata_zip, "wb") as um_zip, requests.get(upstream_meta_url, stream=True) as resp:
             resp.raise_for_status()
             for chunk in resp.iter_content(chunk_size=8192): 
                 um_zip.write(chunk)

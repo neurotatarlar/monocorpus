@@ -3,6 +3,7 @@ import pandas as pd
 from rich import print
 from google.oauth2.credentials import Credentials
 import gspread
+from gspread.exceptions import WorksheetNotFound
 import os
 from datetime import datetime
 from googleapiclient.discovery import build
@@ -11,6 +12,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 import csv
 import zipfile
 from rich.progress import track
+from models import Document, DocumentCrh
 
 
 
@@ -18,18 +20,26 @@ from rich.progress import track
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 shared_folder_id = "1WFYCcbrtKGv3KTwyKdcKHKxXwmr9iFHE"
 spread_sheet_id = "1qHkn0ZFObgUZtQbPXtdbXa1Bf0UWPKjsyuhOZCTyNGQ"
+worksheet_monocorpus = "tt"
+worksheet_monocorpus_crh = "crh"
 
 def dump():
     csv_path = None
+    csv_path_crh = None
     zip_path = None
     try:
         csv_path = get_in_workdir(file = "monocorpus_backup.csv")
+        csv_path_crh = get_in_workdir(file = "monocorpus_crh_backup.csv")
         timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M")
         title = f"monocorpus_{timestamp}"
         
         print("Dumping `document` table to CSV...")
-        df = _dump_to_csv(csv_path)
+        df = _dump_table_to_csv(csv_path, Document)
         print(f"✅ Exported {len(df)} rows to {csv_path}")
+
+        print("Dumping `document_crh` table to CSV...")
+        df_crh = _dump_table_to_csv(csv_path_crh, DocumentCrh)
+        print(f"✅ Exported {len(df_crh)} rows to {csv_path_crh}")
         
         print("Creating ZIP archive...")
         zip_path = get_in_workdir(file = "monocorpus_backup.zip")
@@ -41,14 +51,17 @@ def dump():
         _export_to_gdrive(zip_path, creds, title) 
         print(f"✅ Uploaded to Google Drive")
         
-        print("Exporting to Google Sheets...")
-        _export_to_gsheets(csv_path, creds)
-        print(f"✅ Exported to Google Sheets")
+        print("Exporting to Google Sheets (main corpus)...")
+        _export_to_gsheets(csv_path, creds, worksheet_monocorpus)
+        print(f"✅ Exported to Google Sheets: {worksheet_monocorpus}")
+
+        print("Exporting to Google Sheets (Crimean Tatar corpus)...")
+        _export_to_gsheets(csv_path_crh, creds, worksheet_monocorpus_crh)
+        print(f"✅ Exported to Google Sheets: {worksheet_monocorpus_crh}")
     finally:
-        if os.path.exists(csv_path):
-            os.remove(csv_path)
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
+        for path in (csv_path, csv_path_crh, zip_path):
+            if path and os.path.exists(path):
+                os.remove(path)
             
             
 def zip(csv_path, zip_path, title):
@@ -56,12 +69,10 @@ def zip(csv_path, zip_path, title):
         zipf.write(csv_path, arcname=f"{title}.csv")
 
     
-def _export_to_gsheets(csv_path, creds, chunk_size=1000):
+def _export_to_gsheets(csv_path, creds, worksheet_name, chunk_size=1000):
     gc = gspread.authorize(creds)  # same creds as above
     sh = gc.open_by_key(spread_sheet_id) 
-    worksheet = sh.worksheet("monocorpus")
-    # worksheet = sh.add_worksheet(title=title, rows="40000", cols="25")
-    # worksheet.update_index(0)
+    worksheet = _get_or_create_worksheet(sh, worksheet_name)
 
     worksheet.clear()
     
@@ -99,10 +110,17 @@ def _export_to_gsheets(csv_path, creds, chunk_size=1000):
     sh.batch_update(wrap_request)
 
 
-def _dump_to_csv(output_path):
+def _get_or_create_worksheet(sh, title):
+    try:
+        return sh.worksheet(title)
+    except WorksheetNotFound:
+        return sh.add_worksheet(title=title, rows="40000", cols="25")
+
+
+def _dump_table_to_csv(output_path, model):
     """Dump a PostgreSQL table to CSV."""
     engine = get_engine()
-    df = pd.read_sql(f"SELECT * FROM Document ORDER BY ya_path", engine)
+    df = pd.read_sql(f"SELECT * FROM {model.__tablename__} ORDER BY ya_path", engine)
     df = df.convert_dtypes()
     df.to_csv(output_path, index=False)
     return df
@@ -140,7 +158,6 @@ def _get_credentials():
     with open(token_file, 'w') as f:
         f.write(creds.to_json())
     return Credentials.from_authorized_user_file(token_file, SCOPES)
-
 
 
 

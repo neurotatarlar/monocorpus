@@ -71,14 +71,14 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
         return path
 
 
-def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=None, session=get_session()):
+def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=None, offset=None, session=get_session()):
     def _yield_by_md5(_md5, _predicate):
         print(f"Looking for document by md5 '{_md5}'")
         if _predicate is None:
-            _predicate = Document.md5 == _md5
+            _predicate = entity_cls.md5 == _md5
         else:
-            _predicate &= (Document.md5 == _md5)
-        yield from _find(session, predicate=_predicate, limit=1)
+            _predicate &= (entity_cls.md5 == _md5)
+        yield from _find(session, predicate=_predicate, limit=1, entity_cls=entity_cls)
 
     def _yield_by_path(_path, _predicate):
         _meta = ya_client.get_meta(_path, fields=['md5', 'type', 'path'])
@@ -86,7 +86,7 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=N
             yield from _yield_by_md5(_meta.md5, _predicate)
         elif _meta.type == 'dir':
             print(f"Traversing documents by path '{_path}'")
-            unprocessed_docs = {d.md5: d for d in _find(session, _predicate)}
+            unprocessed_docs = {d.md5: d for d in _find(session, _predicate, entity_cls=entity_cls)}
             counter = 0
             dirs_to_visit = [_meta.path]
             while dirs_to_visit:
@@ -107,7 +107,7 @@ def obtain_documents(cli_params, ya_client, predicate=None, limit=None, offset=N
         yield from _yield_by_path(cli_params.path, predicate)
     else:
         print("Traversing all unprocessed documents")
-        yield from _find(session, predicate=predicate, limit=limit, offset=offset)
+        yield from _find(session, predicate=predicate, limit=limit, offset=offset, entity_cls=entity_cls)
 
 
 def download_file_locally(ya_client, doc, config):
@@ -136,8 +136,8 @@ def download_file_locally(ya_client, doc, config):
     return local_path
 
 
-def _find(session, predicate=None, limit=None, offset=None):
-    statement = select(Document)
+def _find(session, entity_cls, predicate=None, limit=None, offset=None, ):
+    statement = select(entity_cls)
     if predicate is not None:
         statement = statement.where(predicate)
     if limit:

@@ -109,6 +109,7 @@ def assemble_dataset():
         schema=schema,
         max_rows_per_file=20_000,
         target_file_size_bytes=3 * 256 * 1024 * 1024,
+        max_rows_per_row_group=256,
     )
 
     print(f"Final dataset size: {total_rows} documents across {total_files} parquet files")
@@ -131,9 +132,11 @@ def _write_parquet_shards(
     schema: pa.Schema,
     max_rows_per_file: int,
     target_file_size_bytes: int,
+    max_rows_per_row_group: int,
 ) -> Tuple[int, int]:
     """
-    Stream documents into multiple parquet files to avoid loading everything in memory.
+    Stream documents into multiple parquet files to avoid loading everything in memory and
+    keep row groups small enough for Hugging Face's parquet scan limits.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -145,7 +148,13 @@ def _write_parquet_shards(
     def _flush(current_batch: List[Dict], index: int) -> None:
         table = pa.Table.from_pylist(current_batch, schema=schema)
         file_path = os.path.join(output_dir, f"tatar_structured_content_{index:04d}.parquet")
-        pq.write_table(table, file_path, compression="snappy")
+        pq.write_table(
+            table,
+            file_path,
+            compression="snappy",
+            row_group_size=max_rows_per_row_group,
+            write_page_index=True,
+        )
         print(f"Wrote {len(current_batch)} rows to {file_path}")
 
     for row in rows:

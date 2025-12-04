@@ -76,7 +76,7 @@ import threading
 import time
 from .pdf_extractor import PdfExtractor
 import random
-from models import Document
+from models import Document, DocumentCrh
 from rich.progress import track
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
@@ -93,22 +93,25 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    _process_non_pdf(cli_params)
-    
-    _process_pdf(cli_params)
+    for lang_tag in ['tt', 'crh']:
+    # for lang_tag in ['crh']:
+        _process_non_pdf(cli_params, lang_tag)
+        _process_pdf(cli_params, lang_tag)
     
  
-def _process_non_pdf(cli_params):
+def _process_non_pdf(cli_params, lang_tag):
     print("Extracting content of nonpdf documents")
+    entity_cls = Document if lang_tag == 'tt' else DocumentCrh
     predicate = (
-        Document.content_url.is_(None) &
-        Document.mime_type.in_(non_pdf_format_types)
+        entity_cls.content_url.is_(None) &
+        entity_cls.mime_type.in_(non_pdf_format_types)
+        & entity_cls.md5.not_in(["f8a45a0ed214416d0e48dd9ae61d4d68"])
     )
     config = read_config()
     s3client = create_session(config)
     with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
         with get_session() as session:
-            docs = list(obtain_documents(cli_params, ya_client, predicate, session=session))
+            docs = list(obtain_documents(cli_params, ya_client, predicate=predicate, session=session, entity_cls=entity_cls))
         if not docs:
             print("No documents for processing...")
             return
@@ -117,6 +120,9 @@ def _process_non_pdf(cli_params):
         
         gcloud_creds = _get_credentials()
         for doc in track(docs, description="Processing documents..."):
+            # skip csv for now
+            if doc.mime_type == 'text/csv' or doc.ya_path.endswith('.csv'):
+                continue
             print(f"Extracting content from file {doc.md5}({doc.ya_public_url})")
             local_doc_path = download_file_locally(ya_client, doc, config)
             if doc.mime_type == 'application/epub+zip':
@@ -221,10 +227,11 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params):
+def _process_pdf(cli_params, lang_tag):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
+    entity_cls = Document if lang_tag == 'tt' else DocumentCrh
     
     while not stop_event.is_set():
         tasks_queue = None
@@ -232,12 +239,12 @@ def _process_pdf(cli_params):
         
         channel = Channel()
         predicate = (
-            Document.content_url.is_(None) &
-            (Document.mime_type ==  "application/pdf") &
-            (Document.language == "tt-Cyrl") &
-            (Document.full == True) & 
+            entity_cls.content_url.is_(None) &
+            (entity_cls.mime_type ==  "application/pdf") &
+            (entity_cls.language == ("tt-Cyrl" if lang_tag == 'tt' else 'crh-Cyrl')) &
+            (entity_cls.full == True) & 
             (
-                (Document.md5 == cli_params.md5) if cli_params.md5 else Document.md5.not_in(channel.get_all_unprocessable_docs())
+                (entity_cls.md5 == cli_params.md5) if cli_params.md5 else entity_cls.md5.not_in(channel.get_all_unprocessable_docs())
             )
         )
         
@@ -253,7 +260,7 @@ def _process_pdf(cli_params):
             
             with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
                 with get_session() as session:
-                    docs = list(obtain_documents(cli_params, ya_client, predicate, limit=cli_params.batch_size, session=session))
+                    docs = list(obtain_documents(cli_params, ya_client, entity_cls=entity_cls, predicate=predicate, limit=cli_params.batch_size, session=session))
                     
                 if not docs:
                     print("No docs for processing, exiting...")
@@ -275,7 +282,7 @@ def _process_pdf(cli_params):
                 threads = []
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
-                    t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, channel, stop_event))
+                    t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, channel, stop_event, lang_tag=lang_tag))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests

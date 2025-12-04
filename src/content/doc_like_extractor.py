@@ -85,7 +85,7 @@ class DocLikeExtractor:
                 encoding = detected['encoding']
 
             # Step 2: Convert to UTF-8 if needed
-            if encoding.lower() != 'utf-8':
+            if encoding and encoding.lower() != 'utf-8':
                 print(f"Converting {self.local_doc_path} from {encoding} to UTF-8...")
                 text = raw_data.decode(encoding)
                 with open(self.local_doc_path, 'w', encoding='utf-8') as f:

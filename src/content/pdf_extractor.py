@@ -22,7 +22,7 @@ from json.decoder import JSONDecodeError
 import datetime
 import time
 from google.genai.errors import ServerError
-from models import Document
+from models import Document, DocumentCrh
 
 
 model = 'gemini-2.5-pro'
@@ -160,7 +160,7 @@ class Chunk:
 class PdfExtractor:
     
     
-    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, channel, stop_event):
+    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, channel, stop_event, lang_tag):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
@@ -169,7 +169,7 @@ class PdfExtractor:
         self.channel = channel
         self.stop_event = stop_event
         self.gemini_query_time = None
-        
+        self.lang_tag = lang_tag
         
     def __call__(self):
         gemini_client = create_client(self.key)
@@ -275,7 +275,7 @@ class PdfExtractor:
                         os.remove(chunk_result_incomplete_path)
                     
                     # prepare prompt
-                    prompt = cook_extraction_prompt(chunk.start, chunk.end, next_footnote_num, headers_hierarchy)
+                    prompt = cook_extraction_prompt(chunk.start, chunk.end, next_footnote_num, headers_hierarchy, lang_tag=self.lang_tag)
                     prompts_dir = get_in_workdir(Dirs.PROMPTS, context.md5)
                     with open(os.path.join(prompts_dir, f"chunk-{chunk.start}-{chunk.end}"), "w") as f:
                         json.dump(prompt, f, indent=4, ensure_ascii=False)
@@ -536,7 +536,8 @@ class PdfExtractor:
     
     
     def _upsert_document(self, session, context):
-        doc = session.get(Document, context.doc.md5)
+        entity_cls = Document if self.lang_tag == 'tt' else DocumentCrh
+        doc = session.get(entity_cls, context.doc.md5)
         if context.ya_path and (ya_path := context.ya_path.removeprefix('disk:')) != '/':
             doc.ya_path = ya_path
         doc.ya_public_key=context.ya_public_key
