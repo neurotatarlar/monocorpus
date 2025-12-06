@@ -75,7 +75,7 @@ def check():
 
     with get_session() as session:
         docs = list(session.scalars(select(Document)))
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+    with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
         for doc in track(docs, description="Checking public links"):
             try:
                 if not doc.ya_public_url:

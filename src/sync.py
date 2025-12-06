@@ -81,7 +81,7 @@ from rich.table import Table
 
 
 tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
-crimean_tatar_bcp_47_codes = ['crh-Latn', 'crh-Cyrl']
+crimean_tatar_bcp_47_codes = ['crh-Latn', 'crh-Cyrl', 'crh-Latn-x-yanalif', 'crh-Arab']
 
 not_document_types = [
     'application/vnd.android.package-archive',
@@ -114,6 +114,12 @@ not_document_types = [
     'application/x-7z-compressed',
     'image/png',
     "image/x-icon",
+    "application/x-tplink-bin",
+    "video/x-unknown",
+    "text/x-Algol68",
+    "application/x-chm",
+    "video/mp4",
+    "image/bmp"
 ]
 
 def sync():
@@ -123,7 +129,7 @@ def sync():
     config = read_config()
     s3client = create_session(config)
 
-    with YaDisk(config['yandex']['disk']['oauth_token']) as yaclient: 
+    with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as yaclient: 
         print("Requesting all upstream metadata urls") 
         upstream_metas = _lookup_upstream_metadata(s3client, config)
         print("Requesting all md5s") 
@@ -133,11 +139,11 @@ def sync():
         
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
-        # if docs_for_wiping:
-        #     print("Removing objects from s3 storage")
-        #     _remove_from_s3(docs_for_wiping.keys(), s3client, config)
-        # else:
-        #     print("No docs for wiping found")
+        if docs_for_wiping:
+            print("Removing objects from s3 storage")
+            _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+        else:
+            print("No docs for wiping found")
             
         print("Syncing yadisk with Google sheets")
         skipped = []
@@ -231,7 +237,13 @@ def _define_docs_for_wiping(yaclient, config):
         flush(docs_for_wiping)
         
         print("Querying non textual docs")
-        nontextual_docs = session.scalars(select(Document).where(Document.mime_type.in_(not_document_types) | Document.ya_path.endswith('.eaf')))
+        nontextual_docs = session.scalars(select(Document).where(
+            Document.mime_type.in_(not_document_types) 
+            | 
+            Document.ya_path.endswith('.eaf') 
+            |
+            Document.ya_path.endswith('.musx')
+        ))
         nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
         print(f"Found {len(nontextual_docs)} nontextual docs")
         docs_for_wiping.update(nontextual_docs)
@@ -244,13 +256,19 @@ def _define_docs_for_wiping(yaclient, config):
         flush(docs_for_wiping)
         
         print("Querying non textual docs")
-        nontextual_docs = session.scalars(select(DocumentCrh).where(DocumentCrh.mime_type.in_(not_document_types) | DocumentCrh.ya_path.endswith('.eaf')))
+        nontextual_docs = session.scalars(select(DocumentCrh).where(
+            DocumentCrh.mime_type.in_(not_document_types) 
+            |
+            DocumentCrh.ya_path.endswith('.eaf')
+            |
+            DocumentCrh.ya_path.endswith('.musx')
+        ))
         nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
         print(f"Found {len(nontextual_docs)} nontextual docs")
         docs_for_wiping.update(nontextual_docs)
         flush(docs_for_wiping)
     
-    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    _dedup_by_isbn(docs_for_wiping, yaclient, config, entity_cls=Document)
     # _dedup_by_isbn(docs_for_wiping, yaclient, config, entity_cls=DocumentCrh)
     
     return docs_for_wiping
@@ -365,8 +383,36 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     if file.path.startswith("disk:/НейроТатарлар/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
         print(f"Skipping Anna's archive file '{file.path}'")
         return
-    if '/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/random_files_thru_yandex_search/ilbyak-school.narod.ru' in file.path:
+    if '/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/random_files_thru_yandex_search/ilbyak-school.narod.ru' in file.path and file.path.endswith('.htm'):
         print(f"Skipping ilbyak-school.narod.ru file '{file.path}'")
+        return
+    
+    if '/НейроТатарлар/other_turkic_langs/Крымскотатарский/' in file.path and (
+        file.path.endswith('.layout') 
+        or
+        file.path.endswith('.frw') 
+        or
+        file.path.endswith('.txt')
+        or
+        file.path.endswith('.pac')
+        or
+        file.path.endswith('.csv')
+        or
+        file.path.endswith('.xml')
+        or
+        file.path.endswith('.jpg')
+        or
+        file.path.endswith('.hdr')
+        or
+        file.path.endswith('.dat')
+        or
+        file.path.endswith('.frdat')
+        or
+        file.path.endswith('.vtt')
+        or
+        file.path.endswith('.ini')
+    ):
+        print(f"Skipping crimean tatar layout file '{file.path}'")
         return
 
     _should_be_skipped, mime_type = should_be_skipped(file)

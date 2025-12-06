@@ -64,7 +64,7 @@ downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/милл
 
 def match_limited():
     config = read_config()
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client: 
+    with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client: 
         limited_docs = {unicodedata.normalize("NFC", d.name.strip()): d for d in walk_yadisk(ya_client, limited_dir, fields= ['name', 'md5'])}
         print(f"Got {len(limited_docs)} docs in dir with limited(non-complete) docs")
         

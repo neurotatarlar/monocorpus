@@ -36,7 +36,7 @@ def check():
         None. Prints validation results to console.
     """
     config = read_config()
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+    with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
         print("Quering sharing restricted documents in gsheets")
         predicate =(Document.sharing_restricted != False) | (Document.sharing_restricted == True)
         with get_session() as session:

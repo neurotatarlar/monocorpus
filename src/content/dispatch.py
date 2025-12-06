@@ -96,7 +96,7 @@ def extract_content(cli_params):
     for lang_tag in ['tt', 'crh']:
     # for lang_tag in ['crh']:
         _process_non_pdf(cli_params, lang_tag)
-        _process_pdf(cli_params, lang_tag)
+        # _process_pdf(cli_params, lang_tag)
     
  
 def _process_non_pdf(cli_params, lang_tag):
@@ -109,7 +109,7 @@ def _process_non_pdf(cli_params, lang_tag):
     )
     config = read_config()
     s3client = create_session(config)
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+    with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
         with get_session() as session:
             docs = list(obtain_documents(cli_params, ya_client, predicate=predicate, session=session, entity_cls=entity_cls))
         if not docs:
@@ -125,26 +125,30 @@ def _process_non_pdf(cli_params, lang_tag):
                 continue
             print(f"Extracting content from file {doc.md5}({doc.ya_public_url})")
             local_doc_path = download_file_locally(ya_client, doc, config)
-            if doc.mime_type == 'application/epub+zip':
-                content = EpubExtractor(doc, local_doc_path, config, s3client).extract()
-            else:
-                content = DocLikeExtractor(doc, local_doc_path, config, s3client, gcloud_creds).extract()
-            
-            formatted_content = mdformat.text(
-                content,
-                codeformatters=(),
-                extensions=["toc", "footnote"],
-                options={"wrap": "keep", "number": "keep", "validate": True, "end_of_line": "lf"},
-            )
-            formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
-            with open(formatted_response_md, 'w') as f:
-                f.write(formatted_content)
+            try:
+                if doc.mime_type == 'application/epub+zip':
+                    content = EpubExtractor(doc, local_doc_path, config, s3client).extract()
+                else:
+                    content = DocLikeExtractor(doc, local_doc_path, config, s3client, gcloud_creds).extract()
                 
-            _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, s3client)
+                formatted_content = mdformat.text(
+                    content,
+                    codeformatters=(),
+                    extensions=["toc", "footnote"],
+                    options={"wrap": "keep", "number": "keep", "validate": True, "end_of_line": "lf"},
+                )
+                formatted_response_md = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}-formatted.md")
+                with open(formatted_response_md, 'w') as f:
+                    f.write(formatted_content)
+                    
+                _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, s3client)
 
-            with get_session() as session:
-                session.merge(doc)
-                session.commit()
+                with get_session() as session:
+                    session.merge(doc)
+                    session.commit()
+            except Exception as e:
+                print(f"[red]Failed to extract content from file {doc.md5}({doc.ya_public_url}): {e}[/red]")
+                continue
             
             
 def _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, s3lient):        
@@ -258,7 +262,7 @@ def _process_pdf(cli_params, lang_tag):
             else:
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {channel.exceeded_keys_set}, Extracting with keys: {keys_slice}")
             
-            with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+            with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
                 with get_session() as session:
                     docs = list(obtain_documents(cli_params, ya_client, entity_cls=entity_cls, predicate=predicate, limit=cli_params.batch_size, session=session))
                     

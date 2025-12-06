@@ -58,7 +58,7 @@ def layouts(cli_params):
         Document.language.is_("tt-Cyrl") &
         Document.full.is_(True)
     )
-    with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+    with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
         with Session() as gsheets_session:
             docs = list(obtain_documents(cli_params, ya_client, predicate, limit=1, gsheet_session=gsheets_session))
             docs  = [Context(d) for d in docs]

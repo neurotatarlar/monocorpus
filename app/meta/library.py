@@ -57,7 +57,7 @@ def _process_lang(args, lang_code, config):
             print(f"Processing batch of {tasks_queue.qsize()} documents")
             
         try:
-            with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+            with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
                 for _ in range(min(len(channel.available_keys), len(docs), args.workers)):
                     worker = LibraryApplicabilityWorker(
                         tasks_queue=tasks_queue,

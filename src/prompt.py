@@ -269,7 +269,7 @@ Use the `Book` schema where appropriate, but apply a more specific `@type` if a 
 - `name`: Title of the work
 - `author`: Name(s) of author(s) or organization (use `"@type": "Person"` or `"@type": "Organization"`)
 - `contributor`: Persons involved in roles such as: author, editor, translator, illustrator, composer, lyricist, contributor, reviewer, publisher, sponsor. Express roles in English
-- `inLanguage`: Use BCP 47 with script: e.g., `"tt-Cyrl"`, `"tt-Latn-x-zamanalif"`, `"ru-Cyrl"` as listed above
+- `inLanguage`: Use BCP 47 with script as listed above
 - `datePublished`: Use full date format if found: `"YYYY-MM-DD"`
 - `publisher`: `"@type": "Organization"` if identified
 - `isbn`: array of ISBN numbers if available
@@ -278,7 +278,7 @@ Use the `Book` schema where appropriate, but apply a more specific `@type` if a 
 - `genre`: Book genre, expressed in English
 - `audience`: Target audience, expressed in English
 - `bookEdition`: Edition information
-- `description`: Preface, abstract, or annotation in Tatar language. Use 1–3 sentences only. Summarize the core purpose or content of the text. Do not include long quotations or excessive legal/formal language. Avoid repeating the title.
+- `description`: Preface, abstract, or annotation in document's language. Use 1–3 sentences only. Summarize the core purpose or content of the text. Do not include long quotations or excessive legal/formal language. Avoid repeating the title.
 
 ## Error Handling::
 1. If no metadata can be extracted with certainty:
@@ -326,16 +326,18 @@ DEFINE_META_PROMPT_CRH_FOOTER = """
 ## Input language
 Text may appear in different scripts. Automatically detect the **primary language and script** used in the document, and return the correct `inLanguage` BCP 47 tag.
 - Crimean Tatar in Cyrillic script → use `"crh-Cyrl"`
-- Crimean Tatar in Latin script → use `"crh-Latn"`
+- Crimean Tatar in Yanalif Latin script → use `"crh-Latn-x-yanalif"`
+- Crimean Tatar in modern Latin script → use `"crh-Latn"`
 - Crimean Tatar in Arabic script → use `"crh-Arab"`
 - Russian in Cyrillic script → use `"ru-Cyrl"`
 - Ukranian in Cyrillic script → use `"uk-Cyrl"`
 
 
 ### Markdown formatted Examples of input:
-- Crimean Tatar Cyrillic (crh-Cyrl): Бутюн инсанлар сербестлик, менлик ве укъукъларда мусавий олып дюньягъа келелер.
-- Crimean Tatar Latin (crh-Latn): Bütün insanlar serbestlik, menlik ve uquqlarda musaviy olıp dünyağa keleler. Olar aqıl ve vicdan saibidirler ve biri-birilerinen qardaşçasına munasebette bulunmalıdırlar
-Crimean Tatar Arabic (crh-Arab)-  بتون انسانلار سربست‌لك، من‌لك و حقوقلردا مساوی اولب دنیاغا کله‌لر.
+- Crimean Tatar Cyrillic (crh-Cyrl): Бутюн инсанлар сербестлик, менлик ве укъукъларда мусавий олып дюньягъа келелер. Олар акъыл ве видждан саибидирлер ве бири-бирилеринен къардашчасына мунасебетте булунмалыдырлар.
+- Crimean Tatar Latin (crh-Latn): Bütün insanlar serbestlik, menlik ve uquqlarda musaviy olıp dünyağa keleler. Olar aqıl ve vicdan saibidirler ve biri-birilerinen qardaşçasına munasebette bulunmalıdırlar.	
+- Crimean Tatar Arabic:  بتون انسانلار سربست‌لك، من‌لك و حقوقلردا مساوی اولب دنیاغا کله‌لر. اولار عقل و وجدان صاحب‌درلر و بری-بریلرینن قارداشچاسنا مناسبت‌ده بولونمالی‌درلار.	
+- Crimean Tatar Yanalif Latin (crh-Latn-x-yanalif)- Bytyn insanlar serʙestlik, menlik, ve uquqlarda musaviy olьp dynjaƣa keleler. Olar aqьl ve viçdan saiʙidirler ve ʙiri-ʙirilerinen qardaşcasьna munaseʙette ʙulunmalьdьrlar.
 """.strip()
 
 

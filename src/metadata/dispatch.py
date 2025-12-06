@@ -73,7 +73,25 @@ skip_pdf = set([
     '0993ad06508d849d26b06b5fb2481446',
     'e06774a36d22c63fd420a49883569127',
     '9d7fdbae61b1bb84d40d2f3303edac3e',
-    
+    'd7b8654da4792c9c58df997219e692d0',
+    "c6d393986c8a1dfe31a9dff35146dfb7",
+    "5bb92eed2581797bf955ca2bf67967b3",
+    "981870dd6f7fca02e442464ecdc958d7",
+    "b59f92e4833d8cf94acbaec2876f3dc0",
+    "2e141a65709cf83a1ef8895edca25c6c",
+    "f1f4130e41d90d8a8e62846fc16ee97c",
+    "78053ec0f31c6975276d1f713e16dcc0",
+    "774dae921750ebc4d607bb509d075082",
+    "0d8a8c8add3d963f83ab2d0fd8e45bc2",
+    "f0746565926ecfbcec3f6f7282f55d41",
+    "fc16079061fdec3564aa9e4de582a4c9",
+    "e7a0b00ae075705417027afebdf3a513",
+    "b3219129aa860c3736c2fb1ebc92e444",
+    "348d8cc4883d7d5b6aea29444c6abf75",
+    "ac129581ada1a3cd5d6b3ee6f5fa0885",
+    "ed41ef170ec6c4469e81ee469aa77f1a",
+    "d775776188d8f6da062bad57ebb38a51",
+    "18ab2b7ef6fd66273fa860a2bc8d92e9",
 ])  # --- IGNORE ---
 
 def extract_metadata():
@@ -103,7 +121,7 @@ def extract_metadata():
     _process_by_predicate(predicate, 'crh')
     
     
-def _process_by_predicate(predicate, lang_tag, docs_batch_size=60, keys_batch_size=6):
+def _process_by_predicate(predicate, lang_tag, docs_batch_size=300, keys_batch_size=6):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -148,7 +166,7 @@ def _process_by_predicate(predicate, lang_tag, docs_batch_size=60, keys_batch_si
                 return
                             
             threads = []
-            with YaDisk(config['yandex']['disk']['oauth_token']) as ya_client:
+            with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
                     t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set, lang_tag))
@@ -241,6 +259,7 @@ class MetadataExtractionWorker:
                     self.tasks_queue.put(doc)
                     with self.exceeded_keys_lock:
                         self.exceeded_keys_set.add(self.key)
+                    return
                 continue
             except Exception as e:
                 import traceback
