@@ -411,6 +411,28 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
         file.path.endswith('.vtt')
         or
         file.path.endswith('.ini')
+        or
+        file.path.endswith('.aux')
+        or
+        file.path.endswith('.musx')
+        or
+        file.path.endswith('.mxl')
+        or
+        file.path.endswith('.zip')
+        or
+        file.path.endswith('.indd')
+        or
+        file.path.endswith('.swp')
+        or
+        file.path.endswith('.tmp')
+        or
+        file.path.endswith('.DS_Store')
+        or 
+        file.path.endswith('.parquet')
+        or 
+        file.path.endswith('.emf')
+        or 
+        file.path.endswith('.json')
     ):
         print(f"Skipping crimean tatar layout file '{file.path}'")
         return

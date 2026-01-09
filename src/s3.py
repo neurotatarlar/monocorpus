@@ -18,11 +18,13 @@ def create_session(config=read_config()):
 
 def upload_file(path, bucket, key, session, skip_if_exists=False):
     if not (skip_if_exists and session.list_objects_v2(Bucket=bucket, Prefix=key, MaxKeys=1).get("Contents", [])):
+        print(f"Uploading doc '{key}'")
         session.upload_file(
             path,
             bucket,
             key
         )    
+    else: print(f"Doc '{key}' already exists")
     return f"{session._endpoint.host}/{bucket}/{key}"
 
 

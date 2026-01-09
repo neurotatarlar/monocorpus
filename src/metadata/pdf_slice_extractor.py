@@ -1,10 +1,7 @@
-from utils import  get_in_workdir
+from utils import  get_in_workdir, load_upstream_metadata
 from gemini import gemini_api
 from metadata.schema import Book
-import zipfile
-import requests
 from dirs import Dirs
-import os
 from itertools import groupby
 import pymupdf
 import zipfile
@@ -41,7 +38,7 @@ class FromPdfSliceMetadataExtractor:
         files = {slice_file_path: self.doc.mime_type}
         uploaded_files = []
         try:
-            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=180)
+            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=120)
             
             # validate response
             if not (raw_response := "".join([ch.text for ch in response if ch.text])):
@@ -83,7 +80,7 @@ class FromPdfSliceMetadataExtractor:
         prompt = [{'text': prompt}]
         prompt.append({'text': DEFINE_META_PROMPT_BODY})
         prompt.append({'text': DEFINE_META_PROMPT_TT_FOOTER if self.lang_tag == 'tt' else DEFINE_META_PROMPT_CRH_FOOTER})
-        if raw_input_metadata := self._load_upstream_metadata():
+        if raw_input_metadata := load_upstream_metadata(self.doc.upstream_meta_url, self.doc.md5):
             prompt.append({
                 "text": "📌 In addition to the content of the document, you are also provided with external metadata in JSON format. This metadata comes from other sources and should be treated as valid and trustworthy. Consider it alongside the doc content as if it were extracted from the document itself:"
             })
@@ -93,26 +90,3 @@ class FromPdfSliceMetadataExtractor:
         prompt.append({"text": "Now, extract metadata from the following document"})
         return prompt
     
-    
-    def _load_upstream_metadata(self):
-        if not (upstream_meta_url := self.doc.upstream_meta_url):
-            return None
-        upstream_metadata_zip = get_in_workdir(Dirs.UPSTREAM_METADATA, file=f"{self.doc.md5}.zip")
-        with open(upstream_metadata_zip, "wb") as um_zip, requests.get(upstream_meta_url, stream=True) as resp:
-            resp.raise_for_status()
-            for chunk in resp.iter_content(chunk_size=8192): 
-                um_zip.write(chunk)
-                
-        upstream_metadata_unzip = get_in_workdir(Dirs.UPSTREAM_METADATA, self.doc.md5)
-        with zipfile.ZipFile(upstream_metadata_zip, 'r') as enc_zip:
-            enc_zip.extractall(upstream_metadata_unzip)
-            
-        with open(os.path.join(upstream_metadata_unzip, "metadata.json"), "r") as raw_meta:
-            _meta = json.load(raw_meta)
-            _meta.pop("available_pages", None)
-            _meta.pop("doc_card_url", None)
-            _meta.pop("download_code", None)
-            _meta.pop("doc_url", None)
-            _meta.pop("access", None)
-            _meta.pop("lang", None)
-            return json.dumps(_meta, ensure_ascii=False)

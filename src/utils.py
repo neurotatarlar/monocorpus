@@ -13,6 +13,8 @@ from datetime import datetime, timezone, timedelta
 import json
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+import requests
+import zipfile
 
 prefix = "enc:"
 
@@ -224,3 +226,29 @@ def _get_bucket_id():
         bucket_num = 0
 
     return f"{date}_{bucket_num}"
+
+import requests
+import zipfile
+
+def load_upstream_metadata(upstream_meta_url, md5):
+    if not upstream_meta_url:
+        return None
+    upstream_metadata_zip = get_in_workdir(Dirs.UPSTREAM_METADATA, file=f"{md5}.zip")
+    with open(upstream_metadata_zip, "wb") as um_zip, requests.get(upstream_meta_url, stream=True) as resp:
+        resp.raise_for_status()
+        for chunk in resp.iter_content(chunk_size=8192): 
+            um_zip.write(chunk)
+            
+    upstream_metadata_unzip = get_in_workdir(Dirs.UPSTREAM_METADATA, md5)
+    with zipfile.ZipFile(upstream_metadata_zip, 'r') as enc_zip:
+        enc_zip.extractall(upstream_metadata_unzip)
+        
+    with open(os.path.join(upstream_metadata_unzip, "metadata.json"), "r") as raw_meta:
+        _meta = json.load(raw_meta)
+        _meta.pop("available_pages", None)
+        _meta.pop("doc_card_url", None)
+        _meta.pop("download_code", None)
+        _meta.pop("doc_url", None)
+        _meta.pop("access", None)
+        _meta.pop("lang", None)
+        return json.dumps(_meta, ensure_ascii=False)

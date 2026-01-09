@@ -273,6 +273,24 @@ def match_limited():
     """
     import match_limited
     match_limited.match_limited()
+
+
+@app.command()
+def fix_limited(
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output filename to write inside the workdir (~/.monocorpus)",
+        ),
+    ] = "limited_documents.json",
+):
+    """
+    Dump limited documents to JSON and download missing files into the entry point.
+    """
+    import fix_limited as fix_limited_module
+    fix_limited_module.fix_limited(output)
     
     
 @app.command()
@@ -306,3 +324,61 @@ def dump_state():
     """
     import dump_state
     dump_state.dump()
+
+
+@app.command()
+def upload_to_s3():
+    from models import DocumentCrh
+    from utils import read_config, get_session, download_file_locally
+    from s3 import create_session, upload_file
+    import os
+    from rich.progress import track
+    from yadisk_client import YaDisk
+    from sqlalchemy import select
+
+    print("Uploading docs to s3")
+    predicate = (
+        DocumentCrh.meta.is_(None)
+        |
+        DocumentCrh.language.in_(['crh-Latn', 'crh-Cyrl', 'crh-Latn-x-yanalif', 'crh-Arab'])
+    )
+    config = read_config()
+    doc_bucket = config["yandex"]["cloud"]['bucket']['document']
+    s3client = create_session(config)
+
+    with get_session() as session, YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
+        docs = session.scalars(select(DocumentCrh).where(predicate))
+        for doc in track(docs, "Processing docs"):
+            local_doc_path = download_file_locally(ya_client, doc, config)
+            doc_key = os.path.basename(local_doc_path)
+            document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3client, skip_if_exists=True)
+            if doc.document_url != document_url:
+                doc.document_url = document_url
+                session.commit()
+
+
+@app.command()
+def collect_download_codes(
+    output: Annotated[
+        str,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output filename to write inside the workdir (~/.monocorpus)",
+        ),
+    ] = "download_codes.json",
+):
+    """
+    Collect download_code values from upstream metadata for all full documents; if upstream metadata is absent (or lacks a code), record the document title instead and write both lists to JSON.
+    """
+    import download_codes
+    download_codes.collect_download_codes(output)
+
+
+@app.command()
+def fix_limited():
+    """
+    Fix limited books in the database.
+    """
+    import fix_limited
+    fix_limited.fix_limited()

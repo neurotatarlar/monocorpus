@@ -112,16 +112,10 @@ def extract_metadata():
     # _process_by_predicate(predicate, 'tt')
     
     print("Processing 'crh' documents without metadata")
-    predicate = (
-        DocumentCrh.meta.is_(None) & (
-            DocumentCrh.content_url.is_not(None) | (DocumentCrh.mime_type == 'application/pdf')
-        )
-        & DocumentCrh.md5.not_in(skip_pdf)
-    )
-    _process_by_predicate(predicate, 'crh')
+    _process_by_predicate('crh')
     
     
-def _process_by_predicate(predicate, lang_tag, docs_batch_size=300, keys_batch_size=6):
+def _process_by_predicate( lang_tag, docs_batch_size=10, keys_batch_size=1):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -133,6 +127,7 @@ def _process_by_predicate(predicate, lang_tag, docs_batch_size=300, keys_batch_s
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = load_expired_keys()
+    entity_cls = Document if lang_tag == 'tt' else DocumentCrh
     
     while True:
         tasks_queue = None
@@ -140,6 +135,16 @@ def _process_by_predicate(predicate, lang_tag, docs_batch_size=300, keys_batch_s
         dump_expired_keys(exceeded_keys_set)
         gc.collect()
         try: 
+            unprocessles = _load_unprocessables()
+            predicate = (
+                entity_cls.meta.is_(None) & (
+                    entity_cls.content_url.is_not(None) | (entity_cls.mime_type == 'application/pdf')
+                )
+                # & DocumentCrh.md5.not_in(skip_pdf)
+                & entity_cls.md5.not_in(unprocessles)
+                & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Пресса/Янъы Дюнья')
+                & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Книги/Kitaphanesi/Qadınlıq Sotsializm Yolunda')
+            )
             with exceeded_keys_lock:
                 available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
             random.shuffle(available_keys)
@@ -151,14 +156,11 @@ def _process_by_predicate(predicate, lang_tag, docs_batch_size=300, keys_batch_s
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with get_session() as session:
-                entity_cls = Document if lang_tag == 'tt' else DocumentCrh
                 docs = list(session.scalars(select(entity_cls).where(predicate).limit(docs_batch_size).offset(10)))
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
             for doc in docs:
-                if doc.md5 in skip_pdf:
-                    continue
                 tasks_queue.put(doc)
                 
             if tasks_queue.empty():
@@ -237,6 +239,7 @@ class MetadataExtractionWorker:
                 
                 if not metadata:
                     self.log(f"No metadata was extracted from document {doc.md5}({doc.ya_public_url})")
+                    self._dump_unprocessables(doc.md5)
                     continue
                 # write metadata to zip
                 local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
@@ -254,16 +257,18 @@ class MetadataExtractionWorker:
                 return
             except ClientError as e:
                 print(f"ClientError during metadata extraction for doc '{doc.md5}({doc.ya_path})' with key '{self.key}': {e}")
+                self._dump_unprocessables(doc.md5)
                 if e.code == 429:
                     self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
                     self.tasks_queue.put(doc)
                     with self.exceeded_keys_lock:
                         self.exceeded_keys_set.add(self.key)
-                    return
+                    break
                 continue
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
+                self._dump_unprocessables(doc.md5)
                 continue
             
 
@@ -343,3 +348,34 @@ class MetadataExtractionWorker:
             log.write(f"{message}\n")
         print(message)
     
+    
+    def _dump_unprocessables(self, md5, lock="unprocessables/unprocessables_meta.lock", file="unprocessables/unprocessables_meta.txt"):
+        """
+        Check lock file exists, if lock file is not exists, read the unprocessables file into set, add the given md5, and write it back.
+        If lock file exists, sleep and retry until lock file is gone.
+        """
+        while os.path.exists(lock):
+            time.sleep(1)
+        try:
+            with open(lock, "w") as _:
+                unprocessables = set([md5])
+                if os.path.exists(file):
+                    with open(file, "r") as f:
+                        for line in f:
+                            unprocessables.add(line.strip())
+                with open(file, "w") as f:
+                    for item in sorted(unprocessables):
+                        f.write(f"{item}\n")
+                    f.flush()
+        finally:
+            if os.path.exists(lock):
+                os.remove(lock)
+        
+        
+def _load_unprocessables(file="unprocessables/unprocessables_meta.txt"):
+    unprocessables = set()
+    if os.path.exists(file):
+        with open(file, "r") as f:
+            for line in f:
+                unprocessables.add(line.strip())
+    return unprocessables
