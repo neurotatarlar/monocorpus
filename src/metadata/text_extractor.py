@@ -26,7 +26,7 @@ class FromTextMetadataExtractor:
         # write prompt to file for debugging
         with open(get_in_workdir(Dirs.PROMPTS, file=f"{self.doc.md5}-meta-prompt.txt"), "w") as f:
             f.write(json.dumps(prompt, ensure_ascii=False, indent=4))
-        response, _ = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, schema=Book, timeout_sec=120)
+        response, _ = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, schema=Book, timeout_sec=240)
         del prompt
         # validate response
         if not (raw_response := "".join([ch.text for ch in response if ch.text])):

@@ -38,61 +38,9 @@ import time
 from models import Document, DocumentCrh
 import random
 
-model = 'gemini-2.5-pro'
+# model = 'gemini-2.5-pro'
+model = 'gemini-3-flash-preview'
 
-
-skip_pdf = set([
-    "f8eba00ee3e0a74aa15439f83173a358",
-    "ecc476f02c8255e53ef76a019443f452",
-    "0139072f6aeb40a0b85d9e3513ff3c18",
-    "34a5f7d1f01d8bc7aadebf2bfba18a7f",
-    "89e7b6bdfc19e7e3ff3319e1e498e99c",
-    "73ab5e2215a6d0caa639af3adaa8dbe0",
-    "8ee3f0890cc5fcde8a8f124c41e2e484",
-    "67d74ff4b3437c4f4f36d93f2a565141",
-    "cead69d49dc5293c3784498dcdf1b1cf",
-    "e8d527cce10b132660a6225adfdd64ae",
-    "aedb220536b900cd51b34fc349993b62",
-    "40f582f43ed246b9c2510b64bc273bdf",
-    "560a3cfcabd9d37a1ccc5293523ccff0",
-    "743288b446c9489f218050df9ec85b28",
-    "fe3134f337e21ac4f72173f4c15875c2",
-    "f76fd2938d9c90e32df0935fe1a5d104",
-    "12730476a04202678e5ed8549aeb54b8",
-    "9a8773e8e2c524e6113c1061086e6d48",
-    "9e13ff7fd9740e3f4089b6fd63bc259b",    
-    "b56ff22e1fc6b2e834a9e6b34699c3cf",
-    'e73af3961941eda31ec13eb83e9f7b39',
-    '3e0e45b2353c99c80fa44f493b5f4d93',
-    '6aa21b915021ddc713dab5a0b43d813b',
-    '7349b5837efd90c5e0c0f9db79387916',
-    'a503f53802bab9df52733806202dd797',
-    '0bb284a498c012b690b26450a76ff581',
-    '487b7ccaac157c062d111d46f48ec2fb',
-    '30e52c059f85fc4701d0a66e9b1a4163',
-    '0993ad06508d849d26b06b5fb2481446',
-    'e06774a36d22c63fd420a49883569127',
-    '9d7fdbae61b1bb84d40d2f3303edac3e',
-    'd7b8654da4792c9c58df997219e692d0',
-    "c6d393986c8a1dfe31a9dff35146dfb7",
-    "5bb92eed2581797bf955ca2bf67967b3",
-    "981870dd6f7fca02e442464ecdc958d7",
-    "b59f92e4833d8cf94acbaec2876f3dc0",
-    "2e141a65709cf83a1ef8895edca25c6c",
-    "f1f4130e41d90d8a8e62846fc16ee97c",
-    "78053ec0f31c6975276d1f713e16dcc0",
-    "774dae921750ebc4d607bb509d075082",
-    "0d8a8c8add3d963f83ab2d0fd8e45bc2",
-    "f0746565926ecfbcec3f6f7282f55d41",
-    "fc16079061fdec3564aa9e4de582a4c9",
-    "e7a0b00ae075705417027afebdf3a513",
-    "b3219129aa860c3736c2fb1ebc92e444",
-    "348d8cc4883d7d5b6aea29444c6abf75",
-    "ac129581ada1a3cd5d6b3ee6f5fa0885",
-    "ed41ef170ec6c4469e81ee469aa77f1a",
-    "d775776188d8f6da062bad57ebb38a51",
-    "18ab2b7ef6fd66273fa860a2bc8d92e9",
-])  # --- IGNORE ---
 
 def extract_metadata():
     """
@@ -102,20 +50,14 @@ def extract_metadata():
     - Have content URL stored
     - Are PDF files
     # """
-    # print("Processing 'tt' documents without metadata")
-    # predicate = (
-    #     Document.meta.is_(None) & (
-    #         Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
-    #     )
-    #     & Document.md5.not_in(skip_pdf)
-    # )
-    # _process_by_predicate(predicate, 'tt')
+    print("Processing 'tt' documents without metadata")
+    _process_by_predicate('tt')
     
-    print("Processing 'crh' documents without metadata")
-    _process_by_predicate('crh')
+    # print("Processing 'crh' documents without metadata")
+    # _process_by_predicate('crh')
     
     
-def _process_by_predicate( lang_tag, docs_batch_size=10, keys_batch_size=1):
+def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -140,10 +82,9 @@ def _process_by_predicate( lang_tag, docs_batch_size=10, keys_batch_size=1):
                 entity_cls.meta.is_(None) & (
                     entity_cls.content_url.is_not(None) | (entity_cls.mime_type == 'application/pdf')
                 )
-                # & DocumentCrh.md5.not_in(skip_pdf)
                 & entity_cls.md5.not_in(unprocessles)
-                & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Пресса/Янъы Дюнья')
-                & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Книги/Kitaphanesi/Qadınlıq Sotsializm Yolunda')
+                # & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Пресса/Янъы Дюнья')
+                # & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Книги/Kitaphanesi/Qadınlıq Sotsializm Yolunda')
             )
             with exceeded_keys_lock:
                 available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
@@ -252,6 +193,7 @@ class MetadataExtractionWorker:
                 with get_session() as session:
                     self._update_document(doc.md5, metadata, session, meta_json)
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
+                self.log(f"Metadata: {meta_json}")
             except Empty:
                 self.log("No tasks for processing, shutting down thread...")
                 return

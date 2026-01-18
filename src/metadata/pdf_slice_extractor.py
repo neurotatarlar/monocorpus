@@ -38,7 +38,7 @@ class FromPdfSliceMetadataExtractor:
         files = {slice_file_path: self.doc.mime_type}
         uploaded_files = []
         try:
-            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=120)
+            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=240)
             
             # validate response
             if not (raw_response := "".join([ch.text for ch in response if ch.text])):

@@ -120,7 +120,7 @@ def _get_or_create_worksheet(sh, title):
 def _dump_table_to_csv(output_path, model):
     """Dump a PostgreSQL table to CSV."""
     engine = get_engine()
-    df = pd.read_sql(f"SELECT * FROM {model.__tablename__} where language in ('crh-Latn', 'crh-Cyrl', 'crh-Latn-x-yanalif', 'crh-Arab') or meta is NULL ORDER BY ya_path", engine)
+    df = pd.read_sql(f"SELECT * FROM {model.__tablename__} ORDER BY ya_path", engine)
     df = df.convert_dtypes()
     df.to_csv(output_path, index=False)
     return df

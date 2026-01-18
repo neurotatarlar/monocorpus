@@ -6,17 +6,6 @@ import string
 
 app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
 
-# slice_pattern = re.compile(r'^(?P<start>-?\d*)?:?(?P<stop>-?\d*)?:?(?P<step>-?\d*)?$')
-
-# @dataclass
-# class ExtractPdfParams:
-#     md5: str
-#     path: str
-#     force: bool
-#     page_slice: str
-#     batch_size: int
-#     model: str
-#     limit: int
     
 @dataclass
 class ExtractParams:
@@ -29,25 +18,6 @@ class ExtractParams:
 class CliParams:
     md5: str
     path: str
-
-# def slice_parser(value: str):
-#     if value:
-#         match = slice_pattern.match(value)
-#         if not match:
-#             raise typer.BadParameter(f"Invalid slice string: `{value}`")
-
-#         start = match.group('start')
-#         stop = match.group('stop')
-#         step = match.group('step')
-
-#         # Convert to integers if they are not empty, otherwise use None
-#         start = int(start) if start else None
-#         stop = int(stop) if stop else None
-#         step = int(step) if step else None
-
-#         return slice(start, stop, step)
-#     return slice(0, None, 1)
-
 
 def md5_validator(value: str):
     if value:
@@ -72,112 +42,6 @@ def sync():
     sync.sync()
 
 
-# @extract_app.command(name="pdf")
-# def extract_pdf(
-#     md5: Annotated[
-#         Optional[str],
-#         typer.Option(
-#             "--md5",
-#             callback=md5_validator,
-#             help="MD5 hash of the document. If not provided, all local documents will be processed."
-#         )
-#     ] = None,
-#     path: Annotated[
-#         Optional[str],
-#         typer.Option(
-#             "--path", "-p",
-#             help="Path to the document or directory in yandex disk"
-#         )
-#     ] = None,
-#     force: Annotated[
-#         bool,
-#         typer.Option(
-#             "--force", "-f",
-#             help="Force the processing even if the document is already sent for annotation"
-#         )
-#     ] = False,
-#     pages_slice: Annotated[
-#         Optional[str],
-#         typer.Option(
-#             "--slice", "-s",
-#             parser=slice_parser,
-#             help="Slice of the pages to process. Format: `start:stop:step`. If not provided, all pages will be processed."
-#         )
-#     ] = "::",
-#     batch_size: Annotated[
-#         int,
-#         typer.Option(
-#             "--batch-size", "-b",
-#             help="Batch size for processing pages",
-#         )
-#     ] = 20,
-#     model: Annotated[
-#         str,
-#         typer.Option(
-#             "--model", "-m",
-#             help="Model to use for processing. See available models here: https://ai.google.dev/gemini-api/docs/models",
-#         )
-#     ] = "gemini-2.5-pro",
-#     limit: Annotated[
-#         int,
-#         typer.Option(
-#             "--limit", "-l",
-#             help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
-#         )
-#     ] = None,
-# ):
-#     from content.pdf import extract
-#     cli_params = ExtractPdfParams(
-#         md5=md5,
-#         path=path,
-#         force=force,
-#         page_slice=pages_slice,
-#         batch_size=batch_size,
-#         model=model,
-#         limit=limit,
-#     )
-#     extract(cli_params)
-
-
-# @extract_app.command(name="epub")
-# def extract_epub(
-#     md5: Annotated[
-#         Optional[str],
-#         typer.Option(
-#             "--md5",
-#             callback=md5_validator,
-#             help="MD5 hash of the document. If not provided, all local documents will be processed."
-#         )
-#     ] = None,
-#     path: Annotated[
-#         Optional[str],
-#         typer.Option(
-#             "--path", "-p",
-#             help="Path to the document or directory in yandex disk"
-#         )
-#     ] = None,
-#     limit: Annotated[
-#         int,
-#         typer.Option(
-#             "--limit", "-l",
-#             help="Limit processed documents. If not provided, than all unprocessed documents will be taken",
-#         )
-#     ] = None,
-# ):
-#     from content.epub import extract
-#     cli_params = ExtractEpubParams(
-#         md5=md5, 
-#         path=path,
-#         limit=limit
-#     )
-#     extract(cli_params)
-    
-# @extract_app.command(name="docx")
-# def extract_docx():
-#     from content.docx import extract
-#     extract()
-    
-    
 @app.command()
 def hf():
     """
@@ -273,24 +137,6 @@ def match_limited():
     """
     import match_limited
     match_limited.match_limited()
-
-
-@app.command()
-def fix_limited(
-    output: Annotated[
-        str,
-        typer.Option(
-            "--output",
-            "-o",
-            help="Output filename to write inside the workdir (~/.monocorpus)",
-        ),
-    ] = "limited_documents.json",
-):
-    """
-    Dump limited documents to JSON and download missing files into the entry point.
-    """
-    import fix_limited as fix_limited_module
-    fix_limited_module.fix_limited(output)
     
     
 @app.command()
@@ -355,30 +201,3 @@ def upload_to_s3():
             if doc.document_url != document_url:
                 doc.document_url = document_url
                 session.commit()
-
-
-@app.command()
-def collect_download_codes(
-    output: Annotated[
-        str,
-        typer.Option(
-            "--output",
-            "-o",
-            help="Output filename to write inside the workdir (~/.monocorpus)",
-        ),
-    ] = "download_codes.json",
-):
-    """
-    Collect download_code values from upstream metadata for all full documents; if upstream metadata is absent (or lacks a code), record the document title instead and write both lists to JSON.
-    """
-    import download_codes
-    download_codes.collect_download_codes(output)
-
-
-@app.command()
-def fix_limited():
-    """
-    Fix limited books in the database.
-    """
-    import fix_limited
-    fix_limited.fix_limited()

@@ -93,8 +93,7 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
-    for lang_tag in ['tt', 'crh']:
-    # for lang_tag in ['crh']:
+    for lang_tag in ['tt']:
         _process_non_pdf(cli_params, lang_tag)
         # _process_pdf(cli_params, lang_tag)
     
@@ -105,7 +104,6 @@ def _process_non_pdf(cli_params, lang_tag):
     predicate = (
         entity_cls.content_url.is_(None) &
         entity_cls.mime_type.in_(non_pdf_format_types)
-        & entity_cls.md5.not_in(["f8a45a0ed214416d0e48dd9ae61d4d68"])
     )
     config = read_config()
     s3client = create_session(config)
