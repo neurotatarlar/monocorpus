@@ -360,7 +360,7 @@ def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
         docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
         docs_for_wiping = _define_docs_to_move(docs_same_isbn)
         if docs_for_wiping:
-            plan.update({d.md5: f"duplicated_isbn_crh/{isbn}" for d in docs_for_wiping})
+            plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
             flush(plan)
 
     

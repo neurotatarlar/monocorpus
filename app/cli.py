@@ -12,7 +12,7 @@ class MetaCliArgs:
 
 
 @meta_app.command()
-def library(
+def evaluate(
     batch_size: int = typer.Option(300, help="Number of documents to process in one batch."),
     workers : int = typer.Option(5, help="Number of parallel workers to use."),
 ):
@@ -23,8 +23,8 @@ def library(
         batch_size=batch_size,
         workers=workers,
     )
-    from meta.library import library
-    library(args)
+    from meta.evaluation import evaluate
+    evaluate(args)
 
 
 # todo graceful shutdown 

@@ -4,9 +4,7 @@ from metadata.schema import Book
 from dirs import Dirs
 from itertools import groupby
 import pymupdf
-import zipfile
 from prompt import DEFINE_META_PROMPT_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
-import requests
 import json
 
 
@@ -38,7 +36,7 @@ class FromPdfSliceMetadataExtractor:
         files = {slice_file_path: self.doc.mime_type}
         uploaded_files = []
         try:
-            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=240)
+            response, uploaded_files = gemini_api(client=self.gemini_client, model=self.model, prompt=prompt, files=files, schema=Book, timeout_sec=360)
             
             # validate response
             if not (raw_response := "".join([ch.text for ch in response if ch.text])):

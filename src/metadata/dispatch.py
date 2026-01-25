@@ -38,8 +38,8 @@ import time
 from models import Document, DocumentCrh
 import random
 
-# model = 'gemini-2.5-pro'
 model = 'gemini-3-flash-preview'
+# model = "gemini-2.5-flash"
 
 
 def extract_metadata():

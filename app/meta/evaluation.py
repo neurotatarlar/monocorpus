@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from db.models import Document
 from utils import get_session, read_config, dump_expired_keys
 from sqlalchemy import select
@@ -8,6 +9,11 @@ from yadisk_client import YaDisk
 import threading
 import time
 import random
+from gemini import create_client
+from google.genai.errors import ClientError
+import datetime
+import os
+
 
 # update json-ld schema with DDC taxonomy
 # print tokens count usage for cost estimation
@@ -17,7 +23,18 @@ legal_docs_pattern = [
     re.compile(r'^(?=.*pdf законов с pravo\.gov).*\.pdff$')
 ]
 
-def library(args):
+
+class Evaluation(BaseModel):
+    applicable: bool = True
+    reason: str = None
+
+    def nonapplicable(reason) -> "Evaluation":
+        _eval = Evaluation()
+        _eval.applicable = False
+        _eval.reason = reason
+        return _eval
+
+def evaluate(args):
     """
     Decide if books is applicable for library management and create taxonomy
     """
@@ -59,9 +76,7 @@ def _process_lang(args, lang_code, config):
         try:
             with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
                 for _ in range(min(len(channel.available_keys), len(docs), args.workers)):
-                    worker = LibraryApplicabilityWorker(
-                        tasks_queue=tasks_queue,
-                    )
+                    worker = LibraryApplicabilityWorker(tasks_queue=tasks_queue)
                     t = threading.Thread(target=worker)
                     t.start()
                     workers.append(t)
@@ -103,7 +118,7 @@ def _early_skip(docs):
         elif doc.isbn:
             probables.append(doc)
             continue
-        elif any(pattern.match(doc.ya_path or "") for pattern in legal_docs_pattern):
+        elif any(pattern.match(doc.ya_path) for pattern in legal_docs_pattern):
             print(f"Skipping legal doc {doc.ya_path}")
             non_applicables.append((doc, "legal doc"))
             continue
@@ -114,12 +129,13 @@ def _early_skip(docs):
             
             
 def _save_non_applicable(non_applicables):
-        print(f"Marking {len(non_applicables)} documents as non applicable for library management")
-        with get_session() as session:
-            for doc, reason in non_applicables:
-                doc.lib = {'applicable': 'false', 'reason': reason}
-                session.add(doc)
-            session.commit()
+    print(f"Marking {len(non_applicables)} documents as non applicable for library management")
+    with get_session() as session:
+        for doc, reason in non_applicables:
+            _eval = Evaluation.nonapplicable(reason)
+            doc.lib = _eval.model_dump_json(indent=4, ensure_ascii=False)
+            session.add(doc)
+        session.commit()
             
 
 def _create_queue(docs):
@@ -134,13 +150,60 @@ def _get_keys(config, channel):
     random.shuffle(available_keys)
     return available_keys
 
+
 class LibraryApplicabilityWorker:
-    def __init__(self):
-        pass
+    def __init__(self, gemini_api_key, tasks_queue, config):
+        self.key = gemini_api_key
+        self.tasks_queue = tasks_queue
+        self.config = config
 
         
     def __call__(self):
+        gemini_client = create_client(self.key)
+        prev_req_time = None
+        while True:
+            try:
+                doc = self.tasks_queue.get(block=False)
+                self.log(f"Evaluating doc {doc.md5} ({doc.ya_path})")
+                prev_req_time = self._sleep_if_needed(prev_req_time)
+                evaluation = self._evaluate(doc, gemini_client)
+                if not evaluation:
+                    self.log(f"Could not evaluate document {doc.md5}({doc.ya_public_url})")
+                    self._dump_unprocessables(doc.md5)
+                    continue
+
+            except Empty:
+                self.log("No tasks for processing, shutting down thread...")
+                return
+            except ClientError as e:
+                print(f"ClientError during metadata extraction for doc '{doc.md5}({doc.ya_path})' with key '{self.key}': {e}")
+                self._dump_unprocessables(doc.md5)
+                if e.code == 429:
+                    self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
+                    self.tasks_queue.put(doc)
+                    with self.exceeded_keys_lock:
+                        self.exceeded_keys_set.add(self.key)
+                    return
+                continue
+            except Exception as e:
+                import traceback
+                self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
+                self._dump_unprocessables(doc.md5)
+                continue
+
+    def _sleep_if_needed(self, prev_req_time):
+        if prev_req_time:
+            elapsed = datetime.datetime.now() - prev_req_time
+            if elapsed < datetime.timedelta(minutes=1):
+                time_to_sleep = int(65 - elapsed.total_seconds()) + 1
+                self.log(f"Sleeping for {time_to_sleep} seconds")
+                time.sleep(time_to_sleep)
+        return datetime.datetime.now()
+    
+    
+    def _evaluate(self, doc, gemini_client):
         pass
+
     
     
 class Channel:
