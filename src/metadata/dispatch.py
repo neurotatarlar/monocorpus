@@ -53,9 +53,6 @@ def extract_metadata():
     print("Processing 'tt' documents without metadata")
     _process_by_predicate('tt')
     
-    # print("Processing 'crh' documents without metadata")
-    # _process_by_predicate('crh')
-    
     
 def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
     """
@@ -97,7 +94,7 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with get_session() as session:
-                docs = list(session.scalars(select(entity_cls).where(predicate).limit(docs_batch_size).offset(10)))
+                docs = list(session.scalars(select(entity_cls).where(predicate).limit(docs_batch_size)))
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
@@ -279,6 +276,11 @@ class MetadataExtractionWorker:
          
         doc.meta = meta_json
         doc.meta_extraction_method = f"{model}/prompt.v2"
+        if doc.sharing_restricted:
+            if doc.ya_public_url and not doc.ya_public_url.startswith('enc:'):
+                doc.ya_public_url = encrypt(doc.ya_public_url, self.config)
+                
+            doc.document_url = encrypt("https://storage.yandexcloud.net/ttdoc/2327c706ebdd9f6334fe889b32107787.pdf", self.config)
             
         session.commit()
 

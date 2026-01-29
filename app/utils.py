@@ -38,11 +38,24 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
         return path
 
     
-def dump_expired_keys(keys, dir = 'artifacts/expired_keys', file="expired_keys.json"):
+def dump_expired_keys(keys, dir = '_artifacts/expired_keys', file="expired_keys.json"):
     os.makedirs(dir, exist_ok=True)
-    path = os.path.join(dir, file)
-    with open(path, "r") as f:
-        existing_keys = set(json.load(f))
+    ekf = os.path.join(dir, file)
+    if os.path.exists(ekf):
+        with open(ekf, "r") as f:
+            existing_keys = set(json.load(f))
+    else:
+        existing_keys = set()
     keys = existing_keys.union(set(keys))
-    with open(path, "w") as f:
+    with open(ekf, "w") as f:
         json.dump(list(keys), f, ensure_ascii=False, indent=4)
+        
+        
+def load_expired_keys(dir = '_artifacts/expired_keys', file="expired_keys.json"):
+    os.makedirs(dir, exist_ok=True)
+    ekf = os.path.join(dir, file)
+    if os.path.exists(ekf):
+        with open(ekf, "r") as f:
+            return set(json.load(f))
+    else: return set()
+    

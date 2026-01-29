@@ -25,7 +25,3 @@ def evaluate(
     )
     from meta.evaluation import evaluate
     evaluate(args)
-
-
-# todo graceful shutdown 
-# todo skip unprocessed

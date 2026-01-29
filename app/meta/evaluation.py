@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from db.models import Document
-from utils import get_session, read_config, dump_expired_keys
+from utils import get_session, read_config, dump_expired_keys, load_expired_keys
 from sqlalchemy import select
 from rich import print
 from queue import Queue, Empty
@@ -33,29 +33,23 @@ class Evaluation(BaseModel):
         _eval.applicable = False
         _eval.reason = reason
         return _eval
-
-def evaluate(args):
-    """
-    Decide if books is applicable for library management and create taxonomy
-    """
-    # 1. Get documents for processing
-    # 2. Filter eraly non applicable for library management
-    # 3. For each document create prompt and request gemini to get taxonomy
-    config = read_config()
-    for lang_code in config['sup_langs']:
-        _process_lang(args, lang_code, config)
         
             
-def _process_lang(args, lang_code, config):
-    params = config['sup_langs'][lang_code]
-    predicate = _get_predicate(params['codes'])
+def evaluate(args):
+    config = read_config()
+    lang_codes = config['sup_langs']['tt']['codes']
+    predicate = _get_predicate(lang_codes)
     stop_event = threading.Event()
     channel = Channel()
     
     while not stop_event.is_set():
-        if not channel.available_keys:
+        available_keys =  list(set(config["gemini_api_keys"]) - channel.exceeded_keys_set)
+        random.shuffle(available_keys)
+        keys_slice = available_keys[:args.workers]
+        if not keys_slice:
             print("No gemini keys available, exiting...")
             return      
+        
         workers = []
         with get_session() as session:
             # get batch of documents for processing
@@ -93,7 +87,9 @@ def _process_lang(args, lang_code, config):
                 t.join(timeout=120)
             return
         finally:
-            dump_expired_keys()
+            dump_expired_keys(channel.exceeded_keys_set)
+            exit()
+        
         
 def _get_predicate(codes):
     return (
@@ -101,7 +97,7 @@ def _get_predicate(codes):
         &
         Document.language.in_(codes)
         &
-        Document.meta.is_not(None)
+        Document.content_url.is_not(None)
     )
     
 
@@ -130,6 +126,7 @@ def _early_skip(docs):
             
 def _save_non_applicable(non_applicables):
     print(f"Marking {len(non_applicables)} documents as non applicable for library management")
+    return
     with get_session() as session:
         for doc, reason in non_applicables:
             _eval = Evaluation.nonapplicable(reason)
@@ -210,21 +207,20 @@ class Channel:
     
     def __init__(self):
         self.lock = threading.Lock()
-        self.available_keys = set()
         self.exceeded_keys_set = load_expired_keys()
-        self.unprocessable_docs, self.repairable_docs = self._load_unprocessable_docs()
+        self.unprocessable_docs = self._load_unprocessable_docs()
         
     def get_all_unprocessable_docs(self):
         return self.unprocessable_docs | self.repairable_docs
     
     def dump(self):
-        dump_expired_keys(self.exceeded_keys_set)
-        self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
-        self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
+        with self.lock:
+            dump_expired_keys(self.exceeded_keys_set)
+            self._dump_to_file("unprocessables", "unprocessables_eval.txt", self.unprocessable_docs)
             
 
     def _load_unprocessable_docs(self, dir = "unprocessables"):
-        return self._load_file(dir, "unprocessables.txt"), self._load_file(dir, "repairables.txt")
+        return self._load_file(dir, "unprocessables.txt")
     
     
     def _load_file(self, dir, file_name):

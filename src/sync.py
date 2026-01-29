@@ -249,11 +249,11 @@ def _define_docs_for_wiping(yaclient, config):
         docs_for_wiping.update(nontextual_docs)
         flush(docs_for_wiping)
         
-        non_crimean_tatar_docs = session.scalars(select(DocumentCrh).where(DocumentCrh.language.not_in(crimean_tatar_bcp_47_codes)))
-        non_crimean_tatar_docs = {d.md5: f"noncrimeantatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_crimean_tatar_docs}
-        print(f"Found {len(non_tatar_docs)} noncrimeantatar docs")
-        docs_for_wiping.update(non_crimean_tatar_docs)
-        flush(docs_for_wiping)
+        # non_crimean_tatar_docs = session.scalars(select(DocumentCrh).where(DocumentCrh.language.not_in(crimean_tatar_bcp_47_codes)))
+        # non_crimean_tatar_docs = {d.md5: f"noncrimeantatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_crimean_tatar_docs}
+        # print(f"Found {len(non_crimean_tatar_docs)} noncrimeantatar docs")
+        # docs_for_wiping.update(non_crimean_tatar_docs)
+        # flush(docs_for_wiping)
         
         print("Querying non textual docs")
         nontextual_docs = session.scalars(select(DocumentCrh).where(

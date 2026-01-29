@@ -37,9 +37,8 @@ class FromTextMetadataExtractor:
     
     def _load_extracted_content(self, first_N=30_000):
         content_zip = get_in_workdir(Dirs.CONTENT, file=f"{self.doc.md5}.zip")
-        content_url = decrypt(self.doc.content_url, self.config) if self.doc.sharing_restricted else self.doc.content_url
         
-        with open(content_zip, "wb") as um_zip, requests.get(content_url, stream=True) as resp:
+        with open(content_zip, "wb") as um_zip, requests.get(self.doc.content_url, stream=True) as resp:
             resp.raise_for_status()
             for chunk in resp.iter_content(chunk_size=512): 
                 um_zip.write(chunk)
