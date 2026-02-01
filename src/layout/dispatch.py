@@ -12,7 +12,7 @@
 # extract syria 
 # convert to intermediate format 
 # compare and choose layout 
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, get_session
+from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
 from yadisk_client import YaDisk
 from rich import print
 from rich.progress import track

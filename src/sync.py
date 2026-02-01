@@ -68,7 +68,7 @@ from yadisk_client import YaDisk
 from rich import print
 from models import Document, DocumentCrh
 from s3 import  create_session
-from sqlalchemy import text, select, delete
+from sqlalchemy import select
 import json
 from dirs import Dirs
 import os

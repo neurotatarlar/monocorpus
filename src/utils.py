@@ -6,7 +6,6 @@ import sys
 import yaml
 from typing import Union
 import hashlib
-from models import Document
 from sqlalchemy import select
 from collections import deque
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM

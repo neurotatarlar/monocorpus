@@ -1,6 +1,5 @@
 """Metadata extraction from already-extracted text content."""
 
-from utils import decrypt
 from prompt import DEFINE_META_PROMPT_NON_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
 from utils import get_in_workdir
 from dirs import Dirs
