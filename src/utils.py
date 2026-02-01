@@ -1,3 +1,5 @@
+"""Shared utility functions for file paths, DB access, and metadata handling."""
+
 import os
 from dirs import Dirs
 import sys
@@ -22,22 +24,26 @@ workdir = "~/.monocorpus"
 
 
 def read_config(config_file: str = "config.yaml"):
+    """Load YAML config from the workdir (defaults to config.yaml)."""
     with open(get_in_workdir(file=config_file, prefix="."), 'r') as file:
         return yaml.safe_load(file)
 
 
 def get_engine(echo: bool = False):
+    """Create a SQLAlchemy engine from the configured database URL."""
     config = read_config()
     return create_engine(config['database_url'], echo=echo)
     # return sessionmaker(autocommit=False, autoflush=False, bind=engine)
     
     
 def get_session():
+    """Return a new SQLAlchemy session bound to the configured engine."""
     Session = sessionmaker(bind=get_engine())
     return Session()
 
 
 def pick_files(dir_path: Union[str, Dirs]):
+    """List all files under a workdir subdirectory."""
     return [
         os.path.normpath(os.path.join(dir_name, f))
         for dir_name, _, files
@@ -62,6 +68,7 @@ def calculate_md5(file_path: str):
 
 
 def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str = workdir):
+    """Build (and create) a path under the workdir, optionally including a filename."""
     dir_names = [i.value if isinstance(i, Dirs) else i for i in dir_names]
     script_parent_dir = os.path.dirname(os.path.realpath(sys.argv[0]))
     path = [script_parent_dir, '..', os.path.expanduser(prefix), *dir_names]
@@ -74,6 +81,7 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
 
 
 def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=None, offset=None, session=get_session()):
+    """Yield documents based on CLI filters (md5/path) and optional predicates."""
     def _yield_by_md5(_md5, _predicate):
         print(f"Looking for document by md5 '{_md5}'")
         if _predicate is None:
@@ -113,6 +121,7 @@ def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=No
 
 
 def download_file_locally(ya_client, doc, config):
+    """Download a document to the entry point if missing or outdated."""
     def _extension_by_mime_type(mime_type):
         if mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
             return '.docx'
@@ -139,6 +148,7 @@ def download_file_locally(ya_client, doc, config):
 
 
 def _find(session, entity_cls, predicate=None, limit=None, offset=None, ):
+    """Yield ORM results for the given entity and predicate."""
     statement = select(entity_cls)
     if predicate is not None:
         statement = statement.where(predicate)
@@ -180,6 +190,7 @@ def walk_yadisk(client, root, fields = [
               
                 
 def encrypt(url, config):
+    """Encrypt a URL for restricted sharing."""
     key = base64.urlsafe_b64decode(config["encryption_key"])
     aesgcm = AESGCM(key)
     nonce = os.urandom(12)
@@ -189,6 +200,7 @@ def encrypt(url, config):
 
 
 def decrypt(ciphertext, config):
+    """Decrypt a previously encrypted URL."""
     encrypted_url = ciphertext.removeprefix(prefix)
     data = base64.urlsafe_b64decode(encrypted_url)
     nonce, ct = data[:12], data[12:]
@@ -198,6 +210,7 @@ def decrypt(ciphertext, config):
 
 
 def load_expired_keys(dir = 'expired_keys'):
+    """Load the set of expired keys for the current bucket window."""
     os.makedirs(dir, exist_ok=True)
     ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
     if os.path.exists(ekf):
@@ -207,6 +220,7 @@ def load_expired_keys(dir = 'expired_keys'):
     
 
 def dump_expired_keys(keys, dir = 'expired_keys'):
+    """Persist the set of expired keys for the current bucket window."""
     os.makedirs(dir, exist_ok=True)
     ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
     with open(ekf, "w") as f:
@@ -231,6 +245,7 @@ import requests
 import zipfile
 
 def load_upstream_metadata(upstream_meta_url, md5):
+    """Download upstream metadata ZIP and return sanitized JSON as a string."""
     if not upstream_meta_url:
         return None
     upstream_metadata_zip = get_in_workdir(Dirs.UPSTREAM_METADATA, file=f"{md5}.zip")

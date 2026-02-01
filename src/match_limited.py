@@ -63,6 +63,7 @@ downloaded_fully_dir = "/НейроТатарлар/kitaplar/monocorpus/милл
 
 
 def match_limited():
+    """Match limited/full docs and migrate upstream metadata accordingly."""
     config = read_config()
     with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client: 
         limited_docs = {unicodedata.normalize("NFC", d.name.strip()): d for d in walk_yadisk(ya_client, limited_dir, fields= ['name', 'md5'])}
@@ -105,6 +106,7 @@ def match_limited():
             
         
 def _lookup_upstream_metadata(s3client, bucket):
+    """Map md5 to upstream metadata URLs from S3."""
     s3client.list_objects_v2(Bucket=bucket)
     paginator = s3client.get_paginator('list_objects_v2')
     pages = paginator.paginate(Bucket=bucket)
@@ -116,6 +118,7 @@ def _lookup_upstream_metadata(s3client, bucket):
     
     
 def _get_wiping_plan():
+    """Load or initialize the wiping plan JSON."""
     marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")
     if not os.path.exists(marked_for_wiping):
         print("No marked for wiping file found, creating a new one")
@@ -126,6 +129,7 @@ def _get_wiping_plan():
     
     
 def _flush(plan):
+    """Persist the wiping plan JSON to disk."""
     marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")
     with open(marked_for_wiping, 'w') as f:
         json.dump(plan, f, indent=4, ensure_ascii=False)

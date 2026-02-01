@@ -1,3 +1,5 @@
+"""Typer CLI commands for running the monocorpus pipeline."""
+
 import typer
 from typing_extensions import Annotated
 from typing import Optional
@@ -9,6 +11,7 @@ app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
     
 @dataclass
 class ExtractParams:
+    """CLI parameters for content extraction."""
     md5: str
     path: str
     batch_size: int
@@ -16,10 +19,12 @@ class ExtractParams:
 
 @dataclass
 class CliParams:
+    """CLI parameters for path or md5 filtering."""
     md5: str
     path: str
 
 def md5_validator(value: str):
+    """Validate and normalize an MD5 string for CLI usage."""
     if value:
         if len(value) != 32:
             raise typer.BadParameter("MD5 should be 32 characters long")
@@ -122,6 +127,7 @@ def layouts(
         )
     ] = None,
 ):
+    """Run layout detection for the selected documents."""
     from layout.dispatch import layouts
     cli_params = CliParams(
         md5=md5.strip() if md5 else None, 
@@ -150,6 +156,7 @@ def sharing_restricted():
     
 @app.command()
 def check_artifacts():
+    """Run artifact validation checks."""
     import check_artifacts
     check_artifacts.check()
     
@@ -174,6 +181,7 @@ def dump_state():
 
 @app.command()
 def upload_to_s3():
+    """Upload missing Crimean Tatar documents to S3."""
     from models import DocumentCrh
     from utils import read_config, get_session, download_file_locally
     from s3 import create_session, upload_file

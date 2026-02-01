@@ -317,6 +317,7 @@ class MetadataExtractionWorker:
         
         
 def _load_unprocessables(file="unprocessables/unprocessables_meta.txt"):
+    """Load the set of documents skipped during metadata extraction."""
     unprocessables = set()
     if os.path.exists(file):
         with open(file, "r") as f:

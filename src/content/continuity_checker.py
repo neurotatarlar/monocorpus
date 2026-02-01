@@ -1,3 +1,5 @@
+"""Heuristics for merging adjacent text chunks into continuous paragraphs."""
+
 import re
 
 from spacy.lang.tt import Tatar

@@ -69,6 +69,7 @@ from dirs import Dirs
 from models import Document
 
 def check():
+    """Verify public links and restore missing ones for all documents."""
     config = read_config()
     s3client = create_session(config)
     documents_bucket = config["yandex"]["cloud"]["bucket"]["document"]
@@ -92,6 +93,7 @@ def check():
                 
                 
 def _restore(doc, s3client, documents_bucket, ya_client, config):
+    """Restore a document on Yandex Disk and update public link metadata."""
     # print(f"File not found in Yandex Disk by public url `{doc.md5}`")
     if (meta := get_meta(doc.ya_path, ya_client)) and meta.md5 == doc.md5:
         # here if file exists and it is the same as in ghseets
@@ -131,6 +133,7 @@ def _restore(doc, s3client, documents_bucket, ya_client, config):
     print(f"Restored file `{doc.md5}`")
     
 def get_meta(path, ya_client):
+    """Fetch Yandex Disk metadata for a path, returning None when missing."""
     try:
         if not path:
             return None
@@ -140,6 +143,7 @@ def get_meta(path, ya_client):
     
     
 def _extension_by_mime_type(mime_type):
+    """Map a MIME type to a default file extension."""
     if mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
         return '.docx'
     elif mime_type == 'text/plain':
@@ -154,6 +158,7 @@ def _extension_by_mime_type(mime_type):
         raise ValueError(f"Unexpected mime type '{mime_type}'")
     
 def _publish_file(client, path):
+    """Publish a file and return public link metadata."""
     try:
         _ = client.unpublish(path)
     except: 

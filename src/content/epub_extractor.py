@@ -1,3 +1,5 @@
+"""EPUB-to-Markdown extraction helpers."""
+
 from utils import get_in_workdir
 from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT, ITEM_COVER, ITEM_UNKNOWN
 from bs4 import BeautifulSoup, NavigableString
@@ -9,6 +11,7 @@ from urllib.parse import urlparse
 
 
 class EpubExtractor:
+    """Extract EPUB content into Markdown while skipping images and boilerplate."""
     
     def __init__(self, doc, local_doc_path, config, s3lient):
         self.doc = doc
@@ -18,11 +21,13 @@ class EpubExtractor:
     
     
     def extract(self):
+        """Return cleaned Markdown extracted from the EPUB."""
         md_content, icr = self._extract(self.doc, self.config, self.local_doc_path, self.s3lient) 
         return self._postprocess(md_content)
 
 
     def _postprocess(self, content):
+        """Normalize markdown produced by HTML conversion."""
         content = re.sub(r"^xml version='1\.0' encoding='utf-8'\?\s*", '', content, flags=re.MULTILINE)
         content = re.sub(r"^!\[\]\(.*?\)\s*", '', content, flags=re.MULTILINE)
         content = re.sub(r'^- ?', '— ', content, flags=re.MULTILINE)
@@ -31,6 +36,7 @@ class EpubExtractor:
         
         
     def _extract(self, doc, config, local_doc_path, s3session):
+        """Parse EPUB items and convert document items to Markdown."""
         outputs = []
         book = epub.read_epub(local_doc_path)
         clips_counter = 0
@@ -110,6 +116,6 @@ class EpubExtractor:
     
     
     def _is_relative(self, url):
+        """Return True when the URL lacks a scheme/host (relative link)."""
         parsed = urlparse(url)
         return not parsed.scheme and not parsed.netloc
-

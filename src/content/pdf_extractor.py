@@ -1,3 +1,5 @@
+"""PDF extraction pipeline using Gemini with chunking and postprocessing."""
+
 from rich import print
 from utils import get_in_workdir, download_file_locally, encrypt, decrypt, get_session
 from dirs import Dirs
@@ -31,9 +33,11 @@ FIGURE_TAG_PATTERN = re.compile(r"<figure\b[^>]*>", re.IGNORECASE)
 
 
 class ExtractionResult(BaseModel):
+    """Typed container for model responses."""
     content: str
     
 class ChunkPlanner:
+    """Plan page ranges, reusing already processed chunks from disk."""
     def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[5, 3, 2, 1]):
         self.chunked_results_dir = chunked_results_dir
         self.pages_count = pages_count
@@ -127,6 +131,7 @@ class ChunkPlanner:
     
     
 class Chunk:
+    """Simple inclusive page range container (start, end)."""
     
     def __init__(self, start, end):
         self.start = start
@@ -158,6 +163,7 @@ class Chunk:
     
     
 class PdfExtractor:
+    """Worker that extracts PDF content, postprocesses it, and uploads artifacts."""
     
     
     def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, channel, stop_event, lang_tag):
@@ -172,6 +178,7 @@ class PdfExtractor:
         self.lang_tag = lang_tag
         
     def __call__(self):
+        """Run the worker loop until the task queue is exhausted or stopped."""
         gemini_client = create_client(self.key)
         while not self.stop_event.is_set():
             try: 
@@ -552,6 +559,7 @@ class PdfExtractor:
 
 
 def _has_figure_tag_with_missing_attributes(content):
+    """Return True when any <figure> tag lacks required attributes."""
     for match in FIGURE_TAG_PATTERN.finditer(content):
         tag = match.group(0)
         if 'data-bbox=' not in tag:
@@ -564,6 +572,7 @@ def _has_figure_tag_with_missing_attributes(content):
     
 
 def _tokens_info(usage_meta):
+    """Format token usage metadata for logging."""
     if usage_meta:
         return f"input tokens:{usage_meta.prompt_token_count}, output tokens: {usage_meta.candidates_token_count}, total tokens: {usage_meta.total_token_count}"
     return ""

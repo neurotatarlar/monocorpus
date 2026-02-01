@@ -1,3 +1,5 @@
+"""Metadata extraction from a PDF slice using Gemini prompts."""
+
 from utils import  get_in_workdir, load_upstream_metadata
 from gemini import gemini_api
 from metadata.schema import Book
@@ -9,6 +11,7 @@ import json
 
 
 class FromPdfSliceMetadataExtractor:
+    """Extract metadata by slicing representative PDF pages."""
     
     
     def __init__(self, doc, config, gemini_client, model, local_doc_path, lang_tag): 
@@ -21,6 +24,7 @@ class FromPdfSliceMetadataExtractor:
         
         
     def extract(self):
+        """Generate a PDF slice and run metadata extraction on it."""
         # create a slice of first n and last n pages
         slice_file_path = get_in_workdir(Dirs.DOC_SLICES, self.doc.md5, file=f"slice-for-meta")
         slice_page_count, original_doc_page_count = self._prepare_slices(slice_file_path, n=5)
@@ -74,6 +78,7 @@ class FromPdfSliceMetadataExtractor:
         
         
     def _prepare_prompt(self, slice_page_count):
+        """Compose the Gemini prompt with optional upstream metadata."""
         prompt = DEFINE_META_PROMPT_PDF_HEADER.format(n=int(slice_page_count / 2),)
         prompt = [{'text': prompt}]
         prompt.append({'text': DEFINE_META_PROMPT_BODY})

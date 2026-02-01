@@ -1,17 +1,22 @@
+"""Pydantic models for schema.org JSON-LD metadata."""
+
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
 class PersonOrOrganization(BaseModel):
+    """Schema.org Person or Organization reference."""
     type: str = Field(alias="@type")
     name: str
     role: Optional[str] = None
 
 class PropertyValue(BaseModel):
+    """Schema.org PropertyValue entry."""
     type: str = Field(alias="@type")
     name: str
     value: str
     
 class CreativeWork(BaseModel):
+    """Schema.org CreativeWork reference."""
     type: str = Field(alias="@type")
     name: Optional[str] = None
     author: Optional[List[PersonOrOrganization]] = None
@@ -20,6 +25,7 @@ class CreativeWork(BaseModel):
 
 
 class Book(BaseModel):
+    """Schema.org Book metadata model."""
     context: str = Field(alias="@context")
     type: str = Field(alias="@type")
 

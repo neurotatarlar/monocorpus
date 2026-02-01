@@ -93,12 +93,14 @@ non_pdf_format_types = to_docx_mime_types | \
     )
 
 def extract_content(cli_params):
+    """Dispatch extraction for both non-PDF and PDF documents."""
     for lang_tag in ['tt']:
         _process_non_pdf(cli_params, lang_tag)
         # _process_pdf(cli_params, lang_tag)
     
  
 def _process_non_pdf(cli_params, lang_tag):
+    """Extract content from EPUB and doc-like formats."""
     print("Extracting content of nonpdf documents")
     entity_cls = Document if lang_tag == 'tt' else DocumentCrh
     predicate = (
@@ -150,6 +152,7 @@ def _process_non_pdf(cli_params, lang_tag):
             
             
 def _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, s3lient):        
+    """Zip formatted content and upload artifacts to S3."""
     content_key = f"{doc.md5}.zip"
     content_bucket = config["yandex"]["cloud"]['bucket']['content']
     local_content_path = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}.zip")
@@ -164,6 +167,7 @@ def _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, 
 
 
 def _get_credentials():
+    """Load OAuth credentials for Google Drive conversions."""
     token_file = "personal_token.json"
     
     if os.path.exists(token_file):
@@ -176,6 +180,7 @@ def _get_credentials():
     return Credentials.from_authorized_user_file(token_file, SCOPES)
 
 class Channel:
+    """Thread-safe shared state for PDF extraction workers."""
     
     def __init__(self):
         self.lock = threading.Lock()
@@ -183,19 +188,23 @@ class Channel:
         self.unprocessable_docs, self.repairable_docs = self._load_unprocessable_docs()
         
     def get_all_unprocessable_docs(self):
+        """Return the union of unprocessable and repairable doc IDs."""
         return self.unprocessable_docs | self.repairable_docs
     
     def dump(self):
+        """Persist expired keys and unprocessable doc lists to disk."""
         dump_expired_keys(self.exceeded_keys_set)
         self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
         self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
             
 
     def _load_unprocessable_docs(self, dir = "unprocessables"):
+        """Load persisted unprocessable and repairable doc IDs."""
         return self._load_file(dir, "unprocessables.txt"), self._load_file(dir, "repairables.txt")
     
     
     def _load_file(self, dir, file_name):
+        """Load a line-delimited file into a set."""
         file = os.path.join(dir, file_name)
         if os.path.exists(file):
             with open(file, "r") as f:
@@ -205,6 +214,7 @@ class Channel:
         
         
     def _dump_to_file(self, dir, file_name, items):
+        """Write a set of items as newline-separated lines."""
         os.makedirs(dir, exist_ok=True)
         file = os.path.join(dir, file_name)
         with open(file, "w") as f:
@@ -212,24 +222,28 @@ class Channel:
             
     
     def add_exceeded_key(self, key):
+        """Mark an API key as rate-limited for this run."""
         with self.lock:
             self.exceeded_keys_set.add(key)
             dump_expired_keys(self.exceeded_keys_set)
     
             
     def add_unprocessable_doc(self, md5):
+        """Record a document as unprocessable."""
         with self.lock:
             self.unprocessable_docs.add(md5)
             self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
             
     
     def add_repairable_doc(self, md5):
+        """Record a document as repairable for later retry."""
         with self.lock:
             self.repairable_docs.add(md5)
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
 def _process_pdf(cli_params, lang_tag):
+    """Run PDF extraction with a worker pool and Gemini key rotation."""
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")

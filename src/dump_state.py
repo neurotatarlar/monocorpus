@@ -1,3 +1,5 @@
+"""Export database tables to CSV/Drive/Sheets for backup and sharing."""
+
 from utils import get_engine, get_in_workdir
 import pandas as pd
 from rich import print
@@ -24,6 +26,7 @@ worksheet_monocorpus = "tt"
 worksheet_monocorpus_crh = "crh"
 
 def dump():
+    """Dump document tables to CSV, zip, and upload to Drive/Sheets."""
     csv_path = None
     csv_path_crh = None
     zip_path = None
@@ -65,11 +68,13 @@ def dump():
             
             
 def zip(csv_path, zip_path, title):
+    """Create a ZIP archive with a single CSV file."""
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         zipf.write(csv_path, arcname=f"{title}.csv")
 
     
 def _export_to_gsheets(csv_path, creds, worksheet_name, chunk_size=1000):
+    """Upload a CSV to a Google Sheets worksheet in chunks."""
     gc = gspread.authorize(creds)  # same creds as above
     sh = gc.open_by_key(spread_sheet_id) 
     worksheet = _get_or_create_worksheet(sh, worksheet_name)
@@ -111,6 +116,7 @@ def _export_to_gsheets(csv_path, creds, worksheet_name, chunk_size=1000):
 
 
 def _get_or_create_worksheet(sh, title):
+    """Return an existing worksheet or create a new one."""
     try:
         return sh.worksheet(title)
     except WorksheetNotFound:
@@ -127,6 +133,7 @@ def _dump_table_to_csv(output_path, model):
     
     
 def _export_to_gdrive(zip_path, creds, title):
+    """Upload a ZIP file to Google Drive in the shared folder."""
     # Create a new sheet with timestamp
 
     drive_service = build('drive', 'v3', credentials=creds)
@@ -148,6 +155,7 @@ def _export_to_gdrive(zip_path, creds, title):
     
     
 def _get_credentials():
+    """Load or create OAuth credentials for Google APIs."""
     token_file = "personal_token.json"
     
     if os.path.exists(token_file):
@@ -158,6 +166,5 @@ def _get_credentials():
     with open(token_file, 'w') as f:
         f.write(creds.to_json())
     return Credentials.from_authorized_user_file(token_file, SCOPES)
-
 
 

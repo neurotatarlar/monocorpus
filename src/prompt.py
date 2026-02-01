@@ -1,3 +1,5 @@
+"""Prompt templates and helpers for Gemini extraction tasks."""
+
 from google.genai.errors import ClientError
 from google.genai import types
 import io
@@ -342,6 +344,7 @@ Text may appear in different scripts. Automatically detect the **primary languag
 
 
 def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, headers_hierarchy, lang_tag):
+   """Build the extraction prompt for a page range and language."""
    if headers_hierarchy:
       headers_hierarchy = "\n".join(headers_hierarchy)
       headers_hierarchy =  f"headers_hierarchy = ```\n{headers_hierarchy}\n```"
@@ -367,6 +370,7 @@ def cook_extraction_prompt(batch_from_page, batch_to_page, next_footnote_num, he
    return prompt
 
 def _get_remote_file_or_upload(client, name, content=None, path=None):
+   """Fetch an uploaded Gemini file by name, uploading if missing."""
    file = None
    try:
       file = client.files.get(name=name)

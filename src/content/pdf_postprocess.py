@@ -1,3 +1,5 @@
+"""Postprocess extracted PDF markdown and recover figures."""
+
 import re
 import mdformat
 from dirs import Dirs 
@@ -19,11 +21,13 @@ MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
 
 
 class NoBboxError(BaseException):
+    """Raised when a figure element lacks a bounding box annotation."""
     def __init__(self, md5, *args):
         super().__init__(*args)
         self.md5 = md5
     
 def postprocess(context, config):
+    """Clean model output and replace figure placeholders with detected images."""
     with open(context.unformatted_response_md, "r") as f:
         content = f.read()
         
@@ -51,6 +55,7 @@ def postprocess(context, config):
     return postprocessed
 
 def _proccess_images(context, content, config):
+    """Locate figure placeholders, detect page images, and replace HTML."""
     dashboard = _collect_images(context, content)
     if not dashboard:
         return content
@@ -117,6 +122,7 @@ def _proccess_images(context, content, config):
     return _replace_images(result, content)
 
 def _collect_images(context, content):
+    """Extract figure metadata and group them by page."""
     pattern = re.compile(r'(<figure.*?</figure>)', re.DOTALL)
     dashboard = defaultdict(dict)
     for match in pattern.finditer(content):
@@ -138,11 +144,13 @@ def _collect_images(context, content):
     return dashboard
 
 def _replace_images(result, content):
+    """Replace original figure HTML snippets with generated replacements."""
     for target, replacement in result:
         content = content.replace(target, replacement)
     return content
 
 def _upload_to_s3(pairs, session, config):
+    """Upload generated image clips to S3 and store URLs."""
     for p in pairs:
         if not (path := p.get('path')):
             continue
@@ -151,6 +159,7 @@ def _upload_to_s3(pairs, session, config):
         p['url'] = upload_file(path, bucket, key, session, skip_if_exists=True)
 
 def _clips(pix, pairs, page_no, clips_dir, md5):
+    """Crop detected image regions and write them to disk."""
     image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
     pairs = [p for p in pairs if p.get('yolo')]
     for idx, p in enumerate(sorted(pairs, key=lambda f: (f["yolo"]["bbox"][0], f["yolo"]["bbox"][1]))):
@@ -161,6 +170,7 @@ def _clips(pix, pairs, page_no, clips_dir, md5):
         p['height'] = cropped_image.height
 
 def _compile_replacement_str(pairs):
+    """Build HTML replacements for paired figure detections."""
     for p in pairs:
         if p.get('yolo'):
             if caption := p['gemini'].get('caption'):
@@ -175,6 +185,7 @@ def _compile_replacement_str(pairs):
             p['replacement'] = ''
             
 def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
+    """Pair Gemini and YOLO detections for the same figure."""
     potential_matches = []
 
     # Step 1: Collect all potential matches with scores
@@ -222,6 +233,7 @@ def _pair_model_boxes(details, centroid_distance_threshold, iou_threshold=0.5):
     return matches
     
 def compute_iou(box1, box2):
+    """Intersection-over-union for two bounding boxes."""
     xa = max(box1[0], box2[0])
     ya = max(box1[1], box2[1])
     xb = min(box1[2], box2[2])
@@ -235,8 +247,10 @@ def compute_iou(box1, box2):
     return inter_area / union_area if union_area > 0 else 0
 
 def compute_centroid(box):
+    """Compute centroid of a bounding box."""
     x1, y1, x2, y2 = box
     return ((x1 + x2) / 2, (y1 + y2) / 2)
 
 def compute_distance(c1, c2):
+    """Euclidean distance between two centroids."""
     return math.sqrt((c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2)

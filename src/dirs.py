@@ -1,7 +1,10 @@
+"""Centralized directory names used for local workspace storage."""
+
 from enum import Enum
 
 
 class Dirs(Enum):
+    """Named subdirectories under the project workdir (~/.monocorpus)."""
     ENTRY_POINT = "0_entry_point"
     CONTENT = "1_result"
     METADATA="2_metadata"

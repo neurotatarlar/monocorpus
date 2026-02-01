@@ -1,3 +1,5 @@
+"""Layout detection pipeline for PDF pages (YOLO + Surya)."""
+
 # First create a layout plan
 # 1. extract layouts by yolo 
 # 2. extract layouts by surya
@@ -40,6 +42,7 @@ DPI = 100
 SURYA_BATCH_SIZE=10
 
 class Context:
+    """Container for per-document layout inference state."""
 
     def __init__(self, doc):
         self.doc = doc
@@ -51,6 +54,7 @@ class Context:
         
 
 def layouts(cli_params):
+    """Run layout detection for the selected documents."""
     config = read_config()
     predicate = (
         # Document.content_url.is_(None) &
@@ -86,6 +90,7 @@ def layouts(cli_params):
         
 
 def _render_bboxes(context):
+    """Render model bounding boxes onto pages for visual inspection."""
     # take yolo layouts 
     with pymupdf.open(context.local_path) as pdf_doc:
         for d in context.yolo_layouts[:]:
@@ -145,6 +150,7 @@ def _render_bboxes(context):
                 
 
 def _inference_yolo_doclaynet(context):
+    """Run YOLO DocLayNet inference on page images (cached to disk)."""
     yolo_predictions_path = get_in_workdir(Dirs.PREDICTIONS, file=f"yolo-doclaynet-{context.doc.md5}.json")
     
     if os.path.exists(yolo_predictions_path):
@@ -194,6 +200,7 @@ def _inference_yolo_doclaynet(context):
 
 # {'Caption', 'Picture', 'PageFooter', 'TableOfContents', 'Equation', 'SectionHeader', 'Handwriting', 'Figure', 'PageHeader', 'Table', 'ListItem', 'Text'}
 def _inference_surya(context):
+    """Run Surya layout prediction on cached page images."""
     surya_predictions_path = get_in_workdir(Dirs.PREDICTIONS, file=f"surya-{context.doc.md5}.json")
     
     if os.path.exists(surya_predictions_path):
@@ -244,6 +251,7 @@ def _inference_surya(context):
 
     
 def _page_images(path_to_file: str, md5: str):
+    """Render a subset of pages to images at multiple DPIs."""
     output_dir = os.path.join(get_in_workdir(Dirs.PAGE_IMAGES), md5)
     os.makedirs(output_dir, exist_ok=True)
     results = {}
@@ -288,4 +296,3 @@ def _page_images(path_to_file: str, md5: str):
                 # "500": path_to_image_500_dpi,
             }
     return results
-

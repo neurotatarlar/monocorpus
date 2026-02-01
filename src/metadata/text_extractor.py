@@ -1,3 +1,5 @@
+"""Metadata extraction from already-extracted text content."""
+
 from utils import decrypt
 from prompt import DEFINE_META_PROMPT_NON_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
 from utils import get_in_workdir
@@ -9,6 +11,7 @@ import requests
 import json
 
 class FromTextMetadataExtractor:
+    """Extract metadata from Markdown content using Gemini."""
     
     
     def __init__(self, doc, config, gemini_client, model, lang_tag):
@@ -20,6 +23,7 @@ class FromTextMetadataExtractor:
     
                 
     def extract(self):
+        """Build prompt from extracted content and validate Gemini output."""
         slice = self._load_extracted_content()
         # prepare prompt
         prompt = self._prepare_prompt(slice)
@@ -36,6 +40,7 @@ class FromTextMetadataExtractor:
     
     
     def _load_extracted_content(self, first_N=30_000):
+        """Download and read the first N characters of extracted content."""
         content_zip = get_in_workdir(Dirs.CONTENT, file=f"{self.doc.md5}.zip")
         
         with open(content_zip, "wb") as um_zip, requests.get(self.doc.content_url, stream=True) as resp:
@@ -52,6 +57,7 @@ class FromTextMetadataExtractor:
         
         
     def _prepare_prompt(self, slice):
+        """Compose a metadata extraction prompt for non-PDF content."""
         prompt = DEFINE_META_PROMPT_NON_PDF_HEADER.format(n=len(slice))
         prompt = [{'text': prompt}]
         prompt.append({'text': DEFINE_META_PROMPT_BODY})

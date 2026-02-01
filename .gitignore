@@ -7,6 +7,7 @@ expired_keys/*
 package-lock.json
 .python-version
 unprocessables/repairables.txt
+_artifacts/expired_keys/*
 
 # Byte-compiled / optimized / DLL files
 **/__pycache__/

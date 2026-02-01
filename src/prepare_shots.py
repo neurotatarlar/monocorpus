@@ -1,3 +1,5 @@
+"""Prepare inline few-shot examples for Gemini prompts."""
+
 import os
 import base64
 import json
@@ -5,6 +7,7 @@ import json
 cooked_shots_dir = "./shots/cooked"
 
 def load_inline_shots():
+    """Return the prepared shots JSON, creating it if missing."""
     shots_file = os.path.join(cooked_shots_dir, f"prepared-shots.json")
     if not os.path.exists(shots_file):
         print("Creating new shots file")
@@ -13,6 +16,7 @@ def load_inline_shots():
     return shots_file
 
 def _form_inline_shots(_dir = './shots/snippets'):
+    """Build the inline shots payload from snippets and images."""
     prompt = ["Here are examples of how to extract content from a document:"]
     gt = _list_files(_dir, endswith='.md')
     for idx, ground_truth_path in enumerate(gt, start=1):
@@ -33,6 +37,7 @@ def _form_inline_shots(_dir = './shots/snippets'):
     return prompt  
 
 def _list_files(dir, endswith):
+    """List files under a directory by suffix."""
     return [os.path.join(dir, f) for f in os.listdir(dir) if f.endswith(endswith)]
             
     

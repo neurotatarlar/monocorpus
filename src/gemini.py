@@ -1,3 +1,5 @@
+"""Gemini client helpers and CLI wrapper."""
+
 from google import genai
 from google.genai import types
 import subprocess
@@ -7,6 +9,7 @@ import time
 
     
 def gemini_cli(config, prompt):
+    """Run the local Gemini CLI with the given prompt and config."""
     env = os.environ.copy()
     env["GEMINI_API_KEY"] = config['google_api_key']['free']
     
@@ -30,9 +33,11 @@ def gemini_cli(config, prompt):
         raise e
 
 def create_client(api_key):
+    """Create a Gemini API client."""
     return genai.Client(api_key=api_key)
 
 def gemini_api(prompt, model, client, files = {}, temperature=0.1, schema=None, timeout_sec=60*10):
+    """Call the Gemini API with optional file uploads and JSON schema."""
     uploaded_files = []
     for path, mime_type in files.items():
         _f = upload_and_wait(client, path, mime_type)
@@ -56,6 +61,7 @@ def gemini_api(prompt, model, client, files = {}, temperature=0.1, schema=None, 
     return resp_stream, uploaded_files
 
 def upload_and_wait(client, path, mime_type, poll_interval=0.3, timeout=10):
+    """Upload a file and wait until it becomes ACTIVE."""
     _f = client.files.upload(file=path, config={"mime_type": mime_type})
     waited = 0
     while True:

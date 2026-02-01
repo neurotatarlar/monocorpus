@@ -179,6 +179,7 @@ def sync():
                 print(*skipped, sep="\n")
             
 def _move_to_filtered_out(file, config, ya_client, parent_dir, entry_point):
+    """Move a Yandex Disk file into a filtered-out folder or delete it."""
     # For each file
     # 1. move file to dedicated folder
     # 2. unpublish file if it has public link
@@ -198,6 +199,7 @@ def _move_to_filtered_out(file, config, ya_client, parent_dir, entry_point):
     
 
 def _remove_from_s3(md5s, s3client, config):
+    """Remove S3 objects related to the provided MD5s."""
     if not md5s:
         return
     content_bucket = config["yandex"]["cloud"]['bucket']['content']
@@ -226,6 +228,7 @@ def _remove_from_s3(md5s, s3client, config):
         
 
 def _define_docs_for_wiping(yaclient, config):
+    """Build and persist a plan of documents to move/remove."""
     docs_for_wiping = _get_wiping_plan()
 
     print("Querying non tatar documents")
@@ -274,6 +277,7 @@ def _define_docs_for_wiping(yaclient, config):
     return docs_for_wiping
     
 def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
+    """Identify duplicate ISBNs and move extra copies to filtered-out."""
     print("Deduplicating by ISBN")
     # Get all docs that have ISBNs
     with get_session() as session:
@@ -365,6 +369,7 @@ def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
 
     
 def _get_wiping_plan():
+    """Load or create the JSON plan of documents to wipe/move."""
     marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")
     if not os.path.exists(marked_for_wiping):
         print("No marked for wiping file found, creating a new one")
@@ -374,12 +379,14 @@ def _get_wiping_plan():
         return json.load(f)
     
 def flush(plan):
+    """Persist the wiping plan JSON to disk."""
     marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")
     with open(marked_for_wiping, 'w') as f:
         json.dump(plan, f, indent=4, ensure_ascii=False)
 
         
 def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config, lang_tag, entry_point):
+    """Process a single Yandex Disk file and return a Document to upsert."""
     if file.path.startswith("disk:/НейроТатарлар/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
         print(f"Skipping Anna's archive file '{file.path}'")
         return
@@ -485,11 +492,13 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     return doc
 
 def _publish_file(client, path):
+    """Publish a file on Yandex Disk and return its public keys."""
     _ = client.publish(path)
     resp = client.get_meta(path, fields = ['public_key', 'public_url'])
     return resp['public_key'], resp['public_url']
 
 def _lookup_upstream_metadata(s3client, config):
+    """Return a mapping of md5 to upstream metadata URL in S3."""
     bucket = config["yandex"]["cloud"]["bucket"]["upstream_metadata"]
     s3client.list_objects_v2(Bucket=bucket)
     paginator = s3client.get_paginator('list_objects_v2')
@@ -516,6 +525,7 @@ def get_all_md5s(entity_cls):
         }
         
 def should_be_skipped(file):
+    """Determine whether a file should be skipped based on MIME/path rules."""
     if file.mime_type in not_document_types:
         # sometimes valid PDF docs detected as octet-stream
         if file.mime_type == 'application/octet-stream' and file.path.endswith(".pdf"):

@@ -1,3 +1,5 @@
+"""Extraction pipeline for doc-like formats (doc/rtf/txt/etc.) using pandoc."""
+
 from utils import get_in_workdir
 from dirs import Dirs
 from rich import print
@@ -47,6 +49,8 @@ gdrive_operative_folder_name = '1WFYCcbrtKGv3KTwyKdcKHKxXwmr9iFHE'
 
 
 class DocLikeExtractor:
+    """Convert doc-like files to Markdown with optional preprocessing."""
+
     def __init__(self, doc, local_doc_path, config, s3lient, gcloud_creds):
         self.doc = doc
         self.local_doc_path = local_doc_path
@@ -55,6 +59,7 @@ class DocLikeExtractor:
         self.gcloud_creds = gcloud_creds
         
     def extract(self):
+        """Extract content into Markdown, writing an intermediate file in the workdir."""
         response_path = get_in_workdir(Dirs.CONTENT, file=f"{self.doc.md5}-formatted.md")
         
         if self.doc.mime_type == 'text/markdown':
@@ -77,6 +82,7 @@ class DocLikeExtractor:
 
             
     def _preprocess_if_required(self):
+        """Normalize encodings and convert to DOCX via Google Drive when needed."""
         if self.doc.mime_type in check_encoding_mime_types:
             # Step 1: Detect encoding
             with open(self.local_doc_path, 'rb') as f:
@@ -115,6 +121,7 @@ class DocLikeExtractor:
             self.local_doc_path = output_path
     
     def _postprocess(self, response_path):
+        """Clean pandoc output by stripping images and normalizing punctuation."""
         with open(response_path, 'r') as f:
             content = f.read()
             
@@ -148,4 +155,3 @@ class DocLikeExtractor:
         #     return figure_html
 
         # detect and replace all images with links
-

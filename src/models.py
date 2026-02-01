@@ -1,3 +1,5 @@
+"""SQLAlchemy ORM models for document metadata."""
+
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, Integer, String, Boolean, JSON
 
