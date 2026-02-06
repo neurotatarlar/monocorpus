@@ -9,6 +9,8 @@ import zipfile
 import requests
 import json
 
+SLICE_SIZE = 30_000
+
 class FromTextMetadataExtractor:
     """Extract metadata from Markdown content using Gemini."""
     
@@ -38,7 +40,7 @@ class FromTextMetadataExtractor:
             return Book.model_validate_json(raw_response)
     
     
-    def _load_extracted_content(self, first_N=30_000):
+    def _load_extracted_content(self, first_N=SLICE_SIZE):
         """Download and read the first N characters of extracted content."""
         content_zip = get_in_workdir(Dirs.CONTENT, file=f"{self.doc.md5}.zip")
         

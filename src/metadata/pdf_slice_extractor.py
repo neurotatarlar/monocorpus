@@ -9,6 +9,7 @@ import pymupdf
 from prompt import DEFINE_META_PROMPT_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
 import json
 
+SLICE_SIZE = 5
 
 class FromPdfSliceMetadataExtractor:
     """Extract metadata by slicing representative PDF pages."""
@@ -27,7 +28,7 @@ class FromPdfSliceMetadataExtractor:
         """Generate a PDF slice and run metadata extraction on it."""
         # create a slice of first n and last n pages
         slice_file_path = get_in_workdir(Dirs.DOC_SLICES, self.doc.md5, file=f"slice-for-meta")
-        slice_page_count, original_doc_page_count = self._prepare_slices(slice_file_path, n=5)
+        slice_page_count, original_doc_page_count = self._prepare_slices(slice_file_path, n=SLICE_SIZE)
         self.doc.page_count = original_doc_page_count
         
         # prepare prompt
@@ -70,7 +71,7 @@ class FromPdfSliceMetadataExtractor:
         
         with pymupdf.open(self.local_doc_path) as pdf_doc, pymupdf.open() as doc_slice:
             pages = list(range(0, pdf_doc.page_count))
-            pages = set(pages[:n] + pages[-n:])
+            pages = sorted(list(set(pages[:n] + pages[-n:])))
             for start, end in list(__ranges(pages)):
                 doc_slice.insert_pdf(pdf_doc, from_page=start, to_page=end)
             doc_slice.save(dest_path)
