@@ -24,6 +24,7 @@ from utils import get_in_workdir, get_session, read_config
 
 TOC_MARKER_RE = re.compile(r"<!--\s*mdformat-toc start --no-anchors\s*-->")
 UNDERSCORE_RUN_RE = re.compile(r"_{10,}")
+REPLACEMENT_CHAR_RE = re.compile(r"\uFFFD+")
 H1_LINE_RE = re.compile(r"^#\s+")
 FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
 TATAR_LETTERS = set("әөүҗңһӘӨҮҖҢҺäöüñğşçıÄÖÜÑĞŞÇI")
@@ -44,10 +45,17 @@ class PpsStats:
     upload_errors: int = 0
     write_errors: int = 0
     issue_counts: Dict[str, int] = field(default_factory=dict)
+    issue_docs: Dict[str, List[str]] = field(default_factory=dict)
     errors: List[Dict[str, str]] = field(default_factory=list)
 
     def add_issue(self, name: str, count: int = 1) -> None:
         self.issue_counts[name] = self.issue_counts.get(name, 0) + count
+
+    def add_issue_doc(self, name: str, md5: str) -> None:
+        if name not in self.issue_docs:
+            self.issue_docs[name] = []
+        if md5 not in self.issue_docs[name]:
+            self.issue_docs[name].append(md5)
 
     def add_error(self, md5: str, stage: str, error: str) -> None:
         self.errors.append({"md5": md5, "stage": stage, "error": error})
@@ -159,6 +167,7 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
     for name, count in issues.items():
         stats.add_issue(name, count)
         stats.add_issue(f"{name}_docs", 1)
+        stats.add_issue_doc(name, md5)
 
 
 def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
@@ -171,6 +180,10 @@ def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     updated, truncated = _truncate_underscore_runs(updated)
     if truncated:
         issues["underscore_runs_truncated"] = truncated
+
+    updated, removed = _remove_replacement_chars(updated)
+    if removed:
+        issues["replacement_chars_removed"] = removed
 
     updated, demoted = _normalize_multiple_titles(updated)
     if demoted:
@@ -202,6 +215,18 @@ def _truncate_underscore_runs(text: str, limit: int = 10) -> Tuple[str, int]:
 
     updated = UNDERSCORE_RUN_RE.sub(_repl, text)
     return updated, count
+
+
+def _remove_replacement_chars(text: str) -> Tuple[str, int]:
+    removed = 0
+
+    def _repl(match: re.Match) -> str:
+        nonlocal removed
+        removed += len(match.group(0))
+        return ""
+
+    updated = REPLACEMENT_CHAR_RE.sub(_repl, text)
+    return updated, removed
 
 
 def _normalize_multiple_titles(text: str) -> Tuple[str, int]:
@@ -422,6 +447,7 @@ def _write_report(path: str, stats: PpsStats) -> None:
         },
         "issues": stats.issue_counts,
         "failed": failed_by_reason,
+        "issue_docs": stats.issue_docs,
     }
     with open(path, "w") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
