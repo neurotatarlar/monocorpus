@@ -180,6 +180,30 @@ def dump_state():
 
 
 @app.command()
+def pps(
+    force_download: Annotated[
+        bool,
+        typer.Option(
+            "--force-download",
+            help="Download archives even if a local copy exists.",
+        ),
+    ] = False,
+    report_path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--report",
+            help="Optional path to write the JSON report. Defaults to workdir logs.",
+        ),
+    ] = None,
+):
+    """
+    Postpostprocess extracted markdown archives and upload updates to S3.
+    """
+    import pps
+    pps.run(force_download=force_download, report_path=report_path)
+
+
+@app.command()
 def upload_to_s3():
     """Upload missing Crimean Tatar documents to S3."""
     from models import DocumentCrh
