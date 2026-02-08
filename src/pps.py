@@ -398,9 +398,11 @@ def _format_markdown(text: str) -> str:
 def _check_missing_footnotes(text: str) -> Dict[str, int]:
     ref_ids = set()
     def_ids = set()
+    suspicious_continuations = 0
     in_fence = False
     fence_char = None
     fence_len = 0
+    prev_was_def = False
 
     for line in text.splitlines():
         fence_match = FENCE_RE.match(line)
@@ -421,9 +423,15 @@ def _check_missing_footnotes(text: str) -> Dict[str, int]:
             continue
 
         stripped = line.lstrip()
+        if prev_was_def:
+            if line.startswith("    ") or line.startswith("\t"):
+                if stripped:
+                    suspicious_continuations += 1
+            prev_was_def = False
         def_match = FOOTNOTE_DEF_RE.match(stripped)
         if def_match:
             def_ids.add(def_match.group(1))
+            prev_was_def = True
             continue
 
         for ref_id in FOOTNOTE_REF_RE.findall(line):
@@ -442,6 +450,8 @@ def _check_missing_footnotes(text: str) -> Dict[str, int]:
     total_missing = len(missing_defs) + len(missing_gaps)
     if total_missing:
         issues["missing_footnotes"] = total_missing
+    if suspicious_continuations:
+        issues["suspicious_footnote_continuations"] = suspicious_continuations
     return issues
 
 
