@@ -134,6 +134,8 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         return
 
     report_issues = _check_missing_footnotes(content)
+    duplicate_issues = _check_repeated_paragraph_blocks(content)
+    report_issues.update(duplicate_issues)
     for name, count in report_issues.items():
         stats.add_issue(name, count)
         stats.add_issue(f"{name}_docs", 1)
@@ -453,6 +455,35 @@ def _check_missing_footnotes(text: str) -> Dict[str, int]:
     if suspicious_continuations:
         issues["suspicious_footnote_continuations"] = suspicious_continuations
     return issues
+
+
+def _check_repeated_paragraph_blocks(
+    text: str, min_paragraphs: int = 3, min_chars: int = 100
+) -> Dict[str, int]:
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if len(paragraphs) < min_paragraphs * 2:
+        return {}
+
+    normalized = [re.sub(r"\s+", " ", p) for p in paragraphs]
+    lengths = [len(p) for p in normalized]
+    seen = {}
+    repeats = 0
+
+    for i in range(len(normalized) - min_paragraphs + 1):
+        total_len = sum(lengths[i : i + min_paragraphs])
+        if total_len < min_chars:
+            continue
+        seq = tuple(normalized[i : i + min_paragraphs])
+        if seq in seen:
+            repeats += 1
+            if repeats >= 1:
+                break
+        else:
+            seen[seq] = i
+
+    if repeats:
+        return {"repeated_paragraph_blocks": repeats}
+    return {}
 
 
 def _read_markdown_from_zip(zip_path: str, md5: str) -> Tuple[str, str]:
