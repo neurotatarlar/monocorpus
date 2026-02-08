@@ -23,6 +23,7 @@ from utils import get_in_workdir, get_session, read_config
 
 
 TOC_MARKER_RE = re.compile(r"<!--\s*mdformat-toc start --no-anchors\s*-->")
+UNDERSCORE_RUN_RE = re.compile(r"_{10,}")
 
 
 @dataclass
@@ -161,6 +162,10 @@ def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     if removed:
         issues["duplicate_toc_markers_removed"] = removed
 
+    updated, truncated = _truncate_underscore_runs(updated)
+    if truncated:
+        issues["underscore_runs_truncated"] = truncated
+
     return updated, issues
 
 
@@ -175,6 +180,18 @@ def _remove_duplicate_toc_markers(text: str) -> Tuple[str, int]:
     updated = TOC_MARKER_RE.sub(_repl, text)
     removed = max(0, count - 1)
     return updated, removed
+
+
+def _truncate_underscore_runs(text: str, limit: int = 10) -> Tuple[str, int]:
+    count = 0
+
+    def _repl(match: re.Match) -> str:
+        nonlocal count
+        count += 1
+        return "_" * limit
+
+    updated = UNDERSCORE_RUN_RE.sub(_repl, text)
+    return updated, count
 
 
 def _format_markdown(text: str) -> str:
