@@ -23,10 +23,13 @@ from utils import get_in_workdir, get_session, read_config
 
 
 TOC_MARKER_RE = re.compile(r"<!--\s*mdformat-toc start --no-anchors\s*-->")
-UNDERSCORE_RUN_RE = re.compile(r"_{10,}")
+UNDERSCORE_CHARS = set("_＿﹍﹎")
+INLINE_UNDERSCORE_FIX_RE = re.compile(r"(\\\\{2,})([_＿﹍﹎]{10,})|(?<!\\\\)([_＿﹍﹎]{11,})")
 REPLACEMENT_CHAR_RE = re.compile(r"\uFFFD+")
 H1_LINE_RE = re.compile(r"^#\s+")
 FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
+FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:")
+FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\]")
 TATAR_LETTERS = set("әөүҗңһӘӨҮҖҢҺäöüñğşçıÄÖÜÑĞŞÇI")
 FASTTEXT_LABEL_TATAR = "__label__tat"
 FASTTEXT_MODEL_ENV = "FASTTEXT_LID_PATH"
@@ -130,6 +133,12 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         stats.add_error(md5, "read", str(e))
         return
 
+    report_issues = _check_missing_footnotes(content)
+    for name, count in report_issues.items():
+        stats.add_issue(name, count)
+        stats.add_issue(f"{name}_docs", 1)
+        stats.add_issue_doc(name, md5)
+
     new_content, issues = _apply_rules(content)
     if not issues and new_content == content:
         stats.unchanged += 1
@@ -137,6 +146,10 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
     formatted = _format_markdown(new_content)
     if formatted != new_content:
         issues["mdformat_applied"] = 1
+    # mdformat expands underscore-only lines; re-truncate after formatting.
+    formatted, post_truncated = _truncate_underscore_runs(formatted)
+    if post_truncated:
+        issues["underscore_runs_truncated"] = issues.get("underscore_runs_truncated", 0) + post_truncated
     new_content = formatted
     
     backup_path = _backup_path(local_zip)
@@ -168,28 +181,28 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         stats.add_issue(name, count)
         stats.add_issue(f"{name}_docs", 1)
         stats.add_issue_doc(name, md5)
-
+        
 
 def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     issues: Dict[str, int] = {}
 
-    updated, removed = _remove_duplicate_toc_markers(text)
-    if removed:
-        issues["duplicate_toc_markers_removed"] = removed
+    # text, removed = _remove_duplicate_toc_markers(text)
+    # if removed:
+    #     issues["duplicate_toc_markers_removed"] = removed
 
-    updated, truncated = _truncate_underscore_runs(updated)
+    text, truncated = _truncate_underscore_runs(text)
     if truncated:
         issues["underscore_runs_truncated"] = truncated
 
-    updated, removed = _remove_replacement_chars(updated)
-    if removed:
-        issues["replacement_chars_removed"] = removed
+    # text, removed = _remove_replacement_chars(text)
+    # if removed:
+    #     issues["replacement_chars_removed"] = removed
 
-    updated, demoted = _normalize_multiple_titles(updated)
-    if demoted:
-        issues["multiple_titles_normalized"] = demoted
+    # text, demoted = _normalize_multiple_titles(text)
+    # if demoted:
+    #     issues["multiple_titles_normalized"] = demoted
 
-    return updated, issues
+    return text, issues
 
 
 def _remove_duplicate_toc_markers(text: str) -> Tuple[str, int]:
@@ -206,15 +219,42 @@ def _remove_duplicate_toc_markers(text: str) -> Tuple[str, int]:
 
 
 def _truncate_underscore_runs(text: str, limit: int = 10) -> Tuple[str, int]:
-    count = 0
+    removed = 0
+    out_lines = []
 
-    def _repl(match: re.Match) -> str:
-        nonlocal count
-        count += 1
-        return "_" * limit
+    for line in text.splitlines(True):
+        content = line.rstrip("\r\n")
+        newline = line[len(content):]
+        stripped = content.strip()
 
-    updated = UNDERSCORE_RUN_RE.sub(_repl, text)
-    return updated, count
+        if stripped and all(ch in UNDERSCORE_CHARS for ch in stripped):
+            underscore_count = sum(1 for ch in stripped if ch in UNDERSCORE_CHARS)
+            if underscore_count > limit:
+                removed += underscore_count - limit
+            prefix = content[: len(content) - len(content.lstrip())]
+            suffix = content[len(content.rstrip()):]
+            out_lines.append(f"{prefix}{'_' * limit}{suffix}{newline}")
+            continue
+
+        def _inline_repl(match: re.Match) -> str:
+            nonlocal removed
+            backslashes = match.group(1)
+            if backslashes:
+                run = match.group(2)
+                if len(backslashes) > 1:
+                    removed += len(backslashes) - 1
+                if len(run) > limit:
+                    removed += len(run) - limit
+                    run = "_" * limit
+                return f"\\{run}"
+            run = match.group(3)
+            removed += len(run) - limit
+            return f"\\_{'_' * (limit - 1)}"
+
+        content = INLINE_UNDERSCORE_FIX_RE.sub(_inline_repl, content)
+        out_lines.append(f"{content}{newline}")
+
+    return "".join(out_lines), removed
 
 
 def _remove_replacement_chars(text: str) -> Tuple[str, int]:
@@ -353,6 +393,56 @@ def _format_markdown(text: str) -> str:
     )
     # Keep behavior aligned with pdf_postprocess.
     return formatted.replace("\\\\", "\\").replace("\\_", "_").replace("\\<", "<")
+
+
+def _check_missing_footnotes(text: str) -> Dict[str, int]:
+    ref_ids = set()
+    def_ids = set()
+    in_fence = False
+    fence_char = None
+    fence_len = 0
+
+    for line in text.splitlines():
+        fence_match = FENCE_RE.match(line)
+        if fence_match:
+            fence = fence_match.group("fence")
+            if not in_fence:
+                in_fence = True
+                fence_char = fence[0]
+                fence_len = len(fence)
+            else:
+                if fence_char and line.startswith(fence_char * fence_len):
+                    in_fence = False
+                    fence_char = None
+                    fence_len = 0
+            continue
+
+        if in_fence:
+            continue
+
+        stripped = line.lstrip()
+        def_match = FOOTNOTE_DEF_RE.match(stripped)
+        if def_match:
+            def_ids.add(def_match.group(1))
+            continue
+
+        for ref_id in FOOTNOTE_REF_RE.findall(line):
+            ref_ids.add(ref_id)
+
+    missing_defs = ref_ids - def_ids
+
+    numeric_defs = sorted({int(i) for i in def_ids if i.isdigit()})
+    missing_gaps = set()
+    if len(numeric_defs) >= 2:
+        for n in range(numeric_defs[0], numeric_defs[-1] + 1):
+            if n not in numeric_defs:
+                missing_gaps.add(str(n))
+
+    issues: Dict[str, int] = {}
+    total_missing = len(missing_defs) + len(missing_gaps)
+    if total_missing:
+        issues["missing_footnotes"] = total_missing
+    return issues
 
 
 def _read_markdown_from_zip(zip_path: str, md5: str) -> Tuple[str, str]:
