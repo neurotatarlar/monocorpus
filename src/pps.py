@@ -24,6 +24,12 @@ from utils import get_in_workdir, get_session, read_config
 
 TOC_MARKER_RE = re.compile(r"<!--\s*mdformat-toc start --no-anchors\s*-->")
 UNDERSCORE_RUN_RE = re.compile(r"_{10,}")
+H1_LINE_RE = re.compile(r"^#\s+")
+FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
+TATAR_LETTERS = set("әөүҗңһӘӨҮҖҢҺäöüñğşçıÄÖÜÑĞŞÇI")
+FASTTEXT_LABEL_TATAR = "__label__tat"
+FASTTEXT_MODEL_ENV = "FASTTEXT_LID_PATH"
+_FASTTEXT_MODEL = None
 
 
 @dataclass
@@ -166,6 +172,10 @@ def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     if truncated:
         issues["underscore_runs_truncated"] = truncated
 
+    updated, demoted = _normalize_multiple_titles(updated)
+    if demoted:
+        issues["multiple_titles_normalized"] = demoted
+
     return updated, issues
 
 
@@ -192,6 +202,121 @@ def _truncate_underscore_runs(text: str, limit: int = 10) -> Tuple[str, int]:
 
     updated = UNDERSCORE_RUN_RE.sub(_repl, text)
     return updated, count
+
+
+def _normalize_multiple_titles(text: str) -> Tuple[str, int]:
+    lines = text.splitlines()
+    h1_indices = []
+    h1_titles = []
+    in_fence = False
+    fence_char = None
+    fence_len = 0
+
+    for idx, line in enumerate(lines):
+        fence_match = FENCE_RE.match(line)
+        if fence_match:
+            fence = fence_match.group("fence")
+            if not in_fence:
+                in_fence = True
+                fence_char = fence[0]
+                fence_len = len(fence)
+            else:
+                if fence_char and line.startswith(fence_char * fence_len):
+                    in_fence = False
+                    fence_char = None
+                    fence_len = 0
+            continue
+
+        if in_fence:
+            continue
+
+        if H1_LINE_RE.match(line):
+            title = line[2:]
+            h1_indices.append(idx)
+            h1_titles.append(title)
+
+    if len(h1_indices) <= 1:
+        return text, 0
+
+    keep_pos = _choose_title_index(h1_titles)
+    keep_idx = h1_indices[keep_pos]
+    demoted = 0
+
+    for idx in h1_indices:
+        if idx == keep_idx:
+            continue
+        line = lines[idx]
+        if line.startswith("# "):
+            lines[idx] = line[2:]
+            demoted += 1
+
+    if demoted == 0:
+        return text, 0
+
+    new_text = "\n".join(lines)
+    if text.endswith("\n"):
+        new_text += "\n"
+    return new_text, demoted
+
+
+def _choose_title_index(titles: List[str]) -> int:
+    letter_scores = [_tatar_letter_score(t) for t in titles]
+    max_score = max(letter_scores)
+    if max_score > 0:
+        return letter_scores.index(max_score)
+
+    ft_scores = _fasttext_tatar_scores(titles)
+    if ft_scores:
+        best_score = max(ft_scores)
+        if best_score > 0:
+            return ft_scores.index(best_score)
+
+    return 0
+
+
+def _tatar_letter_score(text: str) -> int:
+    return sum(1 for ch in text if ch in TATAR_LETTERS)
+
+
+def _fasttext_tatar_scores(titles: List[str]) -> Optional[List[float]]:
+    model = _load_fasttext_model()
+    if not model:
+        return None
+    scores = []
+    for title in titles:
+        scores.append(_fasttext_tatar_score(title, model))
+    return scores
+
+
+def _fasttext_tatar_score(text: str, model) -> float:
+    try:
+        labels, probs = model.predict(text.replace("\n", " "), k=10)
+        for label, prob in zip(labels, probs):
+            if label == FASTTEXT_LABEL_TATAR:
+                return float(prob)
+    except Exception:
+        return 0.0
+    return 0.0
+
+
+def _load_fasttext_model():
+    global _FASTTEXT_MODEL
+    if _FASTTEXT_MODEL is not None:
+        return _FASTTEXT_MODEL
+    path = os.environ.get(FASTTEXT_MODEL_ENV)
+    if not path:
+        path = get_in_workdir("misc", "models", file="lid.176.ftz")
+    if not os.path.exists(path):
+        return None
+    try:
+        import fasttext
+    except Exception:
+        return None
+    try:
+        _FASTTEXT_MODEL = fasttext.load_model(path)
+    except Exception:
+        _FASTTEXT_MODEL = None
+    return _FASTTEXT_MODEL
 
 
 def _format_markdown(text: str) -> str:
