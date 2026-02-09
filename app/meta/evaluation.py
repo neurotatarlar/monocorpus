@@ -1,3 +1,11 @@
+"""
+Evaluate document applicability for library management.
+
+This module pulls batches of documents, filters obvious non-applicable items,
+and runs Gemini-powered evaluation in parallel workers. It tracks exhausted
+API keys and persists skip lists for later review.
+"""
+
 from pydantic import BaseModel
 from db.models import Document
 from utils import get_session, read_config, dump_expired_keys, load_expired_keys

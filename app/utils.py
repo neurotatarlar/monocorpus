@@ -1,3 +1,5 @@
+"""Utility helpers for config, DB sessions, and workdir paths."""
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 import yaml

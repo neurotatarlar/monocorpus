@@ -1,3 +1,5 @@
+"""Gemini API helpers for metadata evaluation."""
+
 from google import genai
 from google.genai import types
 import time

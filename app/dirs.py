@@ -1,3 +1,5 @@
+"""Workdir subdirectory names used by the app CLI."""
+
 from enum import Enum
 
 

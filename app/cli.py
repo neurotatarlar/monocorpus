@@ -1,3 +1,5 @@
+"""Typer CLI for metadata evaluation tasks."""
+
 import typer
 from dataclasses import dataclass
 
