@@ -85,6 +85,14 @@ class DedupTests(unittest.TestCase):
         self.assertAlmostEqual(1.0, score2.containment)
         self.assertTrue(_is_duplicate(score2, 0.98))
 
+    def test_duplicate_decision_respects_length_ratio_gate(self) -> None:
+        a = Fingerprint("h1", 1000, {"a", "b", "c"})
+        b = Fingerprint("h2", 500, {"a", "b", "c"})
+        score = _compare_fingerprints(a, b)
+        self.assertAlmostEqual(1.0, score.containment)
+        self.assertLess(score.length_ratio, 0.9)
+        self.assertFalse(_is_duplicate(score, 0.98))
+
     def test_detect_format_and_keeper(self) -> None:
         docs = {
             "a": DocMeta("a", "u", "application/pdf", "/x/a.pdf", None, None, None, None),
@@ -232,6 +240,18 @@ class DedupTests(unittest.TestCase):
             self.assertEqual(0.98, data["settings"]["near_full_threshold"])
             self.assertEqual(["b"], data["duplicate_docs"])
             self.assertEqual(1, data["summary"]["duplicate_groups"])
+
+    def test_write_report_includes_failed_buckets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "report_failed.json")
+            stats = DedupStats(docs_total=2, candidate_docs=2)
+            stats.add_error("download", "a" * 32)
+            stats.add_error("read", "b" * 32)
+            _write_report(path, 0.98, 80, stats, [], [])
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertEqual(["a" * 32], data["failed"]["download"])
+            self.assertEqual(["b" * 32], data["failed"]["read"])
 
 
 if __name__ == "__main__":

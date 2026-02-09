@@ -47,6 +47,14 @@ class _FakeSessionCtx:
 
 
 class DedupRunTests(unittest.TestCase):
+    def test_run_rejects_invalid_threshold(self) -> None:
+        with self.assertRaises(ValueError):
+            dedup.run(threshold=0)
+
+    def test_run_rejects_invalid_group_size(self) -> None:
+        with self.assertRaises(ValueError):
+            dedup.run(max_group_size=1)
+
     def test_run_handles_empty_document_set(self) -> None:
         docs = []
         with tempfile.TemporaryDirectory() as tmp:

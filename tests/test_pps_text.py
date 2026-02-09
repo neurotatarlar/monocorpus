@@ -50,6 +50,12 @@ class PpsTextTests(unittest.TestCase):
         self.assertEqual(fixed, fixed2)
         self.assertEqual(0, removed2)
 
+    def test_truncate_underscore_runs_handles_unicode_and_double_escape(self) -> None:
+        text = "＿＿＿＿＿＿＿＿＿＿＿＿\n\\\\\\\\____________\n"
+        fixed, removed = truncate_underscore_runs(text)
+        self.assertEqual("__________\n\\__________\n", fixed)
+        self.assertGreaterEqual(removed, 4)
+
     def test_mask_restore_math_segments_roundtrip(self) -> None:
         text = "Текст $a\\_b + c$ и $$E = mc^2$$.\n"
         masked, placeholders = mask_math_segments(text)

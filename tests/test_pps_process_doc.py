@@ -128,6 +128,40 @@ class PpsProcessDocTests(unittest.TestCase):
             self.assertEqual(1, stats.issue_counts["mixed_script_lookalikes_fixed_docs"])
             self.assertEqual([doc.md5], stats.issue_docs["mixed_script_lookalikes_fixed"])
 
+    def test_process_doc_reports_duplicate_blocks_even_when_unchanged(self) -> None:
+        stats = PpsStats()
+        doc = types.SimpleNamespace(md5="0" * 32, content_url="https://example.com/x.zip")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local_zip = os.path.join(tmp, f"{doc.md5}.zip")
+            with open(local_zip, "wb") as f:
+                f.write(b"zipbytes")
+
+            with (
+                patch("pps._ensure_local_zip", return_value=(local_zip, "bucket", "key.zip")),
+                patch("pps._read_markdown_from_zip", return_value=("same", f"{doc.md5}.md")),
+                patch("pps._check_repeated_paragraph_blocks", return_value={"repeated_paragraph_blocks": 1}),
+                patch("pps._apply_rules", return_value=("same", {})),
+                patch("pps._format_markdown") as fmt,
+                patch("pps._write_zip_with_updated_md") as write_zip,
+                patch("pps.upload_file") as upload,
+            ):
+                _process_doc(
+                    doc=doc,
+                    config={},
+                    s3client=Mock(),
+                    content_bucket="content",
+                    force_download=False,
+                    stats=stats,
+                )
+
+            self.assertEqual(1, stats.unchanged)
+            self.assertEqual(1, stats.issue_counts["repeated_paragraph_blocks"])
+            self.assertEqual([doc.md5], stats.issue_docs["repeated_paragraph_blocks"])
+            fmt.assert_not_called()
+            write_zip.assert_not_called()
+            upload.assert_not_called()
+
     def test_process_doc_backup_failure_stops_pipeline(self) -> None:
         stats = PpsStats()
         doc = types.SimpleNamespace(md5="f" * 32, content_url="https://example.com/x.zip")

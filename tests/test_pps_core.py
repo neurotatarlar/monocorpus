@@ -19,6 +19,7 @@ from pps import (  # noqa: E402
     _check_missing_footnotes,
     _check_repeated_paragraph_blocks,
     _ensure_local_zip,
+    _format_markdown,
     _normalize_multiple_titles,
     _parse_s3_location,
     _remove_duplicate_toc_markers,
@@ -38,6 +39,12 @@ class PpsCoreTests(unittest.TestCase):
         updated, removed = _remove_duplicate_toc_markers(text)
         self.assertEqual(1, removed)
         self.assertEqual(1, updated.count("mdformat-toc start --no-anchors"))
+
+    def test_remove_duplicate_toc_markers_no_markers(self) -> None:
+        text = "plain markdown\n"
+        updated, removed = _remove_duplicate_toc_markers(text)
+        self.assertEqual(text, updated)
+        self.assertEqual(0, removed)
 
     def test_remove_replacement_chars(self) -> None:
         updated, removed = _remove_replacement_chars("a\ufffd\ufffdb")
@@ -62,6 +69,11 @@ class PpsCoreTests(unittest.TestCase):
         text = f"{p1}\n\n{p2}\n\n{p3}\n\nx\n\n{p1}\n\n{p2}\n\n{p3}\n"
         issues = _check_repeated_paragraph_blocks(text, min_paragraphs=3, min_chars=100)
         self.assertEqual({"repeated_paragraph_blocks": 1}, issues)
+
+    def test_repeated_paragraph_blocks_below_threshold(self) -> None:
+        text = "small one\n\nsmall two\n\nsmall three\n\nsmall one\n\nsmall two\n\nsmall three\n"
+        issues = _check_repeated_paragraph_blocks(text, min_paragraphs=3, min_chars=200)
+        self.assertEqual({}, issues)
 
     def test_normalize_multiple_titles_prefers_tatar_and_ignores_fences(self) -> None:
         text = (
@@ -124,6 +136,12 @@ class PpsCoreTests(unittest.TestCase):
             self.assertEqual("k2.zip", key)
             self.assertEqual(1, stats.downloaded)
             s3.download_file.assert_called_once_with("b2", "k2.zip", zip_path)
+
+    def test_format_markdown_restores_math_and_unescapes(self) -> None:
+        input_text = "eq $a+b$"
+        with patch("pps.mdformat.text", return_value="eq MATHPLACEHOLDER00000000TOKEN \\\\ \\_ \\<"):
+            formatted = _format_markdown(input_text)
+        self.assertEqual("eq $a+b$ \\ _ <", formatted)
 
     def test_apply_rules_is_idempotent_for_current_enabled_fixes(self) -> None:
         original = "Тест сeлам\n"
