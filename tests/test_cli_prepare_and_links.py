@@ -100,6 +100,31 @@ class CliAndHelperTests(unittest.TestCase):
         self.assertNotEqual(0, result.exit_code)
         self.assertIn("MD5 should be 32 characters long", result.output)
 
+    def test_cli_dedup_bad_threshold_fails(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(app, ["dedup", "--threshold", "0"])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIsNotNone(result.exception)
+        self.assertIn("threshold must be in (0, 1]", str(result.exception))
+
+    def test_cli_dedup_unwritable_report_path_fails(self) -> None:
+        fake_dedup = types.SimpleNamespace(run=Mock(side_effect=PermissionError("report path is not writable")))
+        runner = CliRunner()
+        with patch.dict(sys.modules, {"dedup": fake_dedup}):
+            result = runner.invoke(app, ["dedup", "--report", "/root/blocked/report.json"])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIsInstance(result.exception, PermissionError)
+        self.assertIn("not writable", str(result.exception))
+
+    def test_cli_pps_download_exception_fails(self) -> None:
+        fake_pps = types.SimpleNamespace(run=Mock(side_effect=RuntimeError("download failed")))
+        runner = CliRunner()
+        with patch.dict(sys.modules, {"pps": fake_pps}):
+            result = runner.invoke(app, ["pps"])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIsInstance(result.exception, RuntimeError)
+        self.assertIn("download failed", str(result.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

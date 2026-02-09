@@ -99,6 +99,28 @@ class DedupTests(unittest.TestCase):
         keeper = _pick_keeper(["a", "b", "c"], docs, fps)
         self.assertEqual("b", keeper)
 
+    def test_pick_keeper_is_deterministic_on_tie(self) -> None:
+        docs = {
+            "a1": DocMeta("a1", "u", "application/pdf", "/x/a.pdf", "A", "X", None, "2000"),
+            "a2": DocMeta("a2", "u", "application/pdf", "/x/b.pdf", "B", "Y", None, "2001"),
+        }
+        fps = {
+            "a1": Fingerprint("1", 100, {"x"}),
+            "a2": Fingerprint("2", 100, {"y"}),
+        }
+        self.assertEqual("a1", _pick_keeper(["a2", "a1"], docs, fps))
+
+    def test_pick_keeper_ignores_metadata_quality_when_format_wins(self) -> None:
+        docs = {
+            "pdf": DocMeta("pdf", "u", "application/pdf", "/x/a.pdf", "Very rich title", "Known Author", "9781402894626", "2000"),
+            "epub": DocMeta("epub", "u", "application/epub+zip", "/x/b.epub", None, None, None, None),
+        }
+        fps = {
+            "pdf": Fingerprint("1", 500, {"x"}),
+            "epub": Fingerprint("2", 150, {"x"}),
+        }
+        self.assertEqual("epub", _pick_keeper(["pdf", "epub"], docs, fps))
+
     def test_build_duplicate_groups(self) -> None:
         docs = {
             "a": DocMeta("a", "u", "application/pdf", "/x/a.pdf", "A", "X", None, "2000"),

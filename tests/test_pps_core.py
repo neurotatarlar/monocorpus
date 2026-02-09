@@ -2,6 +2,8 @@
 
 import os
 import sys
+import json
+import tempfile
 import unittest
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -9,12 +11,15 @@ sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from pps import (  # noqa: E402
+    PpsStats,
+    _apply_rules,
     _backup_path,
     _check_missing_footnotes,
     _check_repeated_paragraph_blocks,
     _parse_s3_location,
     _remove_duplicate_toc_markers,
     _remove_replacement_chars,
+    _write_report,
 )
 
 
@@ -58,6 +63,48 @@ class PpsCoreTests(unittest.TestCase):
 
     def test_backup_path(self) -> None:
         self.assertEqual("/tmp/_backupa.zip", _backup_path("/tmp/a.zip"))
+
+    def test_apply_rules_is_idempotent_for_current_enabled_fixes(self) -> None:
+        original = "Тест сeлам\n"
+        once, issues_once = _apply_rules(original)
+        twice, issues_twice = _apply_rules(once)
+        self.assertEqual("Тест селам\n", once)
+        self.assertIn("mixed_script_lookalikes_fixed", issues_once)
+        self.assertEqual(once, twice)
+        self.assertEqual({}, issues_twice)
+
+    def test_write_report_schema_stable_for_empty_and_non_empty_stats(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty_path = os.path.join(tmp, "empty.json")
+            _write_report(empty_path, PpsStats())
+            with open(empty_path, "r", encoding="utf-8") as f:
+                empty_report = json.load(f)
+
+            self.assertIn("summary", empty_report)
+            self.assertIn("issues", empty_report)
+            self.assertIn("failed", empty_report)
+            self.assertIn("issue_docs", empty_report)
+            self.assertEqual({}, empty_report["issues"])
+            self.assertEqual({}, empty_report["failed"])
+            self.assertEqual({}, empty_report["issue_docs"])
+
+            filled = PpsStats(processed=2, changed=1, unchanged=1, download_errors=1)
+            filled.add_issue("mixed_script_lookalikes_fixed", 3)
+            filled.add_issue_doc("mixed_script_lookalikes_fixed", "a" * 32)
+            filled.add_error("a" * 32, "download", "x")
+            filled_path = os.path.join(tmp, "filled.json")
+            _write_report(filled_path, filled)
+            with open(filled_path, "r", encoding="utf-8") as f:
+                filled_report = json.load(f)
+
+            self.assertIn("summary", filled_report)
+            self.assertIn("issues", filled_report)
+            self.assertIn("failed", filled_report)
+            self.assertIn("issue_docs", filled_report)
+            self.assertEqual(1, filled_report["summary"]["download_errors"])
+            self.assertEqual(3, filled_report["issues"]["mixed_script_lookalikes_fixed"])
+            self.assertEqual(["a" * 32], filled_report["failed"]["download"])
+            self.assertEqual(["a" * 32], filled_report["issue_docs"]["mixed_script_lookalikes_fixed"])
 
 
 if __name__ == "__main__":
