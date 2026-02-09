@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import Mock, patch
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
@@ -20,6 +21,7 @@ from dedup import (  # noqa: E402
     _candidate_keys,
     _compare_fingerprints,
     _detect_format,
+    _ensure_local_zip,
     _extract_year,
     _is_duplicate,
     _normalize_isbn,
@@ -147,6 +149,63 @@ class DedupTests(unittest.TestCase):
         self.assertEqual("path/to/file.zip", key)
         bucket2, key2 = _parse_s3_location("", "fb", "fk")
         self.assertEqual(("fb", "fk"), (bucket2, key2))
+
+    def test_ensure_local_zip_uses_existing_without_download(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            zpath = os.path.join(tmp, "x.zip")
+            with open(zpath, "wb") as f:
+                f.write(b"x")
+            s3 = Mock()
+            with patch("dedup.get_in_workdir", return_value=zpath):
+                local, bucket, key = _ensure_local_zip(
+                    "a" * 32,
+                    "https://storage.yandexcloud.net/bucket/key.zip",
+                    s3,
+                    "fallback",
+                    force_download=False,
+                )
+            self.assertEqual(zpath, local)
+            self.assertEqual("bucket", bucket)
+            self.assertEqual("key.zip", key)
+            s3.download_file.assert_not_called()
+
+    def test_ensure_local_zip_downloads_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            zpath = os.path.join(tmp, "x.zip")
+            s3 = Mock()
+
+            def _download(_bucket, _key, path):
+                with open(path, "wb") as f:
+                    f.write(b"x")
+
+            s3.download_file.side_effect = _download
+
+            with patch("dedup.get_in_workdir", return_value=zpath):
+                local, bucket, key = _ensure_local_zip(
+                    "b" * 32,
+                    "https://storage.yandexcloud.net/bucket2/key2.zip",
+                    s3,
+                    "fallback",
+                    force_download=False,
+                )
+            self.assertEqual(zpath, local)
+            self.assertEqual("bucket2", bucket)
+            self.assertEqual("key2.zip", key)
+            s3.download_file.assert_called_once_with("bucket2", "key2.zip", zpath)
+
+    def test_ensure_local_zip_raises_if_download_did_not_create_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            zpath = os.path.join(tmp, "x.zip")
+            s3 = Mock()
+            with patch("dedup.get_in_workdir", return_value=zpath):
+                with self.assertRaises(FileNotFoundError):
+                    _ensure_local_zip(
+                        "c" * 32,
+                        "https://storage.yandexcloud.net/bucket3/key3.zip",
+                        s3,
+                        "fallback",
+                        force_download=False,
+                    )
 
     def test_read_markdown_from_zip_with_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

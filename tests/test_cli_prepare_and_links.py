@@ -116,6 +116,13 @@ class CliAndHelperTests(unittest.TestCase):
         self.assertIsInstance(result.exception, PermissionError)
         self.assertIn("not writable", str(result.exception))
 
+    def test_cli_dedup_bad_group_size_fails(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(app, ["dedup", "--max-group-size", "1"])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIsNotNone(result.exception)
+        self.assertIn("max_group_size must be >= 2", str(result.exception))
+
     def test_cli_pps_download_exception_fails(self) -> None:
         fake_pps = types.SimpleNamespace(run=Mock(side_effect=RuntimeError("download failed")))
         runner = CliRunner()

@@ -47,6 +47,23 @@ class _FakeSessionCtx:
 
 
 class DedupRunTests(unittest.TestCase):
+    def test_run_handles_empty_document_set(self) -> None:
+        docs = []
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = os.path.join(tmp, "dedup_report_empty.json")
+            with (
+                patch.object(dedup, "read_config", return_value={"yandex": {"cloud": {"bucket": {"content": "cont-bucket"}}}}),
+                patch.object(dedup, "create_session", return_value=Mock()),
+                patch.object(dedup, "get_session", return_value=_FakeSessionCtx(docs)),
+            ):
+                dedup.run(report_path=report_path, threshold=0.98)
+
+            with open(report_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+            self.assertEqual(0, report["summary"]["docs_total"])
+            self.assertEqual(0, report["summary"]["duplicate_pairs"])
+            self.assertEqual([], report["duplicate_groups"])
+
     def test_run_reports_duplicate_group_and_keeper_priority(self) -> None:
         md5_pdf = "a" * 32
         md5_epub = "b" * 32
