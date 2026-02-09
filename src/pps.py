@@ -18,55 +18,26 @@ from sqlalchemy import select, func
 
 from dirs import Dirs
 from models import Document
+from pps_text import (
+    mask_math_segments,
+    normalize_mixed_script_lookalikes,
+    restore_math_segments,
+    truncate_underscore_runs,
+)
 from s3 import create_session, upload_file
 from utils import get_in_workdir, get_session, read_config
 
 
 TOC_MARKER_RE = re.compile(r"<!--\s*mdformat-toc start --no-anchors\s*-->")
-UNDERSCORE_CHARS = set("_＿﹍﹎")
-INLINE_UNDERSCORE_FIX_RE = re.compile(r"(\\\\{2,})([_＿﹍﹎]{10,})|(?<!\\\\)([_＿﹍﹎]{11,})")
 REPLACEMENT_CHAR_RE = re.compile(r"\uFFFD+")
 H1_LINE_RE = re.compile(r"^#\s+")
 FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
 FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:")
 FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\]")
-CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
-WORD_RE = re.compile(r"\w+", flags=re.UNICODE)
-DISPLAY_MATH_RE = re.compile(r"(?<!\\)\$\$(.+?)(?<!\\)\$\$", flags=re.DOTALL)
-INLINE_MATH_RE = re.compile(r"(?<!\\)\$(?!\$)([^\n]*?)(?<!\\)\$(?!\$)")
 TATAR_LETTERS = set("әөүҗңһӘӨҮҖҢҺäöüñğşçıÄÖÜÑĞŞÇI")
 FASTTEXT_LABEL_TATAR = "__label__tat"
 FASTTEXT_MODEL_ENV = "FASTTEXT_LID_PATH"
 _FASTTEXT_MODEL = None
-
-LOOKALIKE_TO_TATAR: Dict[str, str] = {}
-for _chars, _target in (
-    ("ə", "ә"),
-    ("Ə", "Ә"),
-    ("eėĕẹéèêëēěęẽẻȅȇếềểễệ", "е"),
-    ("EĖĔẸÉÈÊËĒĚĘẼẺȄȆẾỀỂỄỆ", "Е"),
-    ("oọőôöòóõøōŏȯȱỏốồổỗộ", "о"),
-    ("OỌŐÔÖÒÓÕØŌŎȮȰỎỐỒỔỖỘ", "О"),
-    ("aàáâãäåāăąȁȃȧȩǎǟǡǻ", "а"),
-    ("AÀÁÂÃÄÅĀĂĄȀȂȦȨǍǞǠǺ", "А"),
-    ("yýỳỹỷỵȳÿ", "у"),
-    ("YÝỲỸỶỴȲŸ", "У"),
-    ("cƈċ", "с"),
-    ("CƇĊ", "С"),
-    ("xẋẍҳӽӿ", "х"),
-    ("XẊẌҲӼӾ", "Х"),
-    ("pṗṕ", "р"),
-    ("PṖṔ", "Р"),
-    ("hħḥḧḩḫḣ", "һ"),
-    ("HĦḤḦḨḪḢ", "Һ"),
-    ("kķĸқҡҟҝќ", "к"),
-    ("KĶҚҠҞҜЌ", "К"),
-    ("ґғ", "г"),
-    ("ҐҒ", "Г"),
-):
-    for _ch in _chars:
-        LOOKALIKE_TO_TATAR[_ch] = _target
-
 
 @dataclass
 class PpsStats:
@@ -180,7 +151,7 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         return
     formatted = _format_markdown(new_content)
     # mdformat expands underscore-only lines; re-truncate after formatting.
-    formatted, post_truncated = _truncate_underscore_runs(formatted)
+    formatted, post_truncated = truncate_underscore_runs(formatted)
     if post_truncated:
         issues["underscore_runs_truncated"] = issues.get("underscore_runs_truncated", 0) + post_truncated
     new_content = formatted
@@ -225,7 +196,7 @@ def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     #     issues["duplicate_toc_markers_removed"] = removed
 
     # complete
-    # text, truncated = _truncate_underscore_runs(text)
+    # text, truncated = truncate_underscore_runs(text)
     # if truncated:
     #     issues["underscore_runs_truncated"] = truncated
 
@@ -239,104 +210,11 @@ def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     # if demoted:
     #     issues["multiple_titles_normalized"] = demoted
 
-    text, replaced = _normalize_mixed_script_lookalikes(text)
+    text, replaced = normalize_mixed_script_lookalikes(text)
     if replaced:
         issues["mixed_script_lookalikes_fixed"] = replaced
 
     return text, issues
-
-
-def _normalize_mixed_script_lookalikes(text: str) -> Tuple[str, int]:
-    """Normalize Latin/other-script lookalikes inside Cyrillic words."""
-    replaced = 0
-    out_lines = []
-    in_fence = False
-    fence_char = None
-    fence_len = 0
-
-    for line in text.splitlines(True):
-        fence_match = FENCE_RE.match(line)
-        if fence_match:
-            fence = fence_match.group("fence")
-            if not in_fence:
-                in_fence = True
-                fence_char = fence[0]
-                fence_len = len(fence)
-            else:
-                if fence_char and line.startswith(fence_char * fence_len):
-                    in_fence = False
-                    fence_char = None
-                    fence_len = 0
-            out_lines.append(line)
-            continue
-
-        if in_fence:
-            out_lines.append(line)
-            continue
-
-        normalized, line_replaced = _normalize_line_outside_inline_code(line)
-        replaced += line_replaced
-        out_lines.append(normalized)
-
-    return "".join(out_lines), replaced
-
-
-def _normalize_line_outside_inline_code(line: str) -> Tuple[str, int]:
-    replaced = 0
-    parts: List[str] = []
-    i = 0
-    n = len(line)
-
-    while i < n:
-        backtick = line.find("`", i)
-        if backtick == -1:
-            segment, seg_replaced = _normalize_mixed_tokens(line[i:])
-            parts.append(segment)
-            replaced += seg_replaced
-            break
-
-        segment, seg_replaced = _normalize_mixed_tokens(line[i:backtick])
-        parts.append(segment)
-        replaced += seg_replaced
-
-        j = backtick
-        while j < n and line[j] == "`":
-            j += 1
-        delim = line[backtick:j]
-        end = line.find(delim, j)
-        if end == -1:
-            # Unclosed inline delimiter: keep literal and continue normalization after it.
-            parts.append(delim)
-            i = j
-            continue
-
-        parts.append(line[backtick : end + len(delim)])
-        i = end + len(delim)
-
-    return "".join(parts), replaced
-
-
-def _normalize_mixed_tokens(segment: str) -> Tuple[str, int]:
-    replaced = 0
-
-    def _repl(match: re.Match) -> str:
-        nonlocal replaced
-        token = match.group(0)
-        if not CYRILLIC_RE.search(token):
-            return token
-        changed = False
-        out = []
-        for ch in token:
-            mapped = LOOKALIKE_TO_TATAR.get(ch, ch)
-            if mapped != ch:
-                replaced += 1
-                changed = True
-            out.append(mapped)
-        if not changed:
-            return token
-        return "".join(out)
-
-    return WORD_RE.sub(_repl, segment), replaced
 
 
 def _remove_duplicate_toc_markers(text: str) -> Tuple[str, int]:
@@ -350,45 +228,6 @@ def _remove_duplicate_toc_markers(text: str) -> Tuple[str, int]:
     updated = TOC_MARKER_RE.sub(_repl, text)
     removed = max(0, count - 1)
     return updated, removed
-
-
-def _truncate_underscore_runs(text: str, limit: int = 10) -> Tuple[str, int]:
-    removed = 0
-    out_lines = []
-
-    for line in text.splitlines(True):
-        content = line.rstrip("\r\n")
-        newline = line[len(content):]
-        stripped = content.strip()
-
-        if stripped and all(ch in UNDERSCORE_CHARS for ch in stripped):
-            underscore_count = sum(1 for ch in stripped if ch in UNDERSCORE_CHARS)
-            if underscore_count > limit:
-                removed += underscore_count - limit
-            prefix = content[: len(content) - len(content.lstrip())]
-            suffix = content[len(content.rstrip()):]
-            out_lines.append(f"{prefix}{'_' * limit}{suffix}{newline}")
-            continue
-
-        def _inline_repl(match: re.Match) -> str:
-            nonlocal removed
-            backslashes = match.group(1)
-            if backslashes:
-                run = match.group(2)
-                if len(backslashes) > 1:
-                    removed += len(backslashes) - 1
-                if len(run) > limit:
-                    removed += len(run) - limit
-                    run = "_" * limit
-                return f"\\{run}"
-            run = match.group(3)
-            removed += len(run) - limit
-            return f"\\_{'_' * (limit - 1)}"
-
-        content = INLINE_UNDERSCORE_FIX_RE.sub(_inline_repl, content)
-        out_lines.append(f"{content}{newline}")
-
-    return "".join(out_lines), removed
 
 
 def _remove_replacement_chars(text: str) -> Tuple[str, int]:
@@ -519,7 +358,7 @@ def _load_fasttext_model():
 
 
 def _format_markdown(text: str) -> str:
-    masked, math_placeholders = _mask_math_segments(text)
+    masked, math_placeholders = mask_math_segments(text)
     formatted = mdformat.text(
         masked,
         codeformatters=(),
@@ -528,34 +367,7 @@ def _format_markdown(text: str) -> str:
     )
     # Keep behavior aligned with pdf_postprocess.
     formatted = formatted.replace("\\\\", "\\").replace("\\_", "_").replace("\\<", "<")
-    return _restore_math_segments(formatted, math_placeholders)
-
-
-def _mask_math_segments(text: str) -> Tuple[str, Dict[str, str]]:
-    placeholders: Dict[str, str] = {}
-
-    def _new_placeholder() -> str:
-        return f"MATHPLACEHOLDER{len(placeholders):08d}TOKEN"
-
-    def _display_repl(match: re.Match) -> str:
-        key = _new_placeholder()
-        placeholders[key] = match.group(0)
-        return key
-
-    def _inline_repl(match: re.Match) -> str:
-        key = _new_placeholder()
-        placeholders[key] = match.group(0)
-        return key
-
-    masked = DISPLAY_MATH_RE.sub(_display_repl, text)
-    masked = INLINE_MATH_RE.sub(_inline_repl, masked)
-    return masked, placeholders
-
-
-def _restore_math_segments(text: str, placeholders: Dict[str, str]) -> str:
-    for key, value in placeholders.items():
-        text = text.replace(key, value)
-    return text
+    return restore_math_segments(formatted, math_placeholders)
 
 
 def _check_missing_footnotes(text: str) -> Dict[str, int]:
