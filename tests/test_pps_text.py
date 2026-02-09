@@ -60,6 +60,34 @@ class PpsTextTests(unittest.TestCase):
         restored = restore_math_segments(masked, placeholders)
         self.assertEqual(text, restored)
 
+    def test_mask_math_ignores_escaped_dollar(self) -> None:
+        text = r"Цена \$5, формула $x+y$."
+        masked, placeholders = mask_math_segments(text)
+        self.assertIn(r"\$5", masked)
+        self.assertIn("MATHPLACEHOLDER", masked)
+        restored = restore_math_segments(masked, placeholders)
+        self.assertEqual(text, restored)
+
+    def test_mask_math_handles_multiline_display(self) -> None:
+        text = "До:\n$$\na = b + c\n$$\nПосле.\n"
+        masked, placeholders = mask_math_segments(text)
+        self.assertEqual(1, len(placeholders))
+        restored = restore_math_segments(masked, placeholders)
+        self.assertEqual(text, restored)
+
+    def test_mask_math_handles_adjacent_segments(self) -> None:
+        text = "$a$$b$ и $$c$$$$d$$"
+        masked, placeholders = mask_math_segments(text)
+        self.assertGreaterEqual(len(placeholders), 2)
+        restored = restore_math_segments(masked, placeholders)
+        self.assertEqual(text, restored)
+
+    def test_mask_math_unclosed_inline_kept(self) -> None:
+        text = "Неполная формула $x + y без закрытия"
+        masked, placeholders = mask_math_segments(text)
+        self.assertEqual(text, masked)
+        self.assertEqual({}, placeholders)
+
 
 if __name__ == "__main__":
     unittest.main()

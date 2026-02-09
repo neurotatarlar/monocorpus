@@ -122,6 +122,65 @@ class DedupRunTests(unittest.TestCase):
             self.assertEqual([md5_pdf], group["duplicate_md5s"])
             self.assertEqual({}, report["failed"])
 
+    def test_run_records_read_errors_for_bad_archives(self) -> None:
+        md5_no_md = "d" * 32
+        md5_corrupt = "e" * 32
+
+        docs = [
+            types.SimpleNamespace(
+                md5=md5_no_md,
+                content_url="https://storage.yandexcloud.net/cont-bucket/d.zip",
+                mime_type="application/pdf",
+                ya_path="/docs/bad1.pdf",
+                title="Bad Archives",
+                author="Author X",
+                isbn="9781402894626",
+                publish_date="2001",
+            ),
+            types.SimpleNamespace(
+                md5=md5_corrupt,
+                content_url="https://storage.yandexcloud.net/cont-bucket/e.zip",
+                mime_type="application/pdf",
+                ya_path="/docs/bad2.pdf",
+                title="Bad Archives",
+                author="Author X",
+                isbn="9781402894626",
+                publish_date="2001",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_no_md = os.path.join(tmp, f"{md5_no_md}.zip")
+            with zipfile.ZipFile(zip_no_md, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("notes.txt", "not markdown")
+
+            zip_corrupt = os.path.join(tmp, f"{md5_corrupt}.zip")
+            with open(zip_corrupt, "wb") as f:
+                f.write(b"not-a-zip")
+
+            report_path = os.path.join(tmp, "dedup_report_errors.json")
+
+            def _ensure_local(md5, content_url, s3client, fallback_bucket, force_download):
+                if md5 == md5_no_md:
+                    return zip_no_md, "cont-bucket", f"{md5}.zip"
+                return zip_corrupt, "cont-bucket", f"{md5}.zip"
+
+            with (
+                patch.object(dedup, "read_config", return_value={"yandex": {"cloud": {"bucket": {"content": "cont-bucket"}}}}),
+                patch.object(dedup, "create_session", return_value=Mock()),
+                patch.object(dedup, "get_session", return_value=_FakeSessionCtx(docs)),
+                patch.object(dedup, "_ensure_local_zip", side_effect=_ensure_local),
+            ):
+                dedup.run(report_path=report_path, threshold=0.98)
+
+            with open(report_path, "r", encoding="utf-8") as f:
+                report = json.load(f)
+
+            self.assertEqual(2, report["summary"]["read_errors"])
+            self.assertEqual(0, report["summary"]["loaded_docs"])
+            self.assertEqual(0, report["summary"]["duplicate_pairs"])
+            self.assertEqual(sorted([md5_no_md, md5_corrupt]), sorted(report["failed"]["read"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -90,6 +90,108 @@ class PpsProcessDocTests(unittest.TestCase):
             self.assertEqual(1, stats.issue_counts["mixed_script_lookalikes_fixed_docs"])
             self.assertEqual([doc.md5], stats.issue_docs["mixed_script_lookalikes_fixed"])
 
+    def test_process_doc_backup_failure_stops_pipeline(self) -> None:
+        stats = PpsStats()
+        doc = types.SimpleNamespace(md5="f" * 32, content_url="https://example.com/x.zip")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local_zip = os.path.join(tmp, f"{doc.md5}.zip")
+            with open(local_zip, "wb") as f:
+                f.write(b"zipbytes")
+
+            with (
+                patch("pps._ensure_local_zip", return_value=(local_zip, "bucket", "key.zip")),
+                patch("pps._read_markdown_from_zip", return_value=("old", f"{doc.md5}.md")),
+                patch("pps._check_repeated_paragraph_blocks", return_value={}),
+                patch("pps._apply_rules", return_value=("new", {"mixed_script_lookalikes_fixed": 1})),
+                patch("pps._format_markdown", return_value="formatted"),
+                patch("pps.truncate_underscore_runs", return_value=("formatted", 0)),
+                patch("pps.shutil.copy2", side_effect=OSError("backup failed")),
+                patch("pps._write_zip_with_updated_md") as write_zip,
+                patch("pps.upload_file") as upload,
+            ):
+                _process_doc(
+                    doc=doc,
+                    config={},
+                    s3client=Mock(),
+                    content_bucket="content",
+                    force_download=False,
+                    stats=stats,
+                )
+
+            self.assertEqual(1, stats.write_errors)
+            self.assertEqual(0, stats.changed)
+            self.assertEqual("backup", stats.errors[0]["stage"])
+            write_zip.assert_not_called()
+            upload.assert_not_called()
+
+    def test_process_doc_write_failure_stops_before_upload(self) -> None:
+        stats = PpsStats()
+        doc = types.SimpleNamespace(md5="1" * 32, content_url="https://example.com/x.zip")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local_zip = os.path.join(tmp, f"{doc.md5}.zip")
+            with open(local_zip, "wb") as f:
+                f.write(b"zipbytes")
+
+            with (
+                patch("pps._ensure_local_zip", return_value=(local_zip, "bucket", "key.zip")),
+                patch("pps._read_markdown_from_zip", return_value=("old", f"{doc.md5}.md")),
+                patch("pps._check_repeated_paragraph_blocks", return_value={}),
+                patch("pps._apply_rules", return_value=("new", {"mixed_script_lookalikes_fixed": 1})),
+                patch("pps._format_markdown", return_value="formatted"),
+                patch("pps.truncate_underscore_runs", return_value=("formatted", 0)),
+                patch("pps._write_zip_with_updated_md", side_effect=OSError("write failed")) as write_zip,
+                patch("pps.upload_file") as upload,
+            ):
+                _process_doc(
+                    doc=doc,
+                    config={},
+                    s3client=Mock(),
+                    content_bucket="content",
+                    force_download=False,
+                    stats=stats,
+                )
+
+            self.assertEqual(1, stats.write_errors)
+            self.assertEqual(0, stats.changed)
+            self.assertEqual("write", stats.errors[0]["stage"])
+            write_zip.assert_called_once()
+            upload.assert_not_called()
+
+    def test_process_doc_upload_failure_records_error(self) -> None:
+        stats = PpsStats()
+        doc = types.SimpleNamespace(md5="2" * 32, content_url="https://example.com/x.zip")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local_zip = os.path.join(tmp, f"{doc.md5}.zip")
+            with open(local_zip, "wb") as f:
+                f.write(b"zipbytes")
+
+            with (
+                patch("pps._ensure_local_zip", return_value=(local_zip, "bucket", "key.zip")),
+                patch("pps._read_markdown_from_zip", return_value=("old", f"{doc.md5}.md")),
+                patch("pps._check_repeated_paragraph_blocks", return_value={}),
+                patch("pps._apply_rules", return_value=("new", {"mixed_script_lookalikes_fixed": 1})),
+                patch("pps._format_markdown", return_value="formatted"),
+                patch("pps.truncate_underscore_runs", return_value=("formatted", 0)),
+                patch("pps._write_zip_with_updated_md"),
+                patch("pps.upload_file", side_effect=RuntimeError("upload failed")) as upload,
+            ):
+                _process_doc(
+                    doc=doc,
+                    config={},
+                    s3client=Mock(),
+                    content_bucket="content",
+                    force_download=False,
+                    stats=stats,
+                )
+
+            self.assertEqual(1, stats.upload_errors)
+            self.assertEqual(0, stats.changed)
+            self.assertEqual("upload", stats.errors[0]["stage"])
+            upload.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

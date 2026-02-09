@@ -1,10 +1,13 @@
 """Unit tests for utility and helper modules with mocked I/O."""
 
 import base64
+import io
+import json
 import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import Mock, patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -15,7 +18,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from gemini import upload_and_wait  # noqa: E402
 from s3 import upload_file  # noqa: E402
-from utils import calculate_md5, decrypt, encrypt  # noqa: E402
+from utils import calculate_md5, decrypt, encrypt, load_upstream_metadata  # noqa: E402
 
 
 class UtilsS3GeminiTests(unittest.TestCase):
@@ -77,6 +80,58 @@ class UtilsS3GeminiTests(unittest.TestCase):
         with patch("gemini.time.sleep"):
             with self.assertRaises(TimeoutError):
                 upload_and_wait(client, "/tmp/a.pdf", "application/pdf", poll_interval=0.1, timeout=0.2)
+
+    def test_load_upstream_metadata_strips_unwanted_fields(self) -> None:
+        raw_meta = {
+            "title": "Book",
+            "available_pages": [1, 2],
+            "doc_card_url": "x",
+            "download_code": "x",
+            "doc_url": "x",
+            "access": "x",
+            "lang": "tt",
+        }
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("metadata.json", json.dumps(raw_meta))
+        payload = buf.getvalue()
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            def iter_content(self, chunk_size=8192):
+                for i in range(0, len(payload), chunk_size):
+                    yield payload[i : i + chunk_size]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            def _fake_get_in_workdir(*dir_names, file=None, prefix=None):
+                parts = [getattr(p, "value", p) for p in dir_names]
+                path = os.path.join(tmp, *parts)
+                os.makedirs(path, exist_ok=True)
+                if file:
+                    return os.path.join(path, file)
+                return path
+
+            with (
+                patch("utils.get_in_workdir", side_effect=_fake_get_in_workdir),
+                patch("utils.requests.get", return_value=_Resp()),
+            ):
+                out = load_upstream_metadata("https://example.org/meta.zip", "abc")
+            parsed = json.loads(out)
+            self.assertEqual("Book", parsed["title"])
+            self.assertNotIn("available_pages", parsed)
+            self.assertNotIn("doc_card_url", parsed)
+            self.assertNotIn("download_code", parsed)
+            self.assertNotIn("doc_url", parsed)
+            self.assertNotIn("access", parsed)
+            self.assertNotIn("lang", parsed)
 
 
 if __name__ == "__main__":
