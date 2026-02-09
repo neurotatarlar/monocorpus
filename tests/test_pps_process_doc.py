@@ -15,6 +15,44 @@ from pps import PpsStats, _backup_path, _process_doc  # noqa: E402
 
 
 class PpsProcessDocTests(unittest.TestCase):
+    def test_process_doc_download_failure_records_error(self) -> None:
+        stats = PpsStats()
+        doc = types.SimpleNamespace(md5="9" * 32, content_url="https://example.com/x.zip")
+
+        with patch("pps._ensure_local_zip", side_effect=RuntimeError("download failed")):
+            _process_doc(
+                doc=doc,
+                config={},
+                s3client=Mock(),
+                content_bucket="content",
+                force_download=False,
+                stats=stats,
+            )
+
+        self.assertEqual(1, stats.processed)
+        self.assertEqual(1, stats.download_errors)
+        self.assertEqual("download", stats.errors[0]["stage"])
+
+    def test_process_doc_read_failure_records_error(self) -> None:
+        stats = PpsStats()
+        doc = types.SimpleNamespace(md5="8" * 32, content_url="https://example.com/x.zip")
+
+        with patch("pps._ensure_local_zip", return_value=("/tmp/fake.zip", "bucket", "key.zip")), patch(
+            "pps._read_markdown_from_zip", side_effect=ValueError("bad zip")
+        ):
+            _process_doc(
+                doc=doc,
+                config={},
+                s3client=Mock(),
+                content_bucket="content",
+                force_download=False,
+                stats=stats,
+            )
+
+        self.assertEqual(1, stats.processed)
+        self.assertEqual(1, stats.read_errors)
+        self.assertEqual("read", stats.errors[0]["stage"])
+
     def test_process_doc_unchanged_skips_backup_write_upload(self) -> None:
         stats = PpsStats()
         doc = types.SimpleNamespace(md5="d" * 32, content_url="https://example.com/x.zip")
