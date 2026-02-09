@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -66,21 +64,11 @@ jobs:
       - name: Run tests
         run: make test
 
-  no_runtime_changes:
-    needs: changes
-    if: needs.changes.outputs.python != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Skip runtime checks
-        run: echo "No runtime-related Python changes detected. Skipping lint/tests."
-
   ci:
     name: CI Gate
     needs:
       - lint
       - test
-      - no_runtime_changes
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -89,12 +77,22 @@ jobs:
         run: |
           echo "lint=${{ needs.lint.result }}"
           echo "test=${{ needs.test.result }}"
-          echo "no_runtime_changes=${{ needs.no_runtime_changes.result }}"
-          if [ "${{ needs.no_runtime_changes.result }}" = "success" ]; then
+          if [ "${{ needs.lint.result }}" = "failure" ] || [ "${{ needs.lint.result }}" = "cancelled" ]; then
+            echo "Lint job failed."
+            exit 1
+          fi
+          if [ "${{ needs.test.result }}" = "failure" ] || [ "${{ needs.test.result }}" = "cancelled" ]; then
+            echo "Test job failed."
+            exit 1
+          fi
+          if [ "${{ needs.lint.result }}" = "success" ] || [ "${{ needs.lint.result }}" = "skipped" ]; then
+            true
+          else
+            echo "Unexpected lint result: ${{ needs.lint.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.test.result }}" = "success" ] || [ "${{ needs.test.result }}" = "skipped" ]; then
             exit 0
           fi
-          if [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.test.result }}" = "success" ]; then
-            exit 0
-          fi
-          echo "CI checks failed or did not run as expected."
+          echo "Unexpected test result: ${{ needs.test.result }}"
           exit 1
