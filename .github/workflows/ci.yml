@@ -32,11 +32,6 @@ jobs:
               - "requirements.txt"
               - "Makefile"
               - "ruff.toml"
-            docs_only:
-              - "README.md"
-              - "LICENSE"
-              - ".github/**"
-              - "! .github/workflows/ci.yml"
 
   lint:
     needs: changes
