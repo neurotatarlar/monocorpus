@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -17,8 +18,16 @@ sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from gemini import upload_and_wait  # noqa: E402
-from s3 import upload_file  # noqa: E402
-from utils import calculate_md5, decrypt, encrypt, load_upstream_metadata  # noqa: E402
+from s3 import download, upload_file  # noqa: E402
+from utils import (  # noqa: E402
+    _get_bucket_id,
+    calculate_md5,
+    decrypt,
+    dump_expired_keys,
+    encrypt,
+    load_expired_keys,
+    load_upstream_metadata,
+)
 
 
 class UtilsS3GeminiTests(unittest.TestCase):
@@ -80,6 +89,71 @@ class UtilsS3GeminiTests(unittest.TestCase):
         with patch("gemini.time.sleep"):
             with self.assertRaises(TimeoutError):
                 upload_and_wait(client, "/tmp/a.pdf", "application/pdf", poll_interval=0.1, timeout=0.2)
+
+    def test_s3_download_skips_existing_and_downloads_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            existing = os.path.join(tmp, "a.txt")
+            with open(existing, "w", encoding="utf-8") as f:
+                f.write("ok")
+
+            s3 = Mock()
+            paginator = Mock()
+            paginator.paginate.return_value = [
+                {"Contents": [{"Key": "root/a.txt"}, {"Key": "root/sub/b.txt"}]}
+            ]
+            s3.get_paginator.return_value = paginator
+
+            with patch("s3.create_session", return_value=s3):
+                yielded = list(download("bucket", tmp, prefix="root/"))
+
+            self.assertEqual([existing, os.path.join(tmp, "sub", "b.txt")], yielded)
+            s3.download_file.assert_called_once_with("bucket", "root/sub/b.txt", os.path.join(tmp, "sub", "b.txt"))
+
+    def test_gemini_api_uploads_files_and_passes_config(self) -> None:
+        from gemini import gemini_api
+
+        client = Mock()
+        client.models.generate_content_stream.return_value = "stream"
+        uploaded = Mock()
+        prompt = ["user text"]
+        schema = {"type": "object"}
+
+        with patch("gemini.upload_and_wait", return_value=uploaded) as upload_wait:
+            stream, uploaded_files = gemini_api(
+                prompt=prompt,
+                model="gemini-model",
+                client=client,
+                files={"/tmp/a.pdf": "application/pdf"},
+                temperature=0.3,
+                schema=schema,
+                timeout_sec=7,
+            )
+
+        self.assertEqual("stream", stream)
+        self.assertEqual([uploaded], uploaded_files)
+        upload_wait.assert_called_once_with(client, "/tmp/a.pdf", "application/pdf")
+        call = client.models.generate_content_stream.call_args
+        self.assertEqual("gemini-model", call.kwargs["model"])
+        self.assertEqual(["user text", uploaded], call.kwargs["contents"])
+
+    def test_bucket_id_cutoff_logic(self) -> None:
+        with patch("utils.datetime") as dt:
+            dt.now.return_value = datetime(2026, 1, 2, 8, 59, tzinfo=timezone.utc)
+            self.assertEqual("20260101_1", _get_bucket_id())
+
+        with patch("utils.datetime") as dt:
+            dt.now.return_value = datetime(2026, 1, 2, 9, 0, tzinfo=timezone.utc)
+            self.assertEqual("20260102_0", _get_bucket_id())
+
+    def test_dump_and_load_expired_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("utils._get_bucket_id", return_value="20250101_0"):
+                dump_expired_keys({"k1", "k2"}, dir=tmp)
+                loaded = load_expired_keys(dir=tmp)
+                self.assertEqual({"k1", "k2"}, loaded)
+
+            with patch("utils._get_bucket_id", return_value="20250101_1"):
+                self.assertEqual(set(), load_expired_keys(dir=tmp))
 
     def test_load_upstream_metadata_strips_unwanted_fields(self) -> None:
         raw_meta = {

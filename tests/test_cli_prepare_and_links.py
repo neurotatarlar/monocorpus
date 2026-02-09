@@ -14,7 +14,7 @@ sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from cli import app, md5_validator  # noqa: E402
-from check_pub_links import _extension_by_mime_type, get_meta  # noqa: E402
+from check_pub_links import _extension_by_mime_type, _publish_file, get_meta  # noqa: E402
 import prepare_shots  # noqa: E402
 
 
@@ -39,6 +39,27 @@ class CliAndHelperTests(unittest.TestCase):
         client = Mock()
         self.assertIsNone(get_meta("", client))
         client.get_meta.assert_not_called()
+
+    def test_get_meta_returns_none_on_not_found(self) -> None:
+        client = Mock()
+        with patch("check_pub_links.PathNotFoundError", RuntimeError):
+            client.get_meta.side_effect = RuntimeError("missing")
+            self.assertIsNone(get_meta("/x", client))
+
+    def test_publish_file_survives_unpublish_error(self) -> None:
+        class _Meta(dict):
+            def __init__(self):
+                super().__init__(public_key="pk", public_url="pu")
+                self.path = "disk:/x"
+                self.resource_id = "rid"
+
+        client = Mock()
+        client.unpublish.side_effect = RuntimeError("cannot unpublish")
+        client.get_meta.return_value = _Meta()
+
+        pub_key, pub_url, path, resource_id = _publish_file(client, "disk:/x")
+        self.assertEqual(("pk", "pu", "disk:/x", "rid"), (pub_key, pub_url, path, resource_id))
+        client.publish.assert_called_once_with("disk:/x")
 
     def test_prepare_shots_helpers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -66,6 +66,29 @@ class ObtainDocumentsTests(unittest.TestCase):
         )
         self.assertEqual([fake_doc], docs)
 
+    def test_obtain_documents_path_file_uses_md5_lookup(self) -> None:
+        cli_params = types.SimpleNamespace(md5=None, path="/disk/file")
+        explicit_session = object()
+        fake_doc = types.SimpleNamespace(md5="z")
+        fake_entity = types.SimpleNamespace(md5=object())
+        ya_client = Mock()
+        ya_client.get_meta.return_value = types.SimpleNamespace(md5="z", type="file", path="/disk/file")
+
+        with patch("utils._find", return_value=iter([fake_doc])) as find_docs:
+            docs = list(
+                obtain_documents(
+                    cli_params=cli_params,
+                    ya_client=ya_client,
+                    entity_cls=fake_entity,
+                    predicate=None,
+                    session=explicit_session,
+                )
+            )
+
+        ya_client.get_meta.assert_called_once_with("/disk/file", fields=["md5", "type", "path"])
+        find_docs.assert_called_once()
+        self.assertEqual([fake_doc], docs)
+
 
 if __name__ == "__main__":
     unittest.main()
