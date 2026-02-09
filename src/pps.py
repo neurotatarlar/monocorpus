@@ -30,10 +30,40 @@ H1_LINE_RE = re.compile(r"^#\s+")
 FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
 FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:")
 FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\]")
+CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+WORD_RE = re.compile(r"\w+", flags=re.UNICODE)
 TATAR_LETTERS = set("әөүҗңһӘӨҮҖҢҺäöüñğşçıÄÖÜÑĞŞÇI")
 FASTTEXT_LABEL_TATAR = "__label__tat"
 FASTTEXT_MODEL_ENV = "FASTTEXT_LID_PATH"
 _FASTTEXT_MODEL = None
+
+LOOKALIKE_TO_TATAR: Dict[str, str] = {}
+for _chars, _target in (
+    ("ə", "ә"),
+    ("Ə", "Ә"),
+    ("eėĕẹéèêëēěęẽẻȅȇếềểễệ", "е"),
+    ("EĖĔẸÉÈÊËĒĚĘẼẺȄȆẾỀỂỄỆ", "Е"),
+    ("oọőôöòóõøōŏȯȱỏốồổỗộ", "о"),
+    ("OỌŐÔÖÒÓÕØŌŎȮȰỎỐỒỔỖỘ", "О"),
+    ("aàáâãäåāăąȁȃȧȩǎǟǡǻ", "а"),
+    ("AÀÁÂÃÄÅĀĂĄȀȂȦȨǍǞǠǺ", "А"),
+    ("yýỳỹỷỵȳÿ", "у"),
+    ("YÝỲỸỶỴȲŸ", "У"),
+    ("cƈċ", "с"),
+    ("CƇĊ", "С"),
+    ("xẋẍҳӽӿ", "х"),
+    ("XẊẌҲӼӾ", "Х"),
+    ("pṗṕ", "р"),
+    ("PṖṔ", "Р"),
+    ("hħḥḧḩḫḣ", "һ"),
+    ("HĦḤḦḨḪḢ", "Һ"),
+    ("kķĸқҡҟҝќ", "к"),
+    ("KĶҚҠҞҜЌ", "К"),
+    ("ґғ", "г"),
+    ("ҐҒ", "Г"),
+):
+    for _ch in _chars:
+        LOOKALIKE_TO_TATAR[_ch] = _target
 
 
 @dataclass
@@ -133,7 +163,8 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         stats.add_error(md5, "read", str(e))
         return
 
-    report_issues = _check_missing_footnotes(content)
+    # report_issues = _check_missing_footnotes(content)
+    report_issues = {}
     duplicate_issues = _check_repeated_paragraph_blocks(content)
     report_issues.update(duplicate_issues)
     for name, count in report_issues.items():
@@ -146,8 +177,6 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         stats.unchanged += 1
         return
     formatted = _format_markdown(new_content)
-    if formatted != new_content:
-        issues["mdformat_applied"] = 1
     # mdformat expands underscore-only lines; re-truncate after formatting.
     formatted, post_truncated = _truncate_underscore_runs(formatted)
     if post_truncated:
@@ -183,28 +212,129 @@ def _process_doc(doc, config, s3client, content_bucket, force_download: bool, st
         stats.add_issue(name, count)
         stats.add_issue(f"{name}_docs", 1)
         stats.add_issue_doc(name, md5)
-        
+
 
 def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     issues: Dict[str, int] = {}
 
+    # complete
     # text, removed = _remove_duplicate_toc_markers(text)
     # if removed:
     #     issues["duplicate_toc_markers_removed"] = removed
 
-    text, truncated = _truncate_underscore_runs(text)
-    if truncated:
-        issues["underscore_runs_truncated"] = truncated
+    # complete
+    # text, truncated = _truncate_underscore_runs(text)
+    # if truncated:
+    #     issues["underscore_runs_truncated"] = truncated
 
+    # complete 
     # text, removed = _remove_replacement_chars(text)
     # if removed:
     #     issues["replacement_chars_removed"] = removed
 
+    # # first deduplicate
     # text, demoted = _normalize_multiple_titles(text)
     # if demoted:
     #     issues["multiple_titles_normalized"] = demoted
 
+    text, replaced = _normalize_mixed_script_lookalikes(text)
+    if replaced:
+        issues["mixed_script_lookalikes_fixed"] = replaced
+
     return text, issues
+
+
+def _normalize_mixed_script_lookalikes(text: str) -> Tuple[str, int]:
+    """Normalize Latin/other-script lookalikes inside Cyrillic words."""
+    replaced = 0
+    out_lines = []
+    in_fence = False
+    fence_char = None
+    fence_len = 0
+
+    for line in text.splitlines(True):
+        fence_match = FENCE_RE.match(line)
+        if fence_match:
+            fence = fence_match.group("fence")
+            if not in_fence:
+                in_fence = True
+                fence_char = fence[0]
+                fence_len = len(fence)
+            else:
+                if fence_char and line.startswith(fence_char * fence_len):
+                    in_fence = False
+                    fence_char = None
+                    fence_len = 0
+            out_lines.append(line)
+            continue
+
+        if in_fence:
+            out_lines.append(line)
+            continue
+
+        normalized, line_replaced = _normalize_line_outside_inline_code(line)
+        replaced += line_replaced
+        out_lines.append(normalized)
+
+    return "".join(out_lines), replaced
+
+
+def _normalize_line_outside_inline_code(line: str) -> Tuple[str, int]:
+    replaced = 0
+    parts: List[str] = []
+    i = 0
+    n = len(line)
+
+    while i < n:
+        backtick = line.find("`", i)
+        if backtick == -1:
+            segment, seg_replaced = _normalize_mixed_tokens(line[i:])
+            parts.append(segment)
+            replaced += seg_replaced
+            break
+
+        segment, seg_replaced = _normalize_mixed_tokens(line[i:backtick])
+        parts.append(segment)
+        replaced += seg_replaced
+
+        j = backtick
+        while j < n and line[j] == "`":
+            j += 1
+        delim = line[backtick:j]
+        end = line.find(delim, j)
+        if end == -1:
+            # Unclosed inline delimiter: keep literal and continue normalization after it.
+            parts.append(delim)
+            i = j
+            continue
+
+        parts.append(line[backtick : end + len(delim)])
+        i = end + len(delim)
+
+    return "".join(parts), replaced
+
+
+def _normalize_mixed_tokens(segment: str) -> Tuple[str, int]:
+    replaced = 0
+
+    def _repl(match: re.Match) -> str:
+        nonlocal replaced
+        token = match.group(0)
+        if not CYRILLIC_RE.search(token):
+            return token
+        changed = False
+        out = []
+        for ch in token:
+            mapped = LOOKALIKE_TO_TATAR.get(ch, ch)
+            if mapped != ch:
+                replaced += 1
+                changed = True
+            out.append(mapped)
+        if not changed:
+            return token
+        return "".join(out)
+
+    return WORD_RE.sub(_repl, segment), replaced
 
 
 def _remove_duplicate_toc_markers(text: str) -> Tuple[str, int]:
