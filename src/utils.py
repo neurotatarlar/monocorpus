@@ -79,8 +79,11 @@ def get_in_workdir(*dir_names: Union[str, Dirs], file: str = None, prefix: str =
         return path
 
 
-def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=None, offset=None, session=get_session()):
+def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=None, offset=None, session=None):
     """Yield documents based on CLI filters (md5/path) and optional predicates."""
+    if session is None:
+        session = get_session()
+
     def _yield_by_md5(_md5, _predicate):
         print(f"Looking for document by md5 '{_md5}'")
         if _predicate is None:

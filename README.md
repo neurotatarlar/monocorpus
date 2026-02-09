@@ -234,3 +234,11 @@ See `src/dirs.py` for the full list of subdirectories.
 - Content pipeline: `src/content/*`
 - Metadata pipeline: `src/metadata/*`
 - Sync/maintenance: `src/sync.py`, `src/check_pub_links.py`, `src/match_limited.py`
+
+## Tests
+
+Run unit tests:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
