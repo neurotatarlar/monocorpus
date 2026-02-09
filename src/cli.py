@@ -204,6 +204,48 @@ def pps(
 
 
 @app.command()
+def dedup(
+    threshold: Annotated[
+        float,
+        typer.Option(
+            "--threshold",
+            help="Near-full duplicate threshold based on paragraph containment.",
+        ),
+    ] = 0.98,
+    force_download: Annotated[
+        bool,
+        typer.Option(
+            "--force-download",
+            help="Download archives even if a local copy exists.",
+        ),
+    ] = False,
+    max_group_size: Annotated[
+        int,
+        typer.Option(
+            "--max-group-size",
+            help="Skip candidate groups larger than this size.",
+        ),
+    ] = 80,
+    report_path: Annotated[
+        Optional[str],
+        typer.Option(
+            "--report",
+            help="Optional path to write the JSON report. Defaults to workdir logs.",
+        ),
+    ] = None,
+):
+    """Scan for near-full duplicate documents and write a report."""
+    import dedup
+
+    dedup.run(
+        threshold=threshold,
+        force_download=force_download,
+        max_group_size=max_group_size,
+        report_path=report_path,
+    )
+
+
+@app.command()
 def upload_to_s3():
     """Upload missing Crimean Tatar documents to S3."""
     from models import DocumentCrh

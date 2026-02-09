@@ -103,6 +103,7 @@ Run all commands via `python src/main.py <command>`:
 - `hf`: assemble structured dataset into parquet
 - `layouts`: run layout detection on PDFs
 - `pps`: postpostprocess extracted markdown in `~/.monocorpus/1_result` and re-upload updated archives
+- `dedup`: scan near-full duplicate extracted documents and produce JSON report
 - `match-limited`: reconcile limited vs full document variants
 - `sharing-restricted`: check restricted sharing docs
 - `check-pub-links`: verify/restore public links
@@ -170,6 +171,14 @@ and re-uploads updated archives to S3.
 
 ```bash
 python src/main.py pps
+```
+
+**dedup**  
+Scans extracted archives for near-full duplicate documents and writes a report with
+recommended keeper documents using format priority (`epub > fb2 > docx > pdf`).
+
+```bash
+python src/main.py dedup --threshold 0.98
 ```
 
 **dump-state**  
