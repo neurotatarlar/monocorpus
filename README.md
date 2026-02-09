@@ -242,3 +242,10 @@ Run unit tests:
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 ```
+
+Run lint checks:
+
+```bash
+make lint
+make lint-fix
+```

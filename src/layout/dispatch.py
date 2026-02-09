@@ -12,7 +12,7 @@
 # extract syria 
 # convert to intermediate format 
 # compare and choose layout 
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir
+from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, get_session
 from yadisk_client import YaDisk
 from rich import print
 from rich.progress import track
@@ -63,8 +63,8 @@ def layouts(cli_params):
         Document.full.is_(True)
     )
     with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
-        with Session() as gsheets_session:
-            docs = list(obtain_documents(cli_params, ya_client, predicate, limit=1, gsheet_session=gsheets_session))
+        with get_session() as session:
+            docs = list(obtain_documents(cli_params, ya_client, Document, predicate=predicate, limit=1, session=session))
             docs  = [Context(d) for d in docs]
 
         if not docs:
