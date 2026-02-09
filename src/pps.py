@@ -32,6 +32,8 @@ FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:")
 FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\]")
 CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
 WORD_RE = re.compile(r"\w+", flags=re.UNICODE)
+DISPLAY_MATH_RE = re.compile(r"(?<!\\)\$\$(.+?)(?<!\\)\$\$", flags=re.DOTALL)
+INLINE_MATH_RE = re.compile(r"(?<!\\)\$(?!\$)([^\n]*?)(?<!\\)\$(?!\$)")
 TATAR_LETTERS = set("әөүҗңһӘӨҮҖҢҺäöüñğşçıÄÖÜÑĞŞÇI")
 FASTTEXT_LABEL_TATAR = "__label__tat"
 FASTTEXT_MODEL_ENV = "FASTTEXT_LID_PATH"
@@ -517,14 +519,43 @@ def _load_fasttext_model():
 
 
 def _format_markdown(text: str) -> str:
+    masked, math_placeholders = _mask_math_segments(text)
     formatted = mdformat.text(
-        text,
+        masked,
         codeformatters=(),
         extensions=["toc", "footnote"],
         options={"wrap": "keep", "number": "keep", "validate": True, "end_of_line": "lf"},
     )
     # Keep behavior aligned with pdf_postprocess.
-    return formatted.replace("\\\\", "\\").replace("\\_", "_").replace("\\<", "<")
+    formatted = formatted.replace("\\\\", "\\").replace("\\_", "_").replace("\\<", "<")
+    return _restore_math_segments(formatted, math_placeholders)
+
+
+def _mask_math_segments(text: str) -> Tuple[str, Dict[str, str]]:
+    placeholders: Dict[str, str] = {}
+
+    def _new_placeholder() -> str:
+        return f"MATHPLACEHOLDER{len(placeholders):08d}TOKEN"
+
+    def _display_repl(match: re.Match) -> str:
+        key = _new_placeholder()
+        placeholders[key] = match.group(0)
+        return key
+
+    def _inline_repl(match: re.Match) -> str:
+        key = _new_placeholder()
+        placeholders[key] = match.group(0)
+        return key
+
+    masked = DISPLAY_MATH_RE.sub(_display_repl, text)
+    masked = INLINE_MATH_RE.sub(_inline_repl, masked)
+    return masked, placeholders
+
+
+def _restore_math_segments(text: str, placeholders: Dict[str, str]) -> str:
+    for key, value in placeholders.items():
+        text = text.replace(key, value)
+    return text
 
 
 def _check_missing_footnotes(text: str) -> Dict[str, int]:
