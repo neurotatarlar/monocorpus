@@ -102,6 +102,7 @@ Run all commands via `python src/main.py <command>`:
 - `meta`: extract metadata from documents
 - `hf`: assemble structured dataset into parquet
 - `layouts`: run layout detection on PDFs
+- `pps`: postpostprocess extracted markdown in `~/.monocorpus/1_result` and re-upload updated archives
 - `match-limited`: reconcile limited vs full document variants
 - `sharing-restricted`: check restricted sharing docs
 - `check-pub-links`: verify/restore public links
@@ -161,6 +162,14 @@ Verifies public links and restores missing ones.
 
 ```bash
 python src/main.py check-pub-links
+```
+
+**pps**  
+Runs postpostprocessing on extracted markdown archives in `~/.monocorpus/1_result`
+and re-uploads updated archives to S3.
+
+```bash
+python src/main.py pps
 ```
 
 **dump-state**  
