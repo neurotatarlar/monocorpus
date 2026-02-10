@@ -32,7 +32,8 @@ from yadisk_client import YaDisk
 import gc
 import datetime
 import time
-from models import Document, DocumentCrh
+import json
+from models import Document, DocumentCrh, Metadata
 import random
 
 model = 'gemini-3-flash-preview'
@@ -72,14 +73,22 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
         gc.collect()
         try: 
             unprocessles = _load_unprocessables()
-            predicate = (
-                entity_cls.meta.is_(None) & (
-                    entity_cls.content_url.is_not(None) | (entity_cls.mime_type == 'application/pdf')
+            if entity_cls is Document:
+                predicate = (
+                    Metadata.md5.is_(None) &
+                    (
+                        Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+                    ) &
+                    Document.md5.not_in(unprocessles)
                 )
-                & entity_cls.md5.not_in(unprocessles)
-                # & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Пресса/Янъы Дюнья')
-                # & ~entity_cls.ya_path.startswith('/НейроТатарлар/other_turkic_langs/Крымскотатарский/Книги/Kitaphanesi/Qadınlıq Sotsializm Yolunda')
-            )
+            else:
+                predicate = (
+                    entity_cls.meta.is_(None) &
+                    (
+                        entity_cls.content_url.is_not(None) | (entity_cls.mime_type == 'application/pdf')
+                    ) &
+                    entity_cls.md5.not_in(unprocessles)
+                )
             with exceeded_keys_lock:
                 available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
             random.shuffle(available_keys)
@@ -91,7 +100,16 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with get_session() as session:
-                docs = list(session.scalars(select(entity_cls).where(predicate).limit(docs_batch_size)))
+                if entity_cls is Document:
+                    stmt = (
+                        select(Document)
+                        .outerjoin(Metadata, Metadata.md5 == Document.md5)
+                        .where(predicate)
+                        .limit(docs_batch_size)
+                    )
+                else:
+                    stmt = select(entity_cls).where(predicate).limit(docs_batch_size)
+                docs = list(session.scalars(stmt))
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))
@@ -240,8 +258,17 @@ class MetadataExtractionWorker:
             # if model detected count of pages in the document 
             # and the pages count is not too far from count of pages in pdf file
             doc.page_count = meta.numberOfPages
-         
-        doc.meta = meta_json
+
+        if self.lang_tag == 'tt':
+            schema_org = json.loads(meta_json)
+            metadata_row = session.get(Metadata, doc_md5)
+            if metadata_row is None:
+                metadata_row = Metadata(md5=doc_md5)
+                session.add(metadata_row)
+            metadata_row.schema_org = schema_org
+        else:
+            doc.meta = meta_json
+
         doc.meta_extraction_method = f"{model}/prompt.v2"
         if doc.sharing_restricted:
             if doc.ya_public_url and not doc.ya_public_url.startswith('enc:'):

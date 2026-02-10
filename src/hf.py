@@ -88,7 +88,8 @@ def assemble_dataset():
                 print(f"Content is empty for document {doc.md5}, skipping it...")
                 continue
 
-            meta = parse_meta(doc.meta)
+            schema_org = doc.metadata_row.schema_org if getattr(doc, "metadata_row", None) else None
+            meta = parse_meta(schema_org)
             yield {
                 "id": md5,
                 "publish_year": extract_publish_year(meta),

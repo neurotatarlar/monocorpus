@@ -9,6 +9,7 @@ import random
 import re
 import threading
 import time
+from dataclasses import dataclass
 from queue import Empty, Queue
 from typing import Iterable
 
@@ -19,7 +20,7 @@ from sqlalchemy import select
 
 from gemini import create_client, gemini_api
 from meta_fields import extract_flat_fields
-from models import Document
+from models import Document, Metadata
 from utils import dump_expired_keys, get_session, load_expired_keys, read_config
 
 
@@ -32,7 +33,7 @@ LEGAL_DOC_PATTERNS = [
 
 
 class Evaluation(BaseModel):
-    """Classification result stored in the `document.lib` JSON column."""
+    """Classification result used to populate boolean `metadata.lib`."""
 
     applicable: bool = True
     reason: str | None = None
@@ -44,8 +45,20 @@ class Evaluation(BaseModel):
         return cls(applicable=False, reason=reason)
 
 
+@dataclass
+class EvaluationTask:
+    """Document payload needed for library applicability evaluation."""
+    md5: str
+    ya_path: str | None
+    language: str | None
+    page_count: int | None
+    full: bool | None
+    sharing_restricted: bool | None
+    schema_org: dict | str | None
+
+
 def evaluate(args) -> None:
-    """Run batch evaluation and save results into `document.lib`."""
+    """Run batch evaluation and save results into `metadata.lib`."""
     config = read_config()
     channel = Channel(dry_run=args.dry_run)
     if args.dry_run:
@@ -90,16 +103,33 @@ def evaluate(args) -> None:
         channel.dump()
 
 
-def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[Document]:
+def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[EvaluationTask]:
     lang_codes = config["sup_langs"]["tt"]["codes"]
     predicate = _get_predicate(lang_codes, channel.get_all_unprocessable_docs())
     with get_session() as session:
-        return list(session.scalars(select(Document).where(predicate).limit(batch_size)))
+        rows = session.execute(
+            select(Document, Metadata)
+            .join(Metadata, Metadata.md5 == Document.md5)
+            .where(predicate)
+            .limit(batch_size)
+        )
+        return [
+            EvaluationTask(
+                md5=doc.md5,
+                ya_path=doc.ya_path,
+                language=doc.language,
+                page_count=doc.page_count,
+                full=doc.full,
+                sharing_restricted=doc.sharing_restricted,
+                schema_org=meta.schema_org if meta else None,
+            )
+            for doc, meta in rows
+        ]
 
 
 def _get_predicate(codes: list[str], unprocessable: set[str]):
     predicate = (
-        Document.lib.is_(None)
+        Metadata.lib.is_(None)
         & Document.language.in_(codes)
         & Document.content_url.is_not(None)
     )
@@ -114,38 +144,38 @@ def _pick_keys(config: dict, workers: int, channel: "Channel") -> list[str]:
     return keys[:workers]
 
 
-def _early_skip(docs: Iterable[Document]) -> tuple[list[Document], list[tuple[Document, str]]]:
+def _early_skip(docs: Iterable[EvaluationTask]) -> tuple[list[EvaluationTask], list[tuple[str, str]]]:
     probables = []
     non_applicables = []
     for doc in docs:
         if doc.full is not True:
-            non_applicables.append((doc, "not full"))
+            non_applicables.append((doc.md5, "not full"))
             continue
         if doc.sharing_restricted is True:
-            non_applicables.append((doc, "sharing restricted"))
+            non_applicables.append((doc.md5, "sharing restricted"))
             continue
         if doc.ya_path and any(pattern.match(doc.ya_path) for pattern in LEGAL_DOC_PATTERNS):
-            non_applicables.append((doc, "legal doc"))
+            non_applicables.append((doc.md5, "legal doc"))
             continue
         probables.append(doc)
     return probables, non_applicables
 
 
-def _save_non_applicable(non_applicables: list[tuple[Document, str]], dry_run: bool) -> None:
+def _save_non_applicable(non_applicables: list[tuple[str, str]], dry_run: bool) -> None:
     if not non_applicables:
         return
     print(f"Marking {len(non_applicables)} documents as non-applicable")
     if dry_run:
         return
     with get_session() as session:
-        for doc, reason in non_applicables:
-            stored = session.get(Document, doc.md5)
+        for md5, _reason in non_applicables:
+            stored = session.get(Metadata, md5)
             if stored:
-                stored.lib = Evaluation.nonapplicable(reason).model_dump(mode="json")
+                stored.lib = False
         session.commit()
 
 
-def _create_queue(docs: list[Document]) -> Queue:
+def _create_queue(docs: list[EvaluationTask]) -> Queue:
     tasks_queue: Queue = Queue()
     for doc in docs:
         tasks_queue.put(doc)
@@ -201,8 +231,8 @@ class LibraryApplicabilityWorker:
                 time.sleep(2 - elapsed.total_seconds())
         return datetime.datetime.now()
 
-    def _evaluate(self, doc: Document, gemini_client) -> Evaluation | None:
-        flattened_meta = extract_flat_fields(doc.meta)
+    def _evaluate(self, doc: EvaluationTask, gemini_client) -> Evaluation | None:
+        flattened_meta = extract_flat_fields(doc.schema_org)
         payload = {
             "md5": doc.md5,
             "ya_path": doc.ya_path,
@@ -214,7 +244,7 @@ class LibraryApplicabilityWorker:
             "publish_date": flattened_meta["publish_date"],
             "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
-            "meta": doc.meta,
+            "meta": doc.schema_org,
         }
 
         prompt = [
@@ -247,9 +277,9 @@ class LibraryApplicabilityWorker:
             self.log(f"Dry-run: would persist evaluation for {md5}")
             return
         with get_session() as session:
-            doc = session.get(Document, md5)
-            if doc:
-                doc.lib = evaluation.model_dump(mode="json")
+            metadata = session.get(Metadata, md5)
+            if metadata:
+                metadata.lib = bool(evaluation.applicable)
                 session.commit()
 
     def log(self, message: str) -> None:
@@ -308,4 +338,3 @@ class Channel:
             self.repairable_docs.add(md5)
             if not self.dry_run:
                 self._dump_to_file("unprocessables", "repairables_eval.txt", self.repairable_docs)
-

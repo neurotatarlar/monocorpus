@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models for document metadata."""
 
-from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, Integer, String, Boolean, JSON
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Column, Integer, String, Boolean, JSON, ForeignKey
 
 Base = declarative_base()
 
@@ -25,7 +25,6 @@ class Document(Base):
         restrict_sharing(bool): Indicates if the document is not allowed for sharing and therefore links to it is encrypted
         document_url (str): URL to access the document.
         content_url (str): URL to access the document's content.
-        metadata: (str): Metadata in JSON-LD format compatible with schema.org. 
         upstream_meta_url (str): URL to upstream or original metadata source.
     """
     __tablename__ = "document"
@@ -45,9 +44,13 @@ class Document(Base):
     sharing_restricted=Column(Boolean)
     document_url = Column(String)
     content_url = Column(String)
-    meta = Column(String)
     upstream_meta_url=Column(String)
-    lib = Column(JSON)
+    metadata_row = relationship(
+        "Metadata",
+        uselist=False,
+        back_populates="document",
+        lazy="joined",
+    )
 
     def __str__(self):
         return '%s(%s)' % (
@@ -122,5 +125,32 @@ class DocumentCrh(Base):
             ', '.join('%s=%s' % item for item in vars(self).items())
         )
         
+    def __repr__(self):
+        return self.__str__()
+
+
+class Metadata(Base):
+    """
+    One-to-one schema.org metadata and library applicability for `document`.
+
+    Attributes:
+        md5 (str): Document ID, primary key and foreign key to document.md5.
+        schema_org (dict): Schema.org JSON-LD metadata object.
+        lib (bool): True if applicable for library; nullable while not evaluated.
+    """
+    __tablename__ = "metadata"
+
+    md5 = Column(String, ForeignKey("document.md5", ondelete="CASCADE"), primary_key=True)
+    schema_org = Column(JSON)
+    lib = Column(Boolean)
+
+    document = relationship("Document", back_populates="metadata_row")
+
+    def __str__(self):
+        return "%s(%s)" % (
+            type(self).__name__,
+            ", ".join("%s=%s" % item for item in vars(self).items())
+        )
+
     def __repr__(self):
         return self.__str__()

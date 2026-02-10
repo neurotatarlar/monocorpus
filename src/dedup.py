@@ -166,7 +166,12 @@ def run(
         ) as progress:
             task_id = progress.add_task("Indexing docs", total=stats.docs_total)
             for doc in docs:
-                doc_meta = parse_meta(getattr(doc, "meta", None))
+                schema_org = None
+                if getattr(doc, "metadata_row", None):
+                    schema_org = doc.metadata_row.schema_org
+                elif hasattr(doc, "meta"):
+                    schema_org = getattr(doc, "meta")
+                doc_meta = parse_meta(schema_org)
                 meta = DocMeta(
                     md5=doc.md5,
                     content_url=doc.content_url,

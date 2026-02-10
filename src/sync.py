@@ -66,7 +66,7 @@ Error Handling:
 from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally, get_session
 from yadisk_client import YaDisk
 from rich import print
-from models import Document, DocumentCrh
+from models import Document, DocumentCrh, Metadata
 from s3 import  create_session
 from sqlalchemy import select
 from meta_fields import extract_isbn_values, parse_meta
@@ -282,16 +282,26 @@ def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
     print("Deduplicating by ISBN")
     # Get all docs that have metadata with potential ISBNs.
     with get_session() as session:
-        docs = list(session.scalars(select(entity_cls).where(entity_cls.meta.is_not(None))))
+        if entity_cls is Document:
+            docs = list(
+                session.scalars(
+                    select(Document)
+                    .join(Metadata, Metadata.md5 == Document.md5)
+                    .where(Metadata.schema_org.is_not(None))
+                )
+            )
+        else:
+            docs = list(session.scalars(select(entity_cls).where(entity_cls.meta.is_not(None))))
     
     # Group them by ISBN
     md5s_to_docs = {}
     isbns_to_docs = defaultdict(set)
     for doc in docs:
+        schema_org = doc.metadata_row.schema_org if getattr(doc, "metadata_row", None) else getattr(doc, "meta", None)
         isbns = sorted(
             {
                 _isbn
-                for isbn in extract_isbn_values(parse_meta(doc.meta))
+                for isbn in extract_isbn_values(parse_meta(schema_org))
                 if (_isbn := _normalize_isbn(isbn))
             }
         )

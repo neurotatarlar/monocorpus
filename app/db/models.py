@@ -10,4 +10,4 @@ SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "s
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from models import Base, Document, DocumentCrh  # noqa: E402,F401
+from models import Base, Document, DocumentCrh, Metadata  # noqa: E402,F401

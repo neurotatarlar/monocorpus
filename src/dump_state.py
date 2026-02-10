@@ -136,9 +136,22 @@ def _get_or_create_worksheet(sh, title):
 def _dump_table_to_csv(output_path, model):
     """Dump a PostgreSQL table to CSV."""
     engine = get_engine()
-    df = pd.read_sql(f"SELECT * FROM {model.__tablename__} ORDER BY ya_path", engine)
+    if model.__tablename__ == "document":
+        query = """
+            SELECT d.*, m.schema_org
+            FROM document AS d
+            LEFT JOIN metadata AS m ON m.md5 = d.md5
+            ORDER BY d.ya_path
+        """
+    else:
+        query = f"SELECT * FROM {model.__tablename__} ORDER BY ya_path"
+    df = pd.read_sql(query, engine)
     df = df.drop(columns=OBSOLETE_CSV_COLUMNS, errors="ignore")
-    meta_source = df["meta"] if "meta" in df.columns else pd.Series([None] * len(df))
+    if "schema_org" in df.columns:
+        meta_source = df["schema_org"]
+        df = df.drop(columns=["schema_org"], errors="ignore")
+    else:
+        meta_source = df["meta"] if "meta" in df.columns else pd.Series([None] * len(df))
     meta_fields_df = pd.DataFrame([extract_flat_fields(meta) for meta in meta_source])
     for col in ("publisher", "author", "title", "isbn", "publish_date", "genre"):
         df[col] = meta_fields_df.get(col)
