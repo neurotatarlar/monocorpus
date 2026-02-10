@@ -1,265 +1,307 @@
-"""
-Evaluate document applicability for library management.
+"""Evaluate document applicability for library management."""
 
-This module pulls batches of documents, filters obvious non-applicable items,
-and runs Gemini-powered evaluation in parallel workers. It tracks exhausted
-API keys and persists skip lists for later review.
-"""
+from __future__ import annotations
 
-from pydantic import BaseModel
-from db.models import Document
-from utils import get_session, read_config, dump_expired_keys, load_expired_keys
-from sqlalchemy import select
-from rich import print
-from queue import Queue, Empty
-import re 
-from yadisk_client import YaDisk
+import datetime
+import json
+import os
+import random
+import re
 import threading
 import time
-import random
-from gemini import create_client
+from queue import Empty, Queue
+from typing import Iterable
+
 from google.genai.errors import ClientError
-import datetime
-import os
+from pydantic import BaseModel
+from rich import print
+from sqlalchemy import select
+
+from db.models import Document
+from gemini import create_client, gemini_api
+from utils import dump_expired_keys, get_session, load_expired_keys, read_config
 
 
-# update json-ld schema with DDC taxonomy
-# print tokens count usage for cost estimation
+MODEL = "gemini-2.5-flash"
 
-legal_docs_pattern = [
-    re.compile(r'^(?=.*common_crawl)(?=.*npa_ta_).*\.pdf$'),
-    re.compile(r'^(?=.*pdf законов с pravo\.gov).*\.pdff$')
+LEGAL_DOC_PATTERNS = [
+    re.compile(r"^(?=.*common_crawl)(?=.*npa_ta_).*\.pdf$"),
+    re.compile(r"^(?=.*pdf законов с pravo\.gov).*\.pdf$"),
 ]
 
 
 class Evaluation(BaseModel):
+    """Classification result stored in the `document.lib` JSON column."""
+
     applicable: bool = True
-    reason: str = None
+    reason: str | None = None
+    ddc: str | None = None
+    topics: list[str] | None = None
 
-    def nonapplicable(reason) -> "Evaluation":
-        _eval = Evaluation()
-        _eval.applicable = False
-        _eval.reason = reason
-        return _eval
-        
-            
-def evaluate(args):
+    @classmethod
+    def nonapplicable(cls, reason: str) -> "Evaluation":
+        return cls(applicable=False, reason=reason)
+
+
+def evaluate(args) -> None:
+    """Run batch evaluation and save results into `document.lib`."""
     config = read_config()
-    lang_codes = config['sup_langs']['tt']['codes']
-    predicate = _get_predicate(lang_codes)
-    stop_event = threading.Event()
-    channel = Channel()
-    
-    while not stop_event.is_set():
-        available_keys =  list(set(config["gemini_api_keys"]) - channel.exceeded_keys_set)
-        random.shuffle(available_keys)
-        keys_slice = available_keys[:args.workers]
-        if not keys_slice:
-            print("No gemini keys available, exiting...")
-            return      
-        
-        workers = []
-        with get_session() as session:
-            # get batch of documents for processing
-            docs = session.scalars(select(Document).where(predicate).limit(args.batch_size)).all()
-            
-        # filter early non applicable documents  
-        docs, non_applicables = _early_skip(docs)
-        if non_applicables:
-            _save_non_applicable(non_applicables)
-        
-        tasks_queue = _create_queue(docs)
-        if tasks_queue.empty():
+    channel = Channel(dry_run=args.dry_run)
+    if args.dry_run:
+        print("Running in dry-run mode: no DB/file state changes will be persisted.")
+
+    while True:
+        docs = _load_batch(config, args.batch_size, channel)
+        if not docs:
             print("No more documents to process")
-            return
-        else:
-            print(f"Processing batch of {tasks_queue.qsize()} documents")
-            
-        try:
-            with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
-                for _ in range(min(len(channel.available_keys), len(docs), args.workers)):
-                    worker = LibraryApplicabilityWorker(tasks_queue=tasks_queue)
-                    t = threading.Thread(target=worker)
-                    t.start()
-                    workers.append(t)
-                    time.sleep(5)  # slight delay to avoid overwhelming the API with requests
+            break
 
-            # waiting for workers shutdown gracefully
-            for t in workers:
-                t.join()
-        except KeyboardInterrupt:
-            print("Interrupted, shutting down workers...")
-            stop_event.set()
+        docs, non_applicables = _early_skip(docs)
+        _save_non_applicable(non_applicables, dry_run=args.dry_run)
+        if not docs:
+            continue
 
-            for t in (workers or []):
-                t.join(timeout=120)
-            return
-        finally:
-            dump_expired_keys(channel.exceeded_keys_set)
-            exit()
-        
-        
-def _get_predicate(codes):
-    return (
+        keys = _pick_keys(config, args.workers, channel)
+        if not keys:
+            print("No gemini keys available, exiting...")
+            break
+
+        tasks_queue = _create_queue(docs)
+        print(f"Processing batch of {tasks_queue.qsize()} documents with {len(keys)} worker(s)")
+
+        workers = []
+        for key in keys[: min(len(keys), tasks_queue.qsize())]:
+            worker = LibraryApplicabilityWorker(
+                gemini_api_key=key,
+                tasks_queue=tasks_queue,
+                config=config,
+                channel=channel,
+                dry_run=args.dry_run,
+            )
+            t = threading.Thread(target=worker, name=f"eval-{key[-6:]}")
+            t.start()
+            workers.append(t)
+            time.sleep(2)
+
+        for t in workers:
+            t.join()
+
+        channel.dump()
+
+
+def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[Document]:
+    lang_codes = config["sup_langs"]["tt"]["codes"]
+    predicate = _get_predicate(lang_codes, channel.get_all_unprocessable_docs())
+    with get_session() as session:
+        return list(session.scalars(select(Document).where(predicate).limit(batch_size)))
+
+
+def _get_predicate(codes: list[str], unprocessable: set[str]):
+    predicate = (
         Document.lib.is_(None)
-        &
-        Document.language.in_(codes)
-        &
-        Document.content_url.is_not(None)
+        & Document.language.in_(codes)
+        & Document.content_url.is_not(None)
     )
-    
+    if unprocessable:
+        predicate = predicate & Document.md5.not_in(unprocessable)
+    return predicate
 
-def _early_skip(docs):
+
+def _pick_keys(config: dict, workers: int, channel: "Channel") -> list[str]:
+    keys = list(set(config["gemini_api_keys"]) - channel.exceeded_keys_set)
+    random.shuffle(keys)
+    return keys[:workers]
+
+
+def _early_skip(docs: Iterable[Document]) -> tuple[list[Document], list[tuple[Document, str]]]:
     probables = []
     non_applicables = []
     for doc in docs:
         if doc.full is not True:
             non_applicables.append((doc, "not full"))
             continue
-        elif doc.sharing_restricted is True:
+        if doc.sharing_restricted is True:
             non_applicables.append((doc, "sharing restricted"))
             continue
-        elif doc.isbn:
-            probables.append(doc)
-            continue
-        elif any(pattern.match(doc.ya_path) for pattern in legal_docs_pattern):
-            print(f"Skipping legal doc {doc.ya_path}")
+        if doc.ya_path and any(pattern.match(doc.ya_path) for pattern in LEGAL_DOC_PATTERNS):
             non_applicables.append((doc, "legal doc"))
             continue
-        else:
-            probables.append(doc)
-            continue
+        probables.append(doc)
     return probables, non_applicables
-            
-            
-def _save_non_applicable(non_applicables):
-    print(f"Marking {len(non_applicables)} documents as non applicable for library management")
-    return
+
+
+def _save_non_applicable(non_applicables: list[tuple[Document, str]], dry_run: bool) -> None:
+    if not non_applicables:
+        return
+    print(f"Marking {len(non_applicables)} documents as non-applicable")
+    if dry_run:
+        return
     with get_session() as session:
         for doc, reason in non_applicables:
-            _eval = Evaluation.nonapplicable(reason)
-            doc.lib = _eval.model_dump_json(indent=4, ensure_ascii=False)
-            session.add(doc)
+            stored = session.get(Document, doc.md5)
+            if stored:
+                stored.lib = Evaluation.nonapplicable(reason).model_dump(mode="json")
         session.commit()
-            
 
-def _create_queue(docs):
-    tasks_queue = Queue()
+
+def _create_queue(docs: list[Document]) -> Queue:
+    tasks_queue: Queue = Queue()
     for doc in docs:
         tasks_queue.put(doc)
     return tasks_queue
 
 
-def _get_keys(config, channel):
-    available_keys = list(set(config['gemini']['api_keys'] - channel.exceeded_keys_set))
-    random.shuffle(available_keys)
-    return available_keys
-
-
 class LibraryApplicabilityWorker:
-    def __init__(self, gemini_api_key, tasks_queue, config):
+    """Single worker that consumes docs and saves applicability result."""
+
+    def __init__(self, gemini_api_key: str, tasks_queue: Queue, config: dict, channel: "Channel", dry_run: bool):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
+        self.channel = channel
+        self.dry_run = dry_run
 
-        
-    def __call__(self):
+    def __call__(self) -> None:
         gemini_client = create_client(self.key)
-        prev_req_time = None
+        prev_req_time: datetime.datetime | None = None
         while True:
             try:
                 doc = self.tasks_queue.get(block=False)
-                self.log(f"Evaluating doc {doc.md5} ({doc.ya_path})")
+            except Empty:
+                self.log("No tasks left, shutting down")
+                return
+
+            try:
+                self.log(f"Evaluating {doc.md5} ({doc.ya_path})")
                 prev_req_time = self._sleep_if_needed(prev_req_time)
                 evaluation = self._evaluate(doc, gemini_client)
                 if not evaluation:
-                    self.log(f"Could not evaluate document {doc.md5}({doc.ya_public_url})")
-                    self._dump_unprocessables(doc.md5)
+                    self.log(f"Empty model response for {doc.md5}")
+                    self.channel.add_unprocessable_doc(doc.md5)
                     continue
-
-            except Empty:
-                self.log("No tasks for processing, shutting down thread...")
-                return
+                self._save_result(doc.md5, evaluation)
             except ClientError as e:
-                print(f"ClientError during metadata extraction for doc '{doc.md5}({doc.ya_path})' with key '{self.key}': {e}")
-                self._dump_unprocessables(doc.md5)
+                self.log(f"ClientError for {doc.md5}: {e}")
+                self.channel.add_unprocessable_doc(doc.md5)
                 if e.code == 429:
-                    self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
+                    self.channel.add_exceeded_key(self.key)
                     self.tasks_queue.put(doc)
-                    with self.exceeded_keys_lock:
-                        self.exceeded_keys_set.add(self.key)
                     return
-                continue
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 import traceback
-                self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
-                self._dump_unprocessables(doc.md5)
-                continue
 
-    def _sleep_if_needed(self, prev_req_time):
+                self.log(f"Unhandled error for {doc.md5}: {e}\n{traceback.format_exc()}")
+                self.channel.add_unprocessable_doc(doc.md5)
+
+    def _sleep_if_needed(self, prev_req_time: datetime.datetime | None) -> datetime.datetime:
         if prev_req_time:
             elapsed = datetime.datetime.now() - prev_req_time
-            if elapsed < datetime.timedelta(minutes=1):
-                time_to_sleep = int(65 - elapsed.total_seconds()) + 1
-                self.log(f"Sleeping for {time_to_sleep} seconds")
-                time.sleep(time_to_sleep)
+            if elapsed < datetime.timedelta(seconds=2):
+                time.sleep(2 - elapsed.total_seconds())
         return datetime.datetime.now()
-    
-    
-    def _evaluate(self, doc, gemini_client):
-        pass
 
-    
-    
+    def _evaluate(self, doc: Document, gemini_client) -> Evaluation | None:
+        payload = {
+            "md5": doc.md5,
+            "ya_path": doc.ya_path,
+            "title": doc.title,
+            "author": doc.author,
+            "publisher": doc.publisher,
+            "genre": doc.genre,
+            "language": doc.language,
+            "publish_date": doc.publish_date,
+            "isbn": doc.isbn,
+            "page_count": doc.page_count,
+            "meta": doc.meta,
+        }
+
+        prompt = [
+            {
+                "text": (
+                    "You classify if a document should be included in a public library collection. "
+                    "Return strict JSON with fields: applicable(bool), reason(str|null), "
+                    "ddc(str|null), topics(array[str]|null). "
+                    "Mark non-applicable for legal acts, forms, blank templates, notices, "
+                    "or non-book utility documents."
+                )
+            },
+            {"text": json.dumps(payload, ensure_ascii=False)},
+        ]
+
+        response, _ = gemini_api(
+            prompt=prompt,
+            model=MODEL,
+            client=gemini_client,
+            schema=Evaluation,
+            timeout_sec=180,
+        )
+        raw_response = "".join([chunk.text for chunk in response if chunk.text])
+        if not raw_response:
+            return None
+        return Evaluation.model_validate_json(raw_response)
+
+    def _save_result(self, md5: str, evaluation: Evaluation) -> None:
+        if self.dry_run:
+            self.log(f"Dry-run: would persist evaluation for {md5}")
+            return
+        with get_session() as session:
+            doc = session.get(Document, md5)
+            if doc:
+                doc.lib = evaluation.model_dump(mode="json")
+                session.commit()
+
+    def log(self, message: str) -> None:
+        print(f"{threading.current_thread().name} {time.strftime('%d-%m-%y %H:%M:%S')} {self.key[-7:]}: {message}")
+
+
 class Channel:
-    
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.exceeded_keys_set = load_expired_keys()
-        self.unprocessable_docs = self._load_unprocessable_docs()
-        
-    def get_all_unprocessable_docs(self):
-        return self.unprocessable_docs | self.repairable_docs
-    
-    def dump(self):
-        with self.lock:
-            dump_expired_keys(self.exceeded_keys_set)
-            self._dump_to_file("unprocessables", "unprocessables_eval.txt", self.unprocessable_docs)
-            
+    """Shared state between workers: exhausted keys and failed docs."""
 
-    def _load_unprocessable_docs(self, dir = "unprocessables"):
-        return self._load_file(dir, "unprocessables.txt")
-    
-    
-    def _load_file(self, dir, file_name):
-        file = os.path.join(dir, file_name)
-        if os.path.exists(file):
-            with open(file, "r") as f:
-                return set([l.strip() for l in f.readlines()])
-        else: 
-            return set()
-        
-        
-    def _dump_to_file(self, dir, file_name, items):
-        os.makedirs(dir, exist_ok=True)
-        file = os.path.join(dir, file_name)
-        with open(file, "w") as f:
-            f.write("\n".join([l.strip() for l in items]))
-            
-    
-    def add_exceeded_key(self, key):
+    def __init__(self, dry_run: bool):
+        self.lock = threading.Lock()
+        self.dry_run = dry_run
+        self.exceeded_keys_set = load_expired_keys(file="expired_keys_eval.json")
+        self.unprocessable_docs = self._load_file("unprocessables", "unprocessables_eval.txt")
+        self.repairable_docs = self._load_file("unprocessables", "repairables_eval.txt")
+
+    def get_all_unprocessable_docs(self) -> set[str]:
+        return self.unprocessable_docs | self.repairable_docs
+
+    def dump(self) -> None:
+        if self.dry_run:
+            return
+        with self.lock:
+            dump_expired_keys(self.exceeded_keys_set, file="expired_keys_eval.json")
+            self._dump_to_file("unprocessables", "unprocessables_eval.txt", self.unprocessable_docs)
+            self._dump_to_file("unprocessables", "repairables_eval.txt", self.repairable_docs)
+
+    def _load_file(self, dir_name: str, file_name: str) -> set[str]:
+        file_path = os.path.join(dir_name, file_name)
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                return {line.strip() for line in f.readlines() if line.strip()}
+        return set()
+
+    def _dump_to_file(self, dir_name: str, file_name: str, items: set[str]) -> None:
+        os.makedirs(dir_name, exist_ok=True)
+        file_path = os.path.join(dir_name, file_name)
+        with open(file_path, "w") as f:
+            f.write("\n".join(sorted(items)))
+
+    def add_exceeded_key(self, key: str) -> None:
         with self.lock:
             self.exceeded_keys_set.add(key)
-            dump_expired_keys(self.exceeded_keys_set)
-    
-            
-    def add_unprocessable_doc(self, md5):
+            if not self.dry_run:
+                dump_expired_keys(self.exceeded_keys_set, file="expired_keys_eval.json")
+
+    def add_unprocessable_doc(self, md5: str) -> None:
         with self.lock:
             self.unprocessable_docs.add(md5)
-            self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
-            
-    
-    def add_repairable_doc(self, md5):
+            if not self.dry_run:
+                self._dump_to_file("unprocessables", "unprocessables_eval.txt", self.unprocessable_docs)
+
+    def add_repairable_doc(self, md5: str) -> None:
         with self.lock:
             self.repairable_docs.add(md5)
-            self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
+            if not self.dry_run:
+                self._dump_to_file("unprocessables", "repairables_eval.txt", self.repairable_docs)

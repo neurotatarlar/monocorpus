@@ -11,12 +11,14 @@ app.add_typer(meta_app, name="meta")
 class MetaCliArgs:
     batch_size: int
     workers: int
+    dry_run: bool
 
 
 @meta_app.command()
 def evaluate(
     batch_size: int = typer.Option(300, help="Number of documents to process in one batch."),
     workers : int = typer.Option(5, help="Number of parallel workers to use."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run evaluation without persisting any state changes."),
 ):
     """
     Decide if books is applicable for library management and create taxonomy
@@ -24,6 +26,7 @@ def evaluate(
     args = MetaCliArgs(
         batch_size=batch_size,
         workers=workers,
+        dry_run=dry_run,
     )
     from meta.evaluation import evaluate
     evaluate(args)
