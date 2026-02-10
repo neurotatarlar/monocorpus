@@ -14,7 +14,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 import csv
 import zipfile
 from rich.progress import track
-from models import Document, DocumentCrh
+from models import Document
 
 
 
@@ -49,9 +49,9 @@ def dump():
         df = _dump_table_to_csv(csv_path, Document)
         print(f"✅ Exported {len(df)} rows to {csv_path}")
 
-        print("Dumping `document_crh` table to CSV...")
-        df_crh = _dump_table_to_csv(csv_path_crh, DocumentCrh)
-        print(f"✅ Exported {len(df_crh)} rows to {csv_path_crh}")
+        # print("Dumping `document_crh` table to CSV...")
+        # df_crh = _dump_table_to_csv(csv_path_crh, DocumentCrh)
+        # print(f"✅ Exported {len(df_crh)} rows to {csv_path_crh}")
         
         print("Creating ZIP archive...")
         zip_path = get_in_workdir(file = "monocorpus_backup.zip")
@@ -67,9 +67,9 @@ def dump():
         _export_to_gsheets(csv_path, creds, worksheet_monocorpus)
         print(f"✅ Exported to Google Sheets: {worksheet_monocorpus}")
 
-        print("Exporting to Google Sheets (Crimean Tatar corpus)...")
-        _export_to_gsheets(csv_path_crh, creds, worksheet_monocorpus_crh)
-        print(f"✅ Exported to Google Sheets: {worksheet_monocorpus_crh}")
+        # print("Exporting to Google Sheets (Crimean Tatar corpus)...")
+        # _export_to_gsheets(csv_path_crh, creds, worksheet_monocorpus_crh)
+        # print(f"✅ Exported to Google Sheets: {worksheet_monocorpus_crh}")
     finally:
         for path in (csv_path, csv_path_crh, zip_path):
             if path and os.path.exists(path):
@@ -176,4 +176,3 @@ def _get_credentials():
     with open(token_file, 'w') as f:
         f.write(creds.to_json())
     return Credentials.from_authorized_user_file(token_file, SCOPES)
-
