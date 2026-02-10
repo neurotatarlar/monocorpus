@@ -151,6 +151,83 @@ def _create_queue(docs: list[Document]) -> Queue:
     return tasks_queue
 
 
+def _parse_meta(meta_raw) -> dict:
+    if isinstance(meta_raw, dict):
+        return meta_raw
+    if isinstance(meta_raw, str):
+        value = meta_raw.strip()
+        if not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _as_list(value):
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _clean_text(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"unknown", "неизвестно", "null", "none", "n/a"}:
+        return None
+    return text
+
+
+def _extract_meta_payload(meta_raw) -> dict:
+    meta = _parse_meta(meta_raw)
+
+    title = _clean_text(meta.get("name"))
+    publisher = meta.get("publisher")
+    if isinstance(publisher, dict):
+        publisher = _clean_text(publisher.get("name"))
+    else:
+        publisher = _clean_text(publisher)
+
+    author = []
+    for item in _as_list(meta.get("author")):
+        if isinstance(item, dict):
+            name = _clean_text(item.get("name"))
+        else:
+            name = _clean_text(item)
+        if name and name not in author:
+            author.append(name)
+
+    genre = []
+    for item in _as_list(meta.get("genre")):
+        if isinstance(item, dict):
+            value = _clean_text(item.get("name"))
+        else:
+            value = _clean_text(item)
+        if value and value not in genre:
+            genre.append(value)
+
+    isbn = []
+    for item in _as_list(meta.get("isbn")):
+        if isinstance(item, dict):
+            value = _clean_text(item.get("value") or item.get("name"))
+        else:
+            value = _clean_text(item)
+        if value and value not in isbn:
+            isbn.append(value)
+
+    return {
+        "title": title,
+        "author": ", ".join(author) if author else None,
+        "publisher": publisher,
+        "genre": ", ".join(genre) if genre else None,
+        "publish_date": _clean_text(meta.get("datePublished")),
+        "isbn": ", ".join(isbn) if isbn else None,
+    }
+
+
 class LibraryApplicabilityWorker:
     """Single worker that consumes docs and saves applicability result."""
 
@@ -201,16 +278,17 @@ class LibraryApplicabilityWorker:
         return datetime.datetime.now()
 
     def _evaluate(self, doc: Document, gemini_client) -> Evaluation | None:
+        flattened_meta = _extract_meta_payload(doc.meta)
         payload = {
             "md5": doc.md5,
             "ya_path": doc.ya_path,
-            "title": doc.title,
-            "author": doc.author,
-            "publisher": doc.publisher,
-            "genre": doc.genre,
+            "title": flattened_meta["title"],
+            "author": flattened_meta["author"],
+            "publisher": flattened_meta["publisher"],
+            "genre": flattened_meta["genre"],
             "language": doc.language,
-            "publish_date": doc.publish_date,
-            "isbn": doc.isbn,
+            "publish_date": flattened_meta["publish_date"],
+            "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
             "meta": doc.meta,
         }

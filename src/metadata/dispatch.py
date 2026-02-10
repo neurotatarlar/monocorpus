@@ -21,9 +21,6 @@ from utils import read_config, get_in_workdir, download_file_locally, load_expir
 from dirs import Dirs
 from gemini import create_client
 import zipfile
-import isbnlib
-import re
-import time
 from google.genai.errors import ClientError
 from queue import Queue, Empty
 import threading
@@ -236,38 +233,8 @@ class MetadataExtractionWorker:
 
     def _update_document(self, doc_md5, meta, session, meta_json):
         doc = session.get(Document, doc_md5) if self.lang_tag == 'tt' else session.get(DocumentCrh, doc_md5)
-        doc.publisher = meta.publisher.name if meta.publisher and meta.publisher.name.lower() != 'unknown' else None
-        doc.author =  ", ".join([a.name for a in meta.author if a.name.lower() != 'unknown' ]) if meta.author else None
-        doc.title = meta.name if meta.name and meta.name.lower() != 'unknown' else None
         doc.language=", ".join(sorted([i.strip() for i in meta.inLanguage.split(",") if i.strip()])) if meta.inLanguage else None
-        doc.genre=", ".join([g.lower() for g in meta.genre if g.lower() != 'unknown']) if meta.genre else None
         doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
-        if (_publish_date := meta.datePublished) and meta.datePublished.lower() != 'unknown':
-            if res := re.match(r"^(\d{4})([\d-]*)$", _publish_date.strip()):
-                doc.publish_date = res.group(1)
-            
-        doc.isbn = ''
-        if meta.isbn:
-            isbns = set()
-            for isbn in meta.isbn:
-                if scraped_isbns := isbnlib.get_isbnlike(isbn, level="strict"):
-                    for _isbn in scraped_isbns:
-                        if _isbn := _isbn.strip():
-                            isbns.add(isbnlib.canonical(_isbn))
-            if joined_isbn := ", ".join([isbn.strip() for isbn in sorted(isbns) if isbn.strip()]):
-                doc.isbn = joined_isbn
-                print(f"Extracted isbns: '{doc.isbn}'")
-        
-        def _extract_classification(_properties, _expected_names):
-            if _properties:
-                vals = [
-                    p.value.strip().replace(' ', '').replace('\n', '')
-                    for p
-                    in _properties 
-                    if p.name.strip().upper() in _expected_names and p.value.lower() not in ['unknown', 'неизвестно']]
-                if len(vals) == 1:
-                    return vals[0] 
-            return None
             
         if meta.numberOfPages and doc.page_count and abs(meta.numberOfPages - int(doc.page_count)) < 5:
             # if model detected count of pages in the document 

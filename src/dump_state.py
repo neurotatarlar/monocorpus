@@ -14,6 +14,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 import csv
 import zipfile
 from rich.progress import track
+from meta_fields import extract_flat_fields
 from models import Document
 
 
@@ -137,6 +138,10 @@ def _dump_table_to_csv(output_path, model):
     engine = get_engine()
     df = pd.read_sql(f"SELECT * FROM {model.__tablename__} ORDER BY ya_path", engine)
     df = df.drop(columns=OBSOLETE_CSV_COLUMNS, errors="ignore")
+    meta_source = df["meta"] if "meta" in df.columns else pd.Series([None] * len(df))
+    meta_fields_df = pd.DataFrame([extract_flat_fields(meta) for meta in meta_source])
+    for col in ("publisher", "author", "title", "isbn", "publish_date", "genre"):
+        df[col] = meta_fields_df.get(col)
     df = df.convert_dtypes()
     df.to_csv(output_path, index=False)
     return df

@@ -25,6 +25,7 @@ from rich.progress import track
 from sqlalchemy import select
 
 from dirs import Dirs
+from meta_fields import extract_genre, extract_publish_year, parse_meta
 from models import Document
 from s3 import download
 from utils import get_in_workdir, get_session, read_config
@@ -87,10 +88,11 @@ def assemble_dataset():
                 print(f"Content is empty for document {doc.md5}, skipping it...")
                 continue
 
+            meta = parse_meta(doc.meta)
             yield {
                 "id": md5,
-                "publish_year": int(doc.publish_date) if doc.publish_date else None,
-                "genre": doc.genre,
+                "publish_year": extract_publish_year(meta),
+                "genre": extract_genre(meta),
                 "text": content.decode("utf-8"),
             }
 

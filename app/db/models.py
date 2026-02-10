@@ -16,13 +16,7 @@ class Document(Base):
         ya_public_url (str): Public URL to the document on Yandex Disk.
         ya_public_key (str): Public key for accessing the document on Yandex Disk.
         ya_resource_id (str): Resource identifier on Yandex Disk.
-        publisher (str): Name of the document's publisher.
-        author (str): Name(s) of the document's author(s).
-        title (str): Title of the document.
-        isbn (str): International Standard Book Number.
-        publish_date (str): Date(mostly just year) when the document was published.
         language (str): Language in which the document in format BCP-47
-        genre (str): Genre or category of the document.
         translated (bool): Indicates if the document is a translation.
         page_count (int): Number of pages in the document.
         content_extraction_method (str): Method used for content extraction.
@@ -41,13 +35,7 @@ class Document(Base):
     ya_public_url = Column(String)
     ya_public_key = Column(String)
     ya_resource_id = Column(String)
-    publisher = Column(String)
-    author = Column(String)
-    title = Column(String)
-    isbn = Column(String)
-    publish_date = Column(String)
     language = Column(String)
-    genre = Column(String)
     translated = Column(Boolean)
     page_count = Column(Integer)
     content_extraction_method = Column(String)

@@ -16,6 +16,13 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from sqlalchemy import select, func
 
 from dirs import Dirs
+from meta_fields import (
+    extract_author,
+    extract_isbn,
+    extract_publish_date,
+    extract_title,
+    parse_meta,
+)
 from models import Document
 from s3 import create_session
 from utils import get_in_workdir, get_session, read_config
@@ -159,15 +166,16 @@ def run(
         ) as progress:
             task_id = progress.add_task("Indexing docs", total=stats.docs_total)
             for doc in docs:
+                doc_meta = parse_meta(getattr(doc, "meta", None))
                 meta = DocMeta(
                     md5=doc.md5,
                     content_url=doc.content_url,
                     mime_type=doc.mime_type,
                     ya_path=doc.ya_path,
-                    title=doc.title,
-                    author=doc.author,
-                    isbn=doc.isbn,
-                    publish_date=doc.publish_date,
+                    title=extract_title(doc_meta) or getattr(doc, "title", None),
+                    author=extract_author(doc_meta) or getattr(doc, "author", None),
+                    isbn=extract_isbn(doc_meta) or getattr(doc, "isbn", None),
+                    publish_date=extract_publish_date(doc_meta) or getattr(doc, "publish_date", None),
                 )
                 docs_by_md5[meta.md5] = meta
                 for key in _candidate_keys(meta):
@@ -286,6 +294,11 @@ def _normalize_key(value: Optional[str]) -> str:
 def _normalize_isbn(value: Optional[str]) -> str:
     if not value:
         return ""
+    parts = re.split(r"[,\s;]+", value)
+    for part in parts:
+        cleaned = re.sub(r"[^0-9Xx]", "", part).upper()
+        if len(cleaned) in (10, 13):
+            return cleaned
     cleaned = re.sub(r"[^0-9Xx]", "", value).upper()
     if len(cleaned) in (10, 13):
         return cleaned

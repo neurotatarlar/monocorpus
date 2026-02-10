@@ -69,6 +69,7 @@ from rich import print
 from models import Document, DocumentCrh
 from s3 import  create_session
 from sqlalchemy import select
+from meta_fields import extract_isbn_values, parse_meta
 import json
 from dirs import Dirs
 import os
@@ -279,15 +280,25 @@ def _define_docs_for_wiping(yaclient, config):
 def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
     """Identify duplicate ISBNs and move extra copies to filtered-out."""
     print("Deduplicating by ISBN")
-    # Get all docs that have ISBNs
+    # Get all docs that have metadata with potential ISBNs.
     with get_session() as session:
-        md5s_to_docs = { doc.md5 : doc for doc in  session.scalars(select(entity_cls).where(entity_cls.isbn.is_not(None)))}
+        docs = list(session.scalars(select(entity_cls).where(entity_cls.meta.is_not(None))))
     
     # Group them by ISBN
+    md5s_to_docs = {}
     isbns_to_docs = defaultdict(set)
-    for doc in md5s_to_docs.values():
-        isbns = doc.isbn.strip().split(',')
-        isbns = ", ".join(sorted([isbn.strip() for isbn in isbns if isbn.strip()]))
+    for doc in docs:
+        isbns = sorted(
+            {
+                _isbn
+                for isbn in extract_isbn_values(parse_meta(doc.meta))
+                if (_isbn := _normalize_isbn(isbn))
+            }
+        )
+        if not isbns:
+            continue
+        md5s_to_docs[doc.md5] = doc
+        isbns = ", ".join(isbns)
         isbns_to_docs[isbns].add(doc.md5)
             
     # Find duplicates
@@ -366,6 +377,11 @@ def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
         if docs_for_wiping:
             plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
             flush(plan)
+
+
+def _normalize_isbn(value):
+    cleaned = "".join(ch for ch in value.strip().upper() if ch.isdigit() or ch == "X")
+    return cleaned if len(cleaned) in (10, 13) else None
 
     
 def _get_wiping_plan():
