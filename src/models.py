@@ -1,7 +1,7 @@
 """SQLAlchemy ORM models for document metadata."""
 
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, String, Boolean, JSON, ForeignKey
 
 Base = declarative_base()
 
@@ -17,8 +17,6 @@ class Document(Base):
         ya_public_key (str): Public key for accessing the document on Yandex Disk.
         ya_resource_id (str): Resource identifier on Yandex Disk.
         language (str): Language in which the document in format BCP-47
-        translated (bool): Indicates if the document is a translation.
-        page_count (int): Number of pages in the document.
         content_extraction_method (str): Method used for content extraction.
         meta_extraction_method (str): Method used for metadata extraction.
         full (bool): Indicates if the document is available in complete variant, not just a slice
@@ -36,8 +34,6 @@ class Document(Base):
     ya_public_key = Column(String)
     ya_resource_id = Column(String)
     language = Column(String)
-    translated = Column(Boolean)
-    page_count = Column(Integer)
     content_extraction_method = Column(String)
     meta_extraction_method = Column(String)
     full = Column(Boolean)

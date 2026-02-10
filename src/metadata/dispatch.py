@@ -239,12 +239,6 @@ class MetadataExtractionWorker:
     def _update_document(self, doc_md5, meta, session, meta_json):
         doc = session.get(Document, doc_md5)
         doc.language=", ".join(sorted([i.strip() for i in meta.inLanguage.split(",") if i.strip()])) if meta.inLanguage else None
-        doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
-            
-        if meta.numberOfPages and doc.page_count and abs(meta.numberOfPages - int(doc.page_count)) < 5:
-            # if model detected count of pages in the document 
-            # and the pages count is not too far from count of pages in pdf file
-            doc.page_count = meta.numberOfPages
 
         schema_org = json.loads(meta_json)
         metadata_row = session.get(Metadata, doc_md5)

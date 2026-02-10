@@ -90,7 +90,36 @@ def extract_isbn(meta: dict[str, Any]) -> str | None:
     return _join_unique(extract_isbn_values(meta))
 
 
-def extract_flat_fields(meta_raw: Any) -> dict[str, str | None]:
+def extract_page_count(meta: dict[str, Any]) -> int | None:
+    """Extract numberOfPages as integer when present."""
+    raw = meta.get("numberOfPages")
+    if raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        return int(raw)
+    text = _clean_text(raw)
+    if not text:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+def extract_translated(meta: dict[str, Any]) -> bool | None:
+    """Infer translation marker from contributor role=translator."""
+    contributors = _as_list(meta.get("contributor"))
+    if not contributors:
+        return None
+    for item in contributors:
+        if not isinstance(item, dict):
+            continue
+        role = _clean_text(item.get("role"))
+        if role and role.lower() == "translator":
+            return True
+    return False
+
+
+def extract_flat_fields(meta_raw: Any) -> dict[str, Any]:
     """Extract CSV-compatible flattened metadata fields."""
     meta = parse_meta(meta_raw)
     return {
@@ -100,6 +129,8 @@ def extract_flat_fields(meta_raw: Any) -> dict[str, str | None]:
         "isbn": extract_isbn(meta),
         "publish_date": extract_publish_date(meta),
         "genre": extract_genre(meta),
+        "page_count": extract_page_count(meta),
+        "translated": extract_translated(meta),
     }
 
 

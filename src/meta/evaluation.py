@@ -118,7 +118,7 @@ def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[Evalu
                 md5=doc.md5,
                 ya_path=doc.ya_path,
                 language=doc.language,
-                page_count=doc.page_count,
+                page_count=extract_flat_fields(meta.schema_org if meta else None).get("page_count"),
                 full=doc.full,
                 sharing_restricted=doc.sharing_restricted,
                 schema_org=meta.schema_org if meta else None,

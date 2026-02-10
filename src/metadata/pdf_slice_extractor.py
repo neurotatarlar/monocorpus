@@ -28,8 +28,7 @@ class FromPdfSliceMetadataExtractor:
         """Generate a PDF slice and run metadata extraction on it."""
         # create a slice of first n and last n pages
         slice_file_path = get_in_workdir(Dirs.DOC_SLICES, self.doc.md5, file=f"slice-for-meta")
-        slice_page_count, original_doc_page_count = self._prepare_slices(slice_file_path, n=SLICE_SIZE)
-        self.doc.page_count = original_doc_page_count
+        slice_page_count, _original_doc_page_count = self._prepare_slices(slice_file_path, n=SLICE_SIZE)
         
         # prepare prompt
         prompt = self._prepare_prompt(slice_page_count)

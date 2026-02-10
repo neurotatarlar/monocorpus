@@ -28,6 +28,7 @@ OBSOLETE_CSV_COLUMNS = [
     "ya_public_key",
     "ya_resource_id",
     "translated",
+    "page_count",
     "content_extraction_method",
     "meta_extraction_method",
     "lib",
@@ -142,7 +143,7 @@ def _dump_table_to_csv(output_path, model):
     else:
         meta_source = df["meta"] if "meta" in df.columns else pd.Series([None] * len(df))
     meta_fields_df = pd.DataFrame([extract_flat_fields(meta) for meta in meta_source])
-    for col in ("publisher", "author", "title", "isbn", "publish_date", "genre"):
+    for col in ("publisher", "author", "title", "isbn", "publish_date", "genre", "page_count", "translated"):
         df[col] = meta_fields_df.get(col)
     df = df.convert_dtypes()
     df.to_csv(output_path, index=False)
