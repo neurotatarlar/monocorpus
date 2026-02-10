@@ -1,12 +1,22 @@
 """Typer CLI commands for running the monocorpus pipeline."""
 
 import typer
+import click
 from typing_extensions import Annotated
 from typing import Optional
 from dataclasses import dataclass
 import string
 
-app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
+app = typer.Typer(
+    context_settings={"help_option_names": ["-h", "--help"]},
+    rich_markup_mode=None,
+)
+meta_app = typer.Typer(
+    help="Metadata commands.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+app.add_typer(meta_app, name="meta")
 
     
 @dataclass
@@ -22,6 +32,15 @@ class CliParams:
     """CLI parameters for path or md5 filtering."""
     md5: str
     path: str
+
+
+@dataclass
+class MetaCliArgs:
+    """CLI parameters for library-applicability evaluation."""
+    batch_size: int
+    workers: int
+    dry_run: bool
+
 
 def md5_validator(value: str):
     """Validate and normalize an MD5 string for CLI usage."""
@@ -56,13 +75,32 @@ def hf():
     hf.assemble_dataset()
     
     
-@app.command()
+@meta_app.callback(invoke_without_command=True)
 def meta():
+    """Extract metadata by default when no subcommand is provided."""
+    ctx = click.get_current_context(silent=True)
+    if ctx and ctx.invoked_subcommand is None:
+        import metadata
+        metadata.extract_metadata()
+
+
+@meta_app.command("evaluate")
+def meta_evaluate(
+    batch_size: int = typer.Option(300, help="Number of documents to process in one batch."),
+    workers: int = typer.Option(5, help="Number of parallel workers to use."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Run evaluation without persisting any state changes."),
+):
     """
-    Extract and normalize metadata for documents.
+    Decide if books are applicable for library management and taxonomy.
     """
-    import metadata
-    metadata.extract_metadata()
+    from meta.evaluation import evaluate
+
+    args = MetaCliArgs(
+        batch_size=batch_size,
+        workers=workers,
+        dry_run=dry_run,
+    )
+    evaluate(args)
     
     
 @app.command()

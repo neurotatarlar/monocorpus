@@ -1,20 +1,13 @@
-"""Workdir subdirectory names used by the app CLI."""
+"""Compatibility wrapper that re-exports directory enum from src."""
 
-from enum import Enum
+from __future__ import annotations
+
+import os
+import sys
 
 
-class Dirs(Enum):
-    ENTRY_POINT = "0_entry_point"
-    CONTENT = "1_result"
-    METADATA="2_metadata"
-    DOC_SLICES = "misc/doc_slices"
-    UPSTREAM_METADATA = "misc/upstream_metadata"
-    PAGE_IMAGES = "misc/page_images"
-    CLIPS = "misc/clips"
-    CHUNKED_RESULTS = "misc/chunked_result"
-    WIPING_PLAN = "misc/wiping_plan"
-    PROMPTS = "misc/prompts"
-    LOGS = "misc/logs"
-    BOXES_PLOTS = "misc/plots"
-    PREDICTIONS = "predictions"
-    PARQUET = "parquet"
+SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+from dirs import Dirs  # noqa: E402,F401

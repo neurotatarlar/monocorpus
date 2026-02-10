@@ -1,32 +1,13 @@
-"""Typer CLI for metadata evaluation tasks."""
+"""Compatibility wrapper that re-exports the consolidated src CLI."""
 
-import typer
-from dataclasses import dataclass
+from __future__ import annotations
 
-app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]})
-meta_app = typer.Typer(help="Commands for extracting metadata.")
-app.add_typer(meta_app, name="meta")
-
-@dataclass
-class MetaCliArgs:
-    batch_size: int
-    workers: int
-    dry_run: bool
+import os
+import sys
 
 
-@meta_app.command()
-def evaluate(
-    batch_size: int = typer.Option(300, help="Number of documents to process in one batch."),
-    workers : int = typer.Option(5, help="Number of parallel workers to use."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Run evaluation without persisting any state changes."),
-):
-    """
-    Decide if books is applicable for library management and create taxonomy
-    """
-    args = MetaCliArgs(
-        batch_size=batch_size,
-        workers=workers,
-        dry_run=dry_run,
-    )
-    from meta.evaluation import evaluate
-    evaluate(args)
+SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+from cli import app  # noqa: E402
