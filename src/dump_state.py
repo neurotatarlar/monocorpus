@@ -24,6 +24,15 @@ shared_folder_id = "1WFYCcbrtKGv3KTwyKdcKHKxXwmr9iFHE"
 spread_sheet_id = "1qHkn0ZFObgUZtQbPXtdbXa1Bf0UWPKjsyuhOZCTyNGQ"
 worksheet_monocorpus = "tt"
 worksheet_monocorpus_crh = "crh"
+OBSOLETE_CSV_COLUMNS = [
+    "ya_public_key",
+    "ya_resource_id",
+    "translated",
+    "content_extraction_method",
+    "meta_extraction_method",
+    "lib",
+    "upstream_meta_url",
+]
 
 def dump():
     """Dump document tables to CSV, zip, and upload to Drive/Sheets."""
@@ -127,6 +136,7 @@ def _dump_table_to_csv(output_path, model):
     """Dump a PostgreSQL table to CSV."""
     engine = get_engine()
     df = pd.read_sql(f"SELECT * FROM {model.__tablename__} ORDER BY ya_path", engine)
+    df = df.drop(columns=OBSOLETE_CSV_COLUMNS, errors="ignore")
     df = df.convert_dtypes()
     df.to_csv(output_path, index=False)
     return df
@@ -166,5 +176,4 @@ def _get_credentials():
     with open(token_file, 'w') as f:
         f.write(creds.to_json())
     return Credentials.from_authorized_user_file(token_file, SCOPES)
-
 
