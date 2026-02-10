@@ -1,4 +1,8 @@
-PYTHON ?= .venv/bin/python
+PYTHON ?= $(shell \
+	if [ -x .venv/bin/python ]; then echo .venv/bin/python; \
+	elif command -v python3 >/dev/null 2>&1; then echo python3; \
+	else echo python; \
+	fi)
 
 .PHONY: help lint lint-fix test compile check check-artifacts
 

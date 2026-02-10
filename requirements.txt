@@ -23,7 +23,7 @@ ebooklib==0.20
 beautifulsoup4==4.14.3
 markdownify==1.2.2
 chardet==5.2.0
-pillow==12.1.0
+pillow==10.4.0
 rich==14.3.2
 ultralytics==8.4.12
 huggingface-hub==1.4.1
