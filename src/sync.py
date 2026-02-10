@@ -66,7 +66,7 @@ Error Handling:
 from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally, get_session
 from yadisk_client import YaDisk
 from rich import print
-from models import Document, DocumentCrh, Metadata
+from models import Document, Metadata
 from s3 import  create_session
 from sqlalchemy import select
 from meta_fields import extract_isbn_values, parse_meta
@@ -82,7 +82,6 @@ from rich.table import Table
 
 
 tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
-crimean_tatar_bcp_47_codes = ['crh-Latn', 'crh-Cyrl', 'crh-Latn-x-yanalif', 'crh-Arab']
 
 not_document_types = [
     'application/vnd.android.package-archive',
@@ -135,8 +134,6 @@ def sync():
         upstream_metas = _lookup_upstream_metadata(s3client, config)
         print("Requesting all md5s") 
         all_md5s = get_all_md5s(Document)
-        all_md5s_crh = get_all_md5s(DocumentCrh)
-        all_md5s.update(all_md5s_crh)
         
         print("Defining docs for wiping") 
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
@@ -252,46 +249,23 @@ def _define_docs_for_wiping(yaclient, config):
         print(f"Found {len(nontextual_docs)} nontextual docs")
         docs_for_wiping.update(nontextual_docs)
         flush(docs_for_wiping)
-        
-        # non_crimean_tatar_docs = session.scalars(select(DocumentCrh).where(DocumentCrh.language.not_in(crimean_tatar_bcp_47_codes)))
-        # non_crimean_tatar_docs = {d.md5: f"noncrimeantatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_crimean_tatar_docs}
-        # print(f"Found {len(non_crimean_tatar_docs)} noncrimeantatar docs")
-        # docs_for_wiping.update(non_crimean_tatar_docs)
-        # flush(docs_for_wiping)
-        
-        print("Querying non textual docs")
-        nontextual_docs = session.scalars(select(DocumentCrh).where(
-            DocumentCrh.mime_type.in_(not_document_types) 
-            |
-            DocumentCrh.ya_path.endswith('.eaf')
-            |
-            DocumentCrh.ya_path.endswith('.musx')
-        ))
-        nontextual_docs = {d.md5: "nontextual" for d in nontextual_docs}
-        print(f"Found {len(nontextual_docs)} nontextual docs")
-        docs_for_wiping.update(nontextual_docs)
-        flush(docs_for_wiping)
     
-    _dedup_by_isbn(docs_for_wiping, yaclient, config, entity_cls=Document)
-    # _dedup_by_isbn(docs_for_wiping, yaclient, config, entity_cls=DocumentCrh)
+    _dedup_by_isbn(docs_for_wiping, yaclient, config)
     
     return docs_for_wiping
     
-def _dedup_by_isbn(plan, yaclient, config, entity_cls=Document):
+def _dedup_by_isbn(plan, yaclient, config):
     """Identify duplicate ISBNs and move extra copies to filtered-out."""
     print("Deduplicating by ISBN")
     # Get all docs that have metadata with potential ISBNs.
     with get_session() as session:
-        if entity_cls is Document:
-            docs = list(
-                session.scalars(
-                    select(Document)
-                    .join(Metadata, Metadata.md5 == Document.md5)
-                    .where(Metadata.schema_org.is_not(None))
-                )
+        docs = list(
+            session.scalars(
+                select(Document)
+                .join(Metadata, Metadata.md5 == Document.md5)
+                .where(Metadata.schema_org.is_not(None))
             )
-        else:
-            docs = list(session.scalars(select(entity_cls).where(entity_cls.meta.is_not(None))))
+        )
     
     # Group them by ISBN
     md5s_to_docs = {}
@@ -503,7 +477,7 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     print(f"[green]Adding file to gsheets '{file.path}' with md5 '{file.md5}'[/green]")
 
     sharing_restricted = config["yandex"]["disk"]["hidden"] in file.path 
-    doc = Document() if lang_tag == 'tt' else DocumentCrh()
+    doc = Document()
     doc.md5=file.md5
     doc.mime_type=mime_type
     doc.ya_path=ya_path

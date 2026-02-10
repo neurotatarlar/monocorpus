@@ -48,10 +48,8 @@ def _downgrade_table(table_name: str) -> None:
 def upgrade() -> None:
     """Upgrade schema."""
     _upgrade_table('document')
-    _upgrade_table('document_crh')
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    _downgrade_table('document_crh')
     _downgrade_table('document')

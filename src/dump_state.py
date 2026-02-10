@@ -24,7 +24,6 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapi
 shared_folder_id = "1WFYCcbrtKGv3KTwyKdcKHKxXwmr9iFHE"
 spread_sheet_id = "1qHkn0ZFObgUZtQbPXtdbXa1Bf0UWPKjsyuhOZCTyNGQ"
 worksheet_monocorpus = "tt"
-worksheet_monocorpus_crh = "crh"
 OBSOLETE_CSV_COLUMNS = [
     "ya_public_key",
     "ya_resource_id",
@@ -38,21 +37,15 @@ OBSOLETE_CSV_COLUMNS = [
 def dump():
     """Dump document tables to CSV, zip, and upload to Drive/Sheets."""
     csv_path = None
-    csv_path_crh = None
     zip_path = None
     try:
         csv_path = get_in_workdir(file = "monocorpus_backup.csv")
-        csv_path_crh = get_in_workdir(file = "monocorpus_crh_backup.csv")
         timestamp = datetime.now().strftime("%Y-%m-%d_%H:%M")
         title = f"monocorpus_{timestamp}"
         
         print("Dumping `document` table to CSV...")
         df = _dump_table_to_csv(csv_path, Document)
         print(f"✅ Exported {len(df)} rows to {csv_path}")
-
-        # print("Dumping `document_crh` table to CSV...")
-        # df_crh = _dump_table_to_csv(csv_path_crh, DocumentCrh)
-        # print(f"✅ Exported {len(df_crh)} rows to {csv_path_crh}")
         
         print("Creating ZIP archive...")
         zip_path = get_in_workdir(file = "monocorpus_backup.zip")
@@ -67,12 +60,8 @@ def dump():
         print("Exporting to Google Sheets (main corpus)...")
         _export_to_gsheets(csv_path, creds, worksheet_monocorpus)
         print(f"✅ Exported to Google Sheets: {worksheet_monocorpus}")
-
-        # print("Exporting to Google Sheets (Crimean Tatar corpus)...")
-        # _export_to_gsheets(csv_path_crh, creds, worksheet_monocorpus_crh)
-        # print(f"✅ Exported to Google Sheets: {worksheet_monocorpus_crh}")
     finally:
-        for path in (csv_path, csv_path_crh, zip_path):
+        for path in (csv_path, zip_path):
             if path and os.path.exists(path):
                 os.remove(path)
             

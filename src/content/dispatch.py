@@ -76,7 +76,7 @@ import threading
 import time
 from .pdf_extractor import PdfExtractor
 import random
-from models import Document, DocumentCrh
+from models import Document
 from rich.progress import track
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
@@ -94,15 +94,14 @@ non_pdf_format_types = to_docx_mime_types | \
 
 def extract_content(cli_params):
     """Dispatch extraction for both non-PDF and PDF documents."""
-    for lang_tag in ['tt']:
-        _process_non_pdf(cli_params, lang_tag)
-        # _process_pdf(cli_params, lang_tag)
+    _process_non_pdf(cli_params)
+    # _process_pdf(cli_params)
     
  
-def _process_non_pdf(cli_params, lang_tag):
+def _process_non_pdf(cli_params):
     """Extract content from EPUB and doc-like formats."""
     print("Extracting content of nonpdf documents")
-    entity_cls = Document if lang_tag == 'tt' else DocumentCrh
+    entity_cls = Document
     predicate = (
         entity_cls.content_url.is_(None) &
         entity_cls.mime_type.in_(non_pdf_format_types)
@@ -242,12 +241,12 @@ class Channel:
             self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
 
     
-def _process_pdf(cli_params, lang_tag):
+def _process_pdf(cli_params):
     """Run PDF extraction with a worker pool and Gemini key rotation."""
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
-    entity_cls = Document if lang_tag == 'tt' else DocumentCrh
+    entity_cls = Document
     
     while not stop_event.is_set():
         tasks_queue = None
@@ -257,7 +256,7 @@ def _process_pdf(cli_params, lang_tag):
         predicate = (
             entity_cls.content_url.is_(None) &
             (entity_cls.mime_type ==  "application/pdf") &
-            (entity_cls.language == ("tt-Cyrl" if lang_tag == 'tt' else 'crh-Cyrl')) &
+            (entity_cls.language == "tt-Cyrl") &
             (entity_cls.full == True) & 
             (
                 (entity_cls.md5 == cli_params.md5) if cli_params.md5 else entity_cls.md5.not_in(channel.get_all_unprocessable_docs())
@@ -298,7 +297,7 @@ def _process_pdf(cli_params, lang_tag):
                 threads = []
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
-                    t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, channel, stop_event, lang_tag=lang_tag))
+                    t = threading.Thread(target=PdfExtractor(key, tasks_queue, config, s3lient, ya_client, channel, stop_event))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests

@@ -33,7 +33,7 @@ import gc
 import datetime
 import time
 import json
-from models import Document, DocumentCrh, Metadata
+from models import Document, Metadata
 import random
 
 model = 'gemini-3-flash-preview'
@@ -49,10 +49,10 @@ def extract_metadata():
     - Are PDF files
     # """
     print("Processing 'tt' documents without metadata")
-    _process_by_predicate('tt')
+    _process_by_predicate()
     
     
-def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
+def _process_by_predicate(docs_batch_size=5000, keys_batch_size=1):
     """
     Process documents matching the given predicate using parallel workers.
     
@@ -64,7 +64,6 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
     config = read_config()
     exceeded_keys_lock = threading.Lock()
     exceeded_keys_set = load_expired_keys()
-    entity_cls = Document if lang_tag == 'tt' else DocumentCrh
     
     while True:
         tasks_queue = None
@@ -73,22 +72,13 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
         gc.collect()
         try: 
             unprocessles = _load_unprocessables()
-            if entity_cls is Document:
-                predicate = (
-                    Metadata.md5.is_(None) &
-                    (
-                        Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
-                    ) &
-                    Document.md5.not_in(unprocessles)
-                )
-            else:
-                predicate = (
-                    entity_cls.meta.is_(None) &
-                    (
-                        entity_cls.content_url.is_not(None) | (entity_cls.mime_type == 'application/pdf')
-                    ) &
-                    entity_cls.md5.not_in(unprocessles)
-                )
+            predicate = (
+                Metadata.md5.is_(None) &
+                (
+                    Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
+                ) &
+                Document.md5.not_in(unprocessles)
+            )
             with exceeded_keys_lock:
                 available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
             random.shuffle(available_keys)
@@ -100,15 +90,12 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
             with get_session() as session:
-                if entity_cls is Document:
-                    stmt = (
-                        select(Document)
-                        .outerjoin(Metadata, Metadata.md5 == Document.md5)
-                        .where(predicate)
-                        .limit(docs_batch_size)
-                    )
-                else:
-                    stmt = select(entity_cls).where(predicate).limit(docs_batch_size)
+                stmt = (
+                    select(Document)
+                    .outerjoin(Metadata, Metadata.md5 == Document.md5)
+                    .where(predicate)
+                    .limit(docs_batch_size)
+                )
                 docs = list(session.scalars(stmt))
 
             print(f"Got {len(docs)} docs for metadata extraction")
@@ -124,7 +111,7 @@ def _process_by_predicate(lang_tag, docs_batch_size=5000, keys_batch_size=1):
             with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
                 for num in range(min(len(keys_slice), len(docs))):
                     key = keys_slice[num]
-                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set, lang_tag))
+                    t = threading.Thread(target=MetadataExtractionWorker(key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set))
                     t.start()
                     threads.append(t)
                     time.sleep(5)  # slight delay to avoid overwhelming the API with requests
@@ -159,14 +146,14 @@ class MetadataExtractionWorker:
         results_queue: Queue for processing results
     """
     
-    def __init__(self, gemini_api_key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set, lang_tag):
+    def __init__(self, gemini_api_key, tasks_queue, config, ya_client, exceeded_keys_lock, exceeded_keys_set):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.ya_client = ya_client
         self.exceeded_keys_lock = exceeded_keys_lock
         self.exceeded_keys_set = exceeded_keys_set
-        self.lang_tag=lang_tag
+        self.lang_tag = 'tt'
         
         
     def __call__(self):
@@ -250,7 +237,7 @@ class MetadataExtractionWorker:
 
 
     def _update_document(self, doc_md5, meta, session, meta_json):
-        doc = session.get(Document, doc_md5) if self.lang_tag == 'tt' else session.get(DocumentCrh, doc_md5)
+        doc = session.get(Document, doc_md5)
         doc.language=", ".join(sorted([i.strip() for i in meta.inLanguage.split(",") if i.strip()])) if meta.inLanguage else None
         doc.translated = bool([c for c in meta.contributor if c.role == 'translator']) if meta.contributor else None
             
@@ -259,15 +246,12 @@ class MetadataExtractionWorker:
             # and the pages count is not too far from count of pages in pdf file
             doc.page_count = meta.numberOfPages
 
-        if self.lang_tag == 'tt':
-            schema_org = json.loads(meta_json)
-            metadata_row = session.get(Metadata, doc_md5)
-            if metadata_row is None:
-                metadata_row = Metadata(md5=doc_md5)
-                session.add(metadata_row)
-            metadata_row.schema_org = schema_org
-        else:
-            doc.meta = meta_json
+        schema_org = json.loads(meta_json)
+        metadata_row = session.get(Metadata, doc_md5)
+        if metadata_row is None:
+            metadata_row = Metadata(md5=doc_md5)
+            session.add(metadata_row)
+        metadata_row.schema_org = schema_org
 
         doc.meta_extraction_method = f"{model}/prompt.v2"
         if doc.sharing_restricted:

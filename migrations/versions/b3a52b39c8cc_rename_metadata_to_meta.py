@@ -25,18 +25,12 @@ def _rename_column(table_name: str, old: str, new: str, type_) -> None:
 def upgrade() -> None:
     """Upgrade schema."""
     _rename_column('document', 'metadata', 'meta', sa.JSON())
-    _rename_column('document_crh', 'metadata', 'meta', sa.JSON())
     _rename_column('document', 'metadata_extraction_method', 'meta_extraction_method', sa.String())
-    _rename_column('document_crh', 'metadata_extraction_method', 'meta_extraction_method', sa.String())
     _rename_column('document', 'upstream_metadata_url', 'upstream_meta_url', sa.String())
-    _rename_column('document_crh', 'upstream_metadata_url', 'upstream_meta_url', sa.String())
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    _rename_column('document_crh', 'upstream_meta_url', 'upstream_metadata_url', sa.String())
     _rename_column('document', 'upstream_meta_url', 'upstream_metadata_url', sa.String())
-    _rename_column('document_crh', 'meta_extraction_method', 'metadata_extraction_method', sa.String())
     _rename_column('document', 'meta_extraction_method', 'metadata_extraction_method', sa.String())
-    _rename_column('document_crh', 'meta', 'metadata', sa.JSON())
     _rename_column('document', 'meta', 'metadata', sa.JSON())

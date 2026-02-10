@@ -282,34 +282,3 @@ def dedup(
         report_path=report_path,
     )
 
-
-@app.command()
-def upload_to_s3():
-    """Upload missing Crimean Tatar documents to S3."""
-    from models import DocumentCrh
-    from utils import read_config, get_session, download_file_locally
-    from s3 import create_session, upload_file
-    import os
-    from rich.progress import track
-    from yadisk_client import YaDisk
-    from sqlalchemy import select
-
-    print("Uploading docs to s3")
-    predicate = (
-        DocumentCrh.meta.is_(None)
-        |
-        DocumentCrh.language.in_(['crh-Latn', 'crh-Cyrl', 'crh-Latn-x-yanalif', 'crh-Arab'])
-    )
-    config = read_config()
-    doc_bucket = config["yandex"]["cloud"]['bucket']['document']
-    s3client = create_session(config)
-
-    with get_session() as session, YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
-        docs = session.scalars(select(DocumentCrh).where(predicate))
-        for doc in track(docs, "Processing docs"):
-            local_doc_path = download_file_locally(ya_client, doc, config)
-            doc_key = os.path.basename(local_doc_path)
-            document_url = upload_file(local_doc_path, doc_bucket, doc_key, s3client, skip_if_exists=True)
-            if doc.document_url != document_url:
-                doc.document_url = document_url
-                session.commit()

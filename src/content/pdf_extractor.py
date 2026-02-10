@@ -24,7 +24,7 @@ from json.decoder import JSONDecodeError
 import datetime
 import time
 from google.genai.errors import ServerError
-from models import Document, DocumentCrh
+from models import Document
 
 
 model = 'gemini-2.5-pro'
@@ -166,7 +166,7 @@ class PdfExtractor:
     """Worker that extracts PDF content, postprocesses it, and uploads artifacts."""
     
     
-    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, channel, stop_event, lang_tag):
+    def __init__(self, gemini_api_key, tasks_queue, config, s3lient, ya_client, channel, stop_event):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
@@ -175,7 +175,7 @@ class PdfExtractor:
         self.channel = channel
         self.stop_event = stop_event
         self.gemini_query_time = None
-        self.lang_tag = lang_tag
+        self.lang_tag = "tt"
         
     def __call__(self):
         """Run the worker loop until the task queue is exhausted or stopped."""
@@ -543,8 +543,7 @@ class PdfExtractor:
     
     
     def _upsert_document(self, session, context):
-        entity_cls = Document if self.lang_tag == 'tt' else DocumentCrh
-        doc = session.get(entity_cls, context.doc.md5)
+        doc = session.get(Document, context.doc.md5)
         if context.ya_path and (ya_path := context.ya_path.removeprefix('disk:')) != '/':
             doc.ya_path = ya_path
         doc.ya_public_key=context.ya_public_key
