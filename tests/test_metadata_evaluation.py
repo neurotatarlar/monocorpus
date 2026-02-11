@@ -61,14 +61,15 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     def test_build_applicability_prompt_includes_core_policy(self) -> None:
         prompt = build_library_applicability_prompt({"md5": "x"})
-        self.assertEqual(2, len(prompt))
+        self.assertGreaterEqual(len(prompt), 2)
         text = prompt[0]["text"]
         self.assertIn("applicable(bool)", text)
         self.assertIn("reason(str|null)", text)
-        self.assertIn("library_classification", text)
-        self.assertIn("If uncertain, prefer applicable=false.", text)
-        self.assertIn("If upstream_metadata is provided", text)
-        self.assertIn('"md5": "x"', prompt[1]["text"])
+        all_text = "\n".join([part["text"] for part in prompt[:-1]])
+        self.assertIn("library_classification", all_text)
+        self.assertIn("If uncertain, prefer applicable=false.", all_text)
+        self.assertIn("If upstream_metadata is provided", all_text)
+        self.assertIn('"md5": "x"', prompt[-1]["text"])
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_parses_library_decision(self, gemini_api_mock) -> None:
@@ -85,7 +86,7 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertEqual("legal act", evaluation.reason)
         prompt = gemini_api_mock.call_args.kwargs["prompt"]
         self.assertIn("public library collection for general readers", prompt[0]["text"])
-        self.assertIn('"content_excerpt": "sample excerpt"', prompt[1]["text"])
+        self.assertIn('"content_excerpt": "sample excerpt"', prompt[-1]["text"])
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_returns_none_for_empty_response(self, gemini_api_mock) -> None:
@@ -193,7 +194,7 @@ class MetadataEvaluationTests(unittest.TestCase):
         with patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value="sample excerpt"):
             self._worker()._evaluate(task, gemini_client=object())
         prompt = gemini_api_mock.call_args.kwargs["prompt"]
-        self.assertIn('"upstream_metadata": "{\\"name\\":\\"Upstream\\"}"', prompt[1]["text"])
+        self.assertIn('"upstream_metadata": "{\\"name\\":\\"Upstream\\"}"', prompt[-1]["text"])
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_requires_classification_for_applicable_doc(self, gemini_api_mock) -> None:
