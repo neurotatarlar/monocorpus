@@ -6,9 +6,9 @@ from dirs import Dirs
 from bs4 import BeautifulSoup
 from collections import defaultdict
 import json
-from utils import get_in_workdir
+from core.paths import get_in_workdir
 from PIL import Image, ImageDraw
-from s3 import upload_file, create_session
+from integrations.s3 import upload_file, create_session
 from ultralytics import YOLO
 from huggingface_hub import hf_hub_download
 import pymupdf

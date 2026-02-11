@@ -2,7 +2,7 @@
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from utils import read_config
+from core.config import read_config
 
 
 def get_db():

@@ -58,10 +58,13 @@ Usage:
 """
 
 from sqlalchemy import select
-from utils import read_config, encrypt, get_in_workdir, decrypt, get_session
+from core.config import read_config
+from core.security import encrypt, decrypt
+from core.paths import get_in_workdir
+from core.db import get_session
 from yadisk_client import YaDisk
 from rich import print
-from s3 import create_session
+from integrations.s3 import create_session
 from rich.progress import track
 from yadisk.exceptions import PathNotFoundError
 import os

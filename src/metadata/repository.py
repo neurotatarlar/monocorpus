@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from models import Document, Metadata
-from utils import get_session
+from core.db import get_session
 
 
 def fetch_docs_for_metadata_extraction(limit: int, excluded_md5s: set[str]) -> list[Document]:

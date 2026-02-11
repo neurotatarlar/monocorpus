@@ -1,6 +1,6 @@
 """Extraction pipeline for doc-like formats (doc/rtf/txt/etc.) using pandoc."""
 
-from utils import get_in_workdir
+from core.paths import get_in_workdir
 from dirs import Dirs
 from rich import print
 import re

@@ -13,9 +13,11 @@ The module performs several validation checks:
 - Identifies mismatches and inconsistencies
 """
 from yadisk_client import YaDisk
-from utils import walk_yadisk, read_config, get_session
+from core.yadisk import walk_yadisk
+from core.config import read_config
+from core.db import get_session
 from sqlalchemy import select
-from utils import Document
+from models import Document
 
 
 def check():

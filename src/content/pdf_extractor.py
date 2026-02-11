@@ -1,7 +1,10 @@
 """PDF extraction pipeline using Gemini with chunking and postprocessing."""
 
 from rich import print
-from utils import get_in_workdir, download_file_locally, encrypt, decrypt, get_session
+from core.paths import get_in_workdir
+from core.yadisk import download_file_locally
+from core.security import encrypt, decrypt
+from core.db import get_session
 from dirs import Dirs
 import zipfile
 import re
@@ -11,7 +14,7 @@ from queue import Empty
 import threading
 from content.pdf_context import Context
 import os
-from gemini import gemini_api, create_client
+from integrations.gemini import gemini_api, create_client
 import pymupdf
 import shutil
 from content.pdf_postprocess import postprocess, NoBboxError
@@ -19,148 +22,22 @@ from prompt import cook_extraction_prompt
 import json
 from content.continuity_checker import continue_smoothly
 from pydantic import BaseModel, ValidationError
-from s3 import upload_file, create_session
+from integrations.s3 import upload_file, create_session
 from json.decoder import JSONDecodeError
 import datetime
 import time
 from google.genai.errors import ServerError
 from models import Document
+from content.chunking import ChunkPlanner
+from content.pdf_utils import has_figure_tag_with_missing_attributes, tokens_info
 
 
 model = 'gemini-2.5-pro'
-
-FIGURE_TAG_PATTERN = re.compile(r"<figure\b[^>]*>", re.IGNORECASE)
 
 
 class ExtractionResult(BaseModel):
     """Typed container for model responses."""
     content: str
-    
-class ChunkPlanner:
-    """Plan page ranges, reusing already processed chunks from disk."""
-    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[5, 3, 2, 1]):
-        self.chunked_results_dir = chunked_results_dir
-        self.pages_count = pages_count
-        self.chunk_sizes = chunk_sizes
-        self.current_chunk_size_index = 0
-        self.processed_ranges = self._load_processed_ranges()
-
-        # iteration state
-        self.cursor_page = 0
-        self.idx_processed = 0
-        self.last_attempted_chunk = None
-        self.retry_mode = False
-
-
-    def _load_processed_ranges(self):
-        """Load already processed chunk ranges from the directory."""
-        slice_pattern = re.compile(r"chunk-(\d+)-(\d+)\.json$")
-        processed = []
-        seen = set()
-        for filename in os.listdir(self.chunked_results_dir):
-            m = slice_pattern.match(filename)
-            if m:
-                start, end = map(int, m.groups())
-                if (start, end) not in seen:
-                    processed.append(Chunk(start, end))
-                    seen.add((start, end))
-        processed.sort()
-        return processed
-
-
-    def next(self):
-        """Return the next chunk to process: either a processed one, or a gap."""
-        # Retry mode: use last start page with smaller size
-        if self.retry_mode and self.last_attempted_chunk:
-            size = self.chunk_sizes[self.current_chunk_size_index]
-            end_page = min(self.last_attempted_chunk.start + size - 1, self.pages_count)
-            chunk = Chunk(self.last_attempted_chunk.start, end_page)
-            self.last_attempted_chunk = chunk
-            self.retry_mode = False
-            return chunk
-
-        while self.cursor_page <= self.pages_count:
-            if self.idx_processed < len(self.processed_ranges):
-                next_chunk = self.processed_ranges[self.idx_processed]
-                if self.cursor_page < next_chunk.start:
-                    # gap found
-                    size = self.chunk_sizes[self.current_chunk_size_index]
-                    end_page = min(self.cursor_page + size - 1, self.pages_count)
-                    chunk = Chunk(self.cursor_page, end_page)
-                    self.last_attempted_chunk = chunk
-                    self.cursor_page = end_page + 1
-                    return chunk
-                else:
-                    # skip processed chunk
-                    self.cursor_page = next_chunk.end + 1
-                    self.idx_processed += 1
-                    return next_chunk
-            else:
-                # fill until end
-                if self.cursor_page <= self.pages_count:
-                    size = self.chunk_sizes[self.current_chunk_size_index]
-                    end_page = min(self.cursor_page + size - 1, self.pages_count)
-                    chunk = Chunk(self.cursor_page, end_page)
-                    self.last_attempted_chunk = chunk
-                    self.cursor_page = end_page + 1
-                    return chunk
-        return None
-
-    def decrease_chunk_size(self):
-        if self.current_chunk_size_index < len(self.chunk_sizes) - 1:
-            self.current_chunk_size_index += 1
-            self.retry_mode = True
-            return True
-        return False
-
-    def mark_success(self, chunk):
-        """Record a successfully processed chunk."""
-        if chunk not in self.processed_ranges:
-            self.processed_ranges.append(chunk)
-            self.processed_ranges.sort()
-
-    def verify_complete(self):
-        """Check if all pages from 0 to pages_count are covered without gaps."""
-        covered = set()
-        for chunk in self.processed_ranges:
-            covered.update(range(chunk.start, chunk.end + 1))
-        missing = [p for p in range(0, self.pages_count + 1) if p not in covered]
-        return (len(missing) == 0, missing)
-    
-    
-    
-    
-class Chunk:
-    """Simple inclusive page range container (start, end)."""
-    
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-    
-        
-    def __lt__(self, other):
-        return (self.start, self.end) < (other.start, other.end)
-    
-    
-    def __le__(self, other):
-        return (self.start, self.end) <= (other.start, other.end)
-    
-    
-    def __gt__(self, other):
-        return (self.start, self.end) > (other.start, other.end)
-    
-    
-    def __ge__(self, other):
-        return (self.start, self.end) >= (other.start, other.end)
-    
-    
-    def __eq__(self, other):
-        return (self.start, self.end) == (other.start, other.end)
-    
-    
-    def __repr__(self):
-        return f"Chunk({self.start}, {self.end})"
-    
     
 class PdfExtractor:
     """Worker that extracts PDF content, postprocesses it, and uploads artifacts."""
@@ -266,7 +143,7 @@ class PdfExtractor:
                     self.log(f"Chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
                         deserialized = ExtractionResult.model_validate_json(f.read()).content
-                        if not _has_figure_tag_with_missing_attributes(deserialized):
+                        if not has_figure_tag_with_missing_attributes(deserialized):
                             content = deserialized
 
                 if not content:
@@ -319,12 +196,12 @@ class PdfExtractor:
                         # validating schema
                         with open(chunk_result_incomplete_path, "r") as f:
                             content = ExtractionResult.model_validate_json(f.read()).content
-                            if _has_figure_tag_with_missing_attributes(content):
+                            if has_figure_tag_with_missing_attributes(content):
                                 raise ValidationError("Chunk has figure tag with missing attributes")
                             
                         # "mark" batch as extracted by renaming file
                         shutil.move(chunk_result_incomplete_path, chunk_result_complete_path)
-                        self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]: {_tokens_info(usage_meta)}")
+                        self.log(f"Chunk ({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) [bold green]extracted successfully[/bold green]: {tokens_info(usage_meta)}")
                     except ServerError as e:
                         self.log(f"Server error: {e}")
                         self.tasks_queue.put(doc)  # return task to the queue for later processing
@@ -348,11 +225,11 @@ class PdfExtractor:
 
                         if chunk_planner.decrease_chunk_size():
                             chunk_size = f"with size {chunk.end - chunk.start + 1}" if chunk else ""
-                            self.log(f"Could not extract chunk {chunk_size} of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
+                            self.log(f"Could not extract chunk {chunk_size} of doc {context.md5}({context.doc.ya_public_url}){tokens_info(usage_meta)}")
                             continue
                         else:
                             self.channel.add_unprocessable_doc(context.md5)
-                            self.log(f"Could not extract chunk with any size of doc {context.md5}({context.doc.ya_public_url}){_tokens_info(usage_meta)}")
+                            self.log(f"Could not extract chunk with any size of doc {context.md5}({context.doc.ya_public_url}){tokens_info(usage_meta)}")
                             return {"stop_worker": False}
                     finally:
                         for file in uploaded_files:
@@ -555,24 +432,3 @@ class PdfExtractor:
             
         session.commit()
         self.log(f"Updating doc details in gsheets {context.doc.md5}({context.doc.ya_public_url})")
-
-
-def _has_figure_tag_with_missing_attributes(content):
-    """Return True when any <figure> tag lacks required attributes."""
-    for match in FIGURE_TAG_PATTERN.finditer(content):
-        tag = match.group(0)
-        if 'data-bbox=' not in tag:
-            print(f"Attribute `data-bbox` is missing")
-            return True
-        if 'data-page=' not in tag:
-            print(f"Attribute `data-page` is missing")
-            return True
-    return False
-    
-
-def _tokens_info(usage_meta):
-    """Format token usage metadata for logging."""
-    if usage_meta:
-        return f"input tokens:{usage_meta.prompt_token_count}, output tokens: {usage_meta.candidates_token_count}, total tokens: {usage_meta.total_token_count}"
-    return ""
-               

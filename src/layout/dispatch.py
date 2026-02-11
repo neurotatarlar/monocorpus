@@ -12,7 +12,10 @@
 # extract syria 
 # convert to intermediate format 
 # compare and choose layout 
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, get_session
+from core.config import read_config
+from core.yadisk import obtain_documents, download_file_locally
+from core.paths import get_in_workdir
+from core.db import get_session
 from yadisk_client import YaDisk
 from rich import print
 from rich.progress import track

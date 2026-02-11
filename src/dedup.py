@@ -24,8 +24,10 @@ from metadata.fields import (
     parse_meta,
 )
 from models import Document
-from s3 import create_session
-from utils import get_in_workdir, get_session, read_config
+from integrations.s3 import create_session
+from core.paths import get_in_workdir
+from core.db import get_session
+from core.config import read_config
 
 MARKDOWN_FENCE_RE = re.compile(r"```.*?```|~~~.*?~~~", flags=re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`[^`]*`")

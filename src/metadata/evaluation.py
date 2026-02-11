@@ -17,10 +17,12 @@ from google.genai.errors import ClientError
 from pydantic import BaseModel
 from rich import print
 
-from gemini import create_client, gemini_api
+from integrations.gemini import create_client, gemini_api
 from .fields import extract_flat_fields
 from models import Document, Metadata
-from utils import dump_expired_keys, get_session, load_expired_keys, read_config
+from core.config import read_config
+from core.db import get_session
+from core.state import dump_expired_keys, load_expired_keys
 from .repository import fetch_docs_for_evaluation, mark_docs_as_non_applicable
 
 

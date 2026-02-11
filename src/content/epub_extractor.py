@@ -1,6 +1,6 @@
 """EPUB-to-Markdown extraction helpers."""
 
-from utils import get_in_workdir
+from core.paths import get_in_workdir
 from ebooklib import epub, ITEM_NAVIGATION, ITEM_DOCUMENT, ITEM_IMAGE, ITEM_STYLE, ITEM_FONT, ITEM_COVER, ITEM_UNKNOWN
 from bs4 import BeautifulSoup, NavigableString
 from markdownify import markdownify as md

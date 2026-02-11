@@ -48,11 +48,13 @@ Requirements:
 - S3 credentials and bucket configuration
 - Local storage for wiping plan
 """
-from utils import walk_yadisk, read_config, get_in_workdir
+from core.yadisk import walk_yadisk
+from core.config import read_config
+from core.paths import get_in_workdir
 import json 
 from yadisk_client import YaDisk
 import unicodedata
-from s3 import  create_session
+from integrations.s3 import  create_session
 from dirs import Dirs
 import os
 

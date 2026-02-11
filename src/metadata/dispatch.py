@@ -14,10 +14,14 @@ Key Features:
 """
 
 from rich import print
-from s3 import upload_file, create_session
-from utils import read_config, get_in_workdir, download_file_locally, load_expired_keys, dump_expired_keys, get_session
+from integrations.s3 import upload_file, create_session
+from core.config import read_config
+from core.paths import get_in_workdir
+from core.yadisk import download_file_locally
+from core.state import load_expired_keys, dump_expired_keys
+from core.db import get_session
 from dirs import Dirs
-from gemini import create_client
+from integrations.gemini import create_client
 import zipfile
 from google.genai.errors import ClientError
 from queue import Queue, Empty
@@ -25,14 +29,15 @@ import threading
 from .text_extractor import FromTextMetadataExtractor
 from .pdf_slice_extractor import FromPdfSliceMetadataExtractor
 import os
-from utils import encrypt
-from yadisk_client import YaDisk
+from core.security import encrypt
+from integrations.yadisk import YaDisk
 import gc
 import datetime
 import time
 import json
 from models import Document, Metadata
 from .repository import fetch_docs_for_metadata_extraction
+from .unprocessables import add_unprocessable, load_unprocessables
 import random
 
 model = 'gemini-3-flash-preview'
@@ -69,7 +74,7 @@ def _process_by_predicate(docs_batch_size=5000, keys_batch_size=1):
         dump_expired_keys(exceeded_keys_set)
         gc.collect()
         try: 
-            unprocessles = _load_unprocessables()
+            unprocessles = load_unprocessables()
             with exceeded_keys_lock:
                 available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
             random.shuffle(available_keys)
@@ -166,7 +171,7 @@ class MetadataExtractionWorker:
                 
                 if not metadata:
                     self.log(f"No metadata was extracted from document {doc.md5}({doc.ya_public_url})")
-                    self._dump_unprocessables(doc.md5)
+                    add_unprocessable(doc.md5)
                     continue
                 # write metadata to zip
                 local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
@@ -185,7 +190,7 @@ class MetadataExtractionWorker:
                 return
             except ClientError as e:
                 print(f"ClientError during metadata extraction for doc '{doc.md5}({doc.ya_path})' with key '{self.key}': {e}")
-                self._dump_unprocessables(doc.md5)
+                add_unprocessable(doc.md5)
                 if e.code == 429:
                     self.log(f"Key {self.key} exhausted {e}, shutting down thread...") 
                     self.tasks_queue.put(doc)
@@ -196,7 +201,7 @@ class MetadataExtractionWorker:
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract metadata from doc {doc.md5}: {e} \n{traceback.format_exc()}")
-                self._dump_unprocessables(doc.md5)
+                add_unprocessable(doc.md5)
                 continue
             
 
@@ -251,35 +256,3 @@ class MetadataExtractionWorker:
             log.write(f"{message}\n")
         print(message)
     
-    
-    def _dump_unprocessables(self, md5, lock="unprocessables/unprocessables_meta.lock", file="unprocessables/unprocessables_meta.txt"):
-        """
-        Check lock file exists, if lock file is not exists, read the unprocessables file into set, add the given md5, and write it back.
-        If lock file exists, sleep and retry until lock file is gone.
-        """
-        while os.path.exists(lock):
-            time.sleep(1)
-        try:
-            with open(lock, "w") as _:
-                unprocessables = set([md5])
-                if os.path.exists(file):
-                    with open(file, "r") as f:
-                        for line in f:
-                            unprocessables.add(line.strip())
-                with open(file, "w") as f:
-                    for item in sorted(unprocessables):
-                        f.write(f"{item}\n")
-                    f.flush()
-        finally:
-            if os.path.exists(lock):
-                os.remove(lock)
-        
-        
-def _load_unprocessables(file="unprocessables/unprocessables_meta.txt"):
-    """Load the set of documents skipped during metadata extraction."""
-    unprocessables = set()
-    if os.path.exists(file):
-        with open(file, "r") as f:
-            for line in f:
-                unprocessables.add(line.strip())
-    return unprocessables

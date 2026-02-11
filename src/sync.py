@@ -63,64 +63,28 @@ Error Handling:
 - State persistence for interrupted operations
 """
 
-from utils import read_config, walk_yadisk, encrypt, get_in_workdir, download_file_locally, get_session
-from yadisk_client import YaDisk
+from core.config import read_config
+from core.yadisk import walk_yadisk, download_file_locally
+from core.security import encrypt
+from core.db import get_session
+from integrations.yadisk import YaDisk
 from rich import print
-from models import Document, Metadata
-from s3 import  create_session
+from models import Document
+from integrations.s3 import create_session
 from sqlalchemy import select
 from metadata.fields import extract_isbn_values, parse_meta
-import json
-from dirs import Dirs
 import os
 from collections import defaultdict
 import pymupdf
 import typer
-from rich import print
 from rich.console import Console
 from rich.table import Table
+from sync_constants import TATAR_BCP_47_CODES, NOT_DOCUMENT_TYPES
+from sync_plan import flush, get_wiping_plan
+from sync_repository import get_all_md5s, lookup_upstream_metadata, list_docs_with_schema_org
+from sync_rules import normalize_isbn, should_be_skipped
+from sync_storage import move_to_filtered_out, publish_file, remove_from_s3
 
-
-tatar_bcp_47_codes = ['tt-Latn-x-zamanalif', 'tt-Cyrl', 'tt-Latn-x-yanalif', 'tt-Arab', 'tt-Latn']
-
-not_document_types = [
-    'application/vnd.android.package-archive',
-    'image/jpeg',
-    'application/x-zip-compressed',
-    'application/zip'
-    'application/octet',
-    'text/x-python',
-    'application/x-gzip',
-    'application/x-rar',
-    'application/x-download',
-    "application/json",
-    'audio/mpeg',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/javascript',
-    'application/javascript',
-    'application/x-shockwave-flash',
-    'text/css',
-    'application/x-javascript',
-    'application/x-shockwave-flash',
-    'image/tiff',
-    'text/x-python-script',
-    'audio/mp3',
-    'audio/x-wav',
-    'image/gif',
-    'audio/mp3',
-    'audio/midi',
-    'image/vnd.adobe.photoshop',
-    'video/3gpp',
-    'application/x-7z-compressed',
-    'image/png',
-    "image/x-icon",
-    "application/x-tplink-bin",
-    "video/x-unknown",
-    "text/x-Algol68",
-    "application/x-chm",
-    "video/mp4",
-    "image/bmp"
-]
 
 def sync():
     """
@@ -131,7 +95,7 @@ def sync():
 
     with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as yaclient: 
         print("Requesting all upstream metadata urls") 
-        upstream_metas = _lookup_upstream_metadata(s3client, config)
+        upstream_metas = lookup_upstream_metadata(s3client, config)
         print("Requesting all md5s") 
         all_md5s = get_all_md5s(Document)
         
@@ -139,7 +103,7 @@ def sync():
         docs_for_wiping = _define_docs_for_wiping(yaclient, config) 
         if docs_for_wiping:
             print("Removing objects from s3 storage")
-            _remove_from_s3(docs_for_wiping.keys(), s3client, config)
+            remove_from_s3(docs_for_wiping.keys(), s3client, config)
         else:
             print("No docs for wiping found")
             
@@ -151,7 +115,7 @@ def sync():
                 try:
                     if dir_to_move := docs_for_wiping.get(file.md5, None):
                         # the file marked for wiping
-                        _move_to_filtered_out(file, config, yaclient, dir_to_move, entry_point)
+                        move_to_filtered_out(file, config, yaclient, dir_to_move, entry_point)
                         # delete record in database
                         with get_session() as session:
                             if doc := session.get(Document, file.md5):
@@ -176,62 +140,13 @@ def sync():
                 print("Skipped by MIME type files:")
                 print(*skipped, sep="\n")
             
-def _move_to_filtered_out(file, config, ya_client, parent_dir, entry_point):
-    """Move a Yandex Disk file into a filtered-out folder or delete it."""
-    # For each file
-    # 1. move file to dedicated folder
-    # 2. unpublish file if it has public link
-    filtered_out_dir = config['yandex']['disk']['filtered_out']
-    
-    if parent_dir == 'void':
-        print(f"[magenta]Removing file '{file.md5}'('{file.path}')[/magenta]")
-        ya_client.remove(file.path, n_retries=5, retry_interval=30)
-    else:
-        old_path = file.path.removeprefix('disk:')
-        _rel_path = os.path.relpath(old_path, entry_point)
-        new_path = os.path.join(filtered_out_dir, parent_dir, _rel_path)
-        print(f"[cyan]Moving file '{file.md5}' from '{old_path} to '{new_path}'[/cyan]")
-        ya_client.create_folders(os.path.dirname(new_path))
-        ya_client.move(file.path, new_path, n_retries=5, retry_interval=30, overwrite=True)
-        ya_client.unpublish(new_path)
-    
-
-def _remove_from_s3(md5s, s3client, config):
-    """Remove S3 objects related to the provided MD5s."""
-    if not md5s:
-        return
-    content_bucket = config["yandex"]["cloud"]['bucket']['content']
-    content_chunks_bucket = config["yandex"]["cloud"]['bucket']['content_chunks']
-    documents_bucket = config["yandex"]["cloud"]['bucket']['document']
-    images_bucket = config["yandex"]["cloud"]['bucket']['image']
-    upstream_metadatas_bucket = config["yandex"]["cloud"]['bucket']['upstream_metadata']
-    metadatas_bucket = config["yandex"]["cloud"]['bucket']['metadata']
-    buckets = [content_bucket, content_chunks_bucket, documents_bucket, images_bucket, upstream_metadatas_bucket, metadatas_bucket]
-    for bucket in buckets:
-        paginator = s3client.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=bucket)
-
-        keys_to_remove = []
-        for page in pages:
-            for obj in page.get('Contents', []):
-                key = obj['Key']
-                if any(key.startswith(md5) for md5 in md5s):
-                    keys_to_remove.append({'Key': key})
-                    
-        if keys_to_remove:
-            print(f"Removing {len(keys_to_remove)} objects from bucket '{bucket}'")
-            for i in range(0, len(keys_to_remove), 1000):
-                batch = keys_to_remove[i:i+1000]
-                s3client.delete_objects(Bucket=bucket, Delete={'Objects': batch, 'Quiet': True})
-        
-
 def _define_docs_for_wiping(yaclient, config):
     """Build and persist a plan of documents to move/remove."""
-    docs_for_wiping = _get_wiping_plan()
+    docs_for_wiping = get_wiping_plan()
 
     print("Querying non tatar documents")
     with get_session() as session:
-        non_tatar_docs = session.scalars(select(Document).where(Document.language.not_in(tatar_bcp_47_codes)))
+        non_tatar_docs = session.scalars(select(Document).where(Document.language.not_in(TATAR_BCP_47_CODES)))
         non_tatar_docs = {d.md5: f"nontatar/{'-'.join(sorted(d.language.split(', ')))}" for d in non_tatar_docs}
         print(f"Found {len(non_tatar_docs)} nontatar docs")
         docs_for_wiping.update(non_tatar_docs)
@@ -239,7 +154,7 @@ def _define_docs_for_wiping(yaclient, config):
         
         print("Querying non textual docs")
         nontextual_docs = session.scalars(select(Document).where(
-            Document.mime_type.in_(not_document_types) 
+            Document.mime_type.in_(NOT_DOCUMENT_TYPES)
             | 
             Document.ya_path.endswith('.eaf') 
             |
@@ -259,13 +174,7 @@ def _dedup_by_isbn(plan, yaclient, config):
     print("Deduplicating by ISBN")
     # Get all docs that have metadata with potential ISBNs.
     with get_session() as session:
-        docs = list(
-            session.scalars(
-                select(Document)
-                .join(Metadata, Metadata.md5 == Document.md5)
-                .where(Metadata.schema_org.is_not(None))
-            )
-        )
+        docs = list_docs_with_schema_org(session)
     
     # Group them by ISBN
     md5s_to_docs = {}
@@ -276,7 +185,7 @@ def _dedup_by_isbn(plan, yaclient, config):
             {
                 _isbn
                 for isbn in extract_isbn_values(parse_meta(schema_org))
-                if (_isbn := _normalize_isbn(isbn))
+                if (_isbn := normalize_isbn(isbn))
             }
         )
         if not isbns:
@@ -363,28 +272,6 @@ def _dedup_by_isbn(plan, yaclient, config):
             flush(plan)
 
 
-def _normalize_isbn(value):
-    cleaned = "".join(ch for ch in value.strip().upper() if ch.isdigit() or ch == "X")
-    return cleaned if len(cleaned) in (10, 13) else None
-
-    
-def _get_wiping_plan():
-    """Load or create the JSON plan of documents to wipe/move."""
-    marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")
-    if not os.path.exists(marked_for_wiping):
-        print("No marked for wiping file found, creating a new one")
-        with open(marked_for_wiping, 'w') as f:
-            json.dump({}, f)
-    with open(marked_for_wiping, 'r') as f:
-        return json.load(f)
-    
-def flush(plan):
-    """Persist the wiping plan JSON to disk."""
-    marked_for_wiping = get_in_workdir(Dirs.WIPING_PLAN, file="marked_for_wiping.json")
-    with open(marked_for_wiping, 'w') as f:
-        json.dump(plan, f, indent=4, ensure_ascii=False)
-
-        
 def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config, lang_tag, entry_point):
     """Process a single Yandex Disk file and return a Document to upsert."""
     if file.path.startswith("disk:/НейроТатарлар/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
@@ -446,14 +333,14 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
 
     _should_be_skipped, mime_type = should_be_skipped(file)
     if _should_be_skipped:
-        _move_to_filtered_out(file, config, ya_client, 'nontextual', entry_point)
+        move_to_filtered_out(file, config, ya_client, 'nontextual', entry_point)
         skipped_by_mime_type_files.append((file.mime_type, file.public_url, file.path))
         return
     
     ya_public_key = file.public_key
     ya_public_url = file.public_url
     if not (ya_public_key and ya_public_url):
-        ya_public_key, ya_public_url = _publish_file(ya_client, file.path)
+        ya_public_key, ya_public_url = publish_file(ya_client, file.path)
     
     ya_path = file.path.removeprefix('disk:')    
     if file.md5 in all_md5s:
@@ -490,50 +377,3 @@ def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstrea
     # update gsheet
     all_md5s[file.md5] = {"resource_id": doc.ya_resource_id, "upstream_meta_url": doc.upstream_meta_url} 
     return doc
-
-def _publish_file(client, path):
-    """Publish a file on Yandex Disk and return its public keys."""
-    _ = client.publish(path)
-    resp = client.get_meta(path, fields = ['public_key', 'public_url'])
-    return resp['public_key'], resp['public_url']
-
-def _lookup_upstream_metadata(s3client, config):
-    """Return a mapping of md5 to upstream metadata URL in S3."""
-    bucket = config["yandex"]["cloud"]["bucket"]["upstream_metadata"]
-    s3client.list_objects_v2(Bucket=bucket)
-    paginator = s3client.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket=bucket)
-    return {
-         obj['Key'].removesuffix('.zip'): f"{s3client._endpoint.host}/{bucket}/{obj['Key']}"
-         for page in pages
-         for obj in page['Contents']
-    }
-    
-def get_all_md5s(entity_cls):
-    """
-    Returns a dict of all md5s in the database with ya_resource_id
-    :return: set of md5s
-    """
-    with get_session() as session:
-        res = session.execute(
-            select(entity_cls.md5, entity_cls.ya_resource_id, entity_cls.upstream_meta_url, entity_cls.ya_path, entity_cls.ya_public_url)
-        ).all()
-        return { 
-                i[0]: {"resource_id": i[1], "upstream_meta_url": i[2], "ya_path": i[3], "ya_public_url": i[4]} 
-                for i 
-                in res 
-        }
-        
-def should_be_skipped(file):
-    """Determine whether a file should be skipped based on MIME/path rules."""
-    if file.mime_type in not_document_types:
-        # sometimes valid PDF docs detected as octet-stream
-        if file.mime_type == 'application/octet-stream' and file.path.endswith(".pdf"):
-            return False, 'application/pdf'
-        elif file.mime_type == 'text/html' and file.path.endswith(".txt"):
-            return False, 'text/plain'
-        elif file.mime_type == 'text/html' and file.path.endswith(".doc"):
-            return False, 'text/plain'
-        else:
-            return True, file.mime_type 
-    return False, file.mime_type 

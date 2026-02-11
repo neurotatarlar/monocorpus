@@ -4,12 +4,13 @@ PYTHON ?= $(shell \
 	else echo python; \
 	fi)
 
-.PHONY: help lint lint-fix test compile check check-artifacts
+.PHONY: help lint lint-fix arch-check test compile check check-artifacts
 
 help:
 	@echo "Available targets:"
 	@echo "  make lint            - run Ruff linter (critical rules)"
 	@echo "  make lint-fix        - run Ruff with auto-fix enabled"
+	@echo "  make arch-check      - verify source import boundaries"
 	@echo "  make test            - run unit tests"
 	@echo "  make compile         - compile-check Python sources"
 	@echo "  make check-artifacts - run artifact checks command"
@@ -17,9 +18,13 @@ help:
 
 lint:
 	$(PYTHON) -m ruff check src tests
+	$(PYTHON) scripts/check_architecture.py
 
 lint-fix:
 	$(PYTHON) -m ruff check src tests --fix
+
+arch-check:
+	$(PYTHON) scripts/check_architecture.py
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v

@@ -1,7 +1,8 @@
 """Metadata extraction from a PDF slice using Gemini prompts."""
 
-from utils import  get_in_workdir, load_upstream_metadata
-from gemini import gemini_api
+from core.paths import get_in_workdir
+from core.upstream_meta import load_upstream_metadata
+from integrations.gemini import gemini_api
 from metadata.schema import Book
 from dirs import Dirs
 from itertools import groupby

@@ -59,17 +59,22 @@ Usage:
     - Batch size and worker count
     - Processing limits and filters
 """
-from yadisk_client import YaDisk
+from integrations.yadisk import YaDisk
 import mdformat
 from dirs import Dirs
 from rich import print
-from s3 import upload_file, create_session
+from integrations.s3 import upload_file, create_session
 import os
 import zipfile
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from queue import Queue
-from utils import read_config, obtain_documents, download_file_locally, get_in_workdir, encrypt, load_expired_keys, dump_expired_keys, get_session
+from core.config import read_config
+from core.yadisk import obtain_documents, download_file_locally
+from core.paths import get_in_workdir
+from core.security import encrypt
+from core.state import load_expired_keys, dump_expired_keys
+from core.db import get_session
 from .epub_extractor import EpubExtractor
 from .doc_like_extractor import DocLikeExtractor, to_docx_mime_types, check_encoding_mime_types
 import threading

@@ -24,8 +24,10 @@ from pps_text import (
     restore_math_segments,
     truncate_underscore_runs,
 )
-from s3 import create_session, upload_file
-from utils import get_in_workdir, get_session, read_config
+from integrations.s3 import create_session, upload_file
+from core.paths import get_in_workdir
+from core.db import get_session
+from core.config import read_config
 
 
 TOC_MARKER_RE = re.compile(r"<!--\s*mdformat-toc start --no-anchors\s*-->")

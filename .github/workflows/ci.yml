@@ -31,6 +31,8 @@ jobs:
               - "requirements.txt"
               - "Makefile"
               - "ruff.toml"
+              - "scripts/**"
+              - "docs/architecture.md"
 
   lint:
     needs: changes

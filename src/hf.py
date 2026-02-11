@@ -27,8 +27,10 @@ from sqlalchemy import select
 from dirs import Dirs
 from metadata.fields import extract_genre, extract_publish_year, parse_meta
 from models import Document
-from s3 import download
-from utils import get_in_workdir, get_session, read_config
+from integrations.s3 import download
+from core.paths import get_in_workdir
+from core.db import get_session
+from core.config import read_config
 
 
 def assemble_dataset():

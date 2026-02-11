@@ -1,6 +1,7 @@
 """Export database tables to CSV/Drive/Sheets for backup and sharing."""
 
-from utils import get_engine, get_in_workdir
+from core.db import get_engine
+from core.paths import get_in_workdir
 import pandas as pd
 from rich import print
 from google.oauth2.credentials import Credentials
