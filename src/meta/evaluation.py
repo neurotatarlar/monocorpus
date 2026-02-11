@@ -241,7 +241,7 @@ class LibraryApplicabilityWorker:
             "publisher": flattened_meta["publisher"],
             "genre": flattened_meta["genre"],
             "language": doc.language,
-            "publish_date": flattened_meta["publish_date"],
+            "publish_year": flattened_meta["publish_year"],
             "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
             "meta": doc.schema_org,

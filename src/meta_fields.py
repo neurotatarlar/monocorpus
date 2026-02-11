@@ -58,17 +58,12 @@ def extract_genre(meta: dict[str, Any]) -> str | None:
     return _join_unique(genres)
 
 
-def extract_publish_date(meta: dict[str, Any]) -> str | None:
-    """Extract datePublished as-is."""
-    return _clean_text(meta.get("datePublished"))
-
-
 def extract_publish_year(meta: dict[str, Any]) -> int | None:
     """Extract a 4-digit year from datePublished."""
-    publish_date = extract_publish_date(meta)
-    if not publish_date:
+    published_value = _clean_text(meta.get("datePublished"))
+    if not published_value:
         return None
-    match = YEAR_RE.search(publish_date)
+    match = YEAR_RE.search(published_value)
     return int(match.group(1)) if match else None
 
 
@@ -127,7 +122,7 @@ def extract_flat_fields(meta_raw: Any) -> dict[str, Any]:
         "author": extract_author(meta),
         "title": extract_title(meta),
         "isbn": extract_isbn(meta),
-        "publish_date": extract_publish_date(meta),
+        "publish_year": extract_publish_year(meta),
         "genre": extract_genre(meta),
         "page_count": extract_page_count(meta),
         "translated": extract_translated(meta),

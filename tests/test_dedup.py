@@ -50,7 +50,7 @@ class DedupTests(unittest.TestCase):
             title="Long title of a great book",
             author="Some Author",
             isbn="978-1-4028-9462-6",
-            publish_date="2001",
+            publish_year="2001",
         )
         keys = _candidate_keys(meta)
         self.assertIn("isbn:9781402894626", keys)

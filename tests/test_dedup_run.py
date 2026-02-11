@@ -86,7 +86,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Duplicate Book",
                 author="Author One",
                 isbn="978-1-4028-9462-6",
-                publish_date="2002",
+                publish_year="2002",
             ),
             types.SimpleNamespace(
                 md5=md5_epub,
@@ -96,7 +96,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Duplicate Book",
                 author="Author One",
                 isbn="9781402894626",
-                publish_date="2002",
+                publish_year="2002",
             ),
             types.SimpleNamespace(
                 md5=md5_other,
@@ -106,7 +106,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Another Title",
                 author="Another Author",
                 isbn=None,
-                publish_date="1999",
+                publish_year="1999",
             ),
         ]
 
@@ -160,7 +160,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Bad Archives",
                 author="Author X",
                 isbn="9781402894626",
-                publish_date="2001",
+                publish_year="2001",
             ),
             types.SimpleNamespace(
                 md5=md5_corrupt,
@@ -170,7 +170,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Bad Archives",
                 author="Author X",
                 isbn="9781402894626",
-                publish_date="2001",
+                publish_year="2001",
             ),
         ]
 
@@ -218,7 +218,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Same title",
                 author="Same author",
                 isbn="9781402894626",
-                publish_date="2001",
+                publish_year="2001",
             ),
             types.SimpleNamespace(
                 md5=md5_missing,
@@ -228,7 +228,7 @@ class DedupRunTests(unittest.TestCase):
                 title="Same title",
                 author="Same author",
                 isbn="9781402894626",
-                publish_date="2001",
+                publish_year="2001",
             ),
         ]
 
@@ -275,7 +275,7 @@ class DedupRunTests(unittest.TestCase):
                         title="Same title for all",
                         author="Same author",
                         isbn="9781402894626",
-                        publish_date="2001",
+                        publish_year="2001",
                     )
                 )
                 path = os.path.join(tmp, f"{md5}.zip")

@@ -19,7 +19,7 @@ from dirs import Dirs
 from meta_fields import (
     extract_author,
     extract_isbn,
-    extract_publish_date,
+    extract_publish_year,
     extract_title,
     parse_meta,
 )
@@ -48,7 +48,7 @@ class DocMeta:
     title: Optional[str]
     author: Optional[str]
     isbn: Optional[str]
-    publish_date: Optional[str]
+    publish_year: Optional[int | str]
 
 
 @dataclass
@@ -180,7 +180,7 @@ def run(
                     title=extract_title(doc_meta) or getattr(doc, "title", None),
                     author=extract_author(doc_meta) or getattr(doc, "author", None),
                     isbn=extract_isbn(doc_meta) or getattr(doc, "isbn", None),
-                    publish_date=extract_publish_date(doc_meta) or getattr(doc, "publish_date", None),
+                    publish_year=extract_publish_year(doc_meta) or getattr(doc, "publish_year", None),
                 )
                 docs_by_md5[meta.md5] = meta
                 for key in _candidate_keys(meta):
@@ -278,7 +278,7 @@ def _candidate_keys(meta: DocMeta) -> Set[str]:
 
     title = _normalize_key(meta.title)
     author = _normalize_key(meta.author)
-    year = _extract_year(meta.publish_date)
+    year = _extract_year(meta.publish_year)
 
     if title and author and len(title) >= 8:
         keys.add(f"title_author:{title}|{author}")
@@ -310,9 +310,11 @@ def _normalize_isbn(value: Optional[str]) -> str:
     return ""
 
 
-def _extract_year(value: Optional[str]) -> str:
+def _extract_year(value: Optional[int | str]) -> str:
     if not value:
         return ""
+    if isinstance(value, int):
+        return str(value)
     match = YEAR_RE.search(value)
     return match.group(1) if match else ""
 
@@ -411,7 +413,7 @@ def _build_duplicate_groups(
                         "title": docs_by_md5[m].title,
                         "author": docs_by_md5[m].author,
                         "isbn": docs_by_md5[m].isbn,
-                        "publish_date": docs_by_md5[m].publish_date,
+                        "publish_year": docs_by_md5[m].publish_year,
                     }
                     for m in members_sorted
                 ],

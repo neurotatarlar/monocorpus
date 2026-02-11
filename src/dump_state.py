@@ -13,6 +13,7 @@ from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
 import csv
 import zipfile
+import json
 from rich.progress import track
 from meta_fields import extract_flat_fields
 from models import Document
@@ -33,6 +34,26 @@ OBSOLETE_CSV_COLUMNS = [
     "meta_extraction_method",
     "lib",
     "upstream_meta_url",
+]
+DOCUMENT_EXPORT_COLUMN_ORDER = [
+    "md5",
+    "mime_type",
+    "ya_path",
+    "ya_public_url",
+    "publisher",
+    "author",
+    "title",
+    "isbn",
+    "publish_year",
+    "language",
+    "genre",
+    "translated",
+    "page_count",
+    "full",
+    "sharing_restricted",
+    "document_url",
+    "content_url",
+    "meta",
 ]
 
 def dump():
@@ -142,9 +163,15 @@ def _dump_table_to_csv(output_path, model):
         df = df.drop(columns=["schema_org"], errors="ignore")
     else:
         meta_source = df["meta"] if "meta" in df.columns else pd.Series([None] * len(df))
+    df["meta"] = meta_source.apply(
+        lambda v: json.dumps(v, ensure_ascii=False) if v is not None else None
+    )
     meta_fields_df = pd.DataFrame([extract_flat_fields(meta) for meta in meta_source])
-    for col in ("publisher", "author", "title", "isbn", "publish_date", "genre", "page_count", "translated"):
+    for col in ("publisher", "author", "title", "isbn", "publish_year", "genre", "page_count", "translated"):
         df[col] = meta_fields_df.get(col)
+    preferred = [col for col in DOCUMENT_EXPORT_COLUMN_ORDER if col in df.columns]
+    remaining = [col for col in df.columns if col not in preferred]
+    df = df[preferred + remaining]
     df = df.convert_dtypes()
     df.to_csv(output_path, index=False)
     return df
