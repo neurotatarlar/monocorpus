@@ -21,7 +21,7 @@ High-level flow:
 3) **Processing pipelines**  
    - Content extraction (`src/content/*`) for PDFs and non-PDFs  
    - Metadata extraction (`src/metadata/*`) using Gemini prompts  
-   - Optional layout detection (`src/layout/dispatch.py`)
+   - Optional layout detection (`src/experimental/layout/dispatch.py`)
 
 4) **Artifact storage (Yandex Cloud S3)**  
    Extracted content, images, and metadata are uploaded to buckets.
@@ -120,7 +120,7 @@ google_api_key:
 
 Optional local files (kept out of git):
 
-- `client_secret.json` and `personal_token.json` for Google APIs
+- `_artifacts/credentials/client_secret.json` and `_artifacts/credentials/personal_token.json` for Google APIs
 - any extra tokens required by your workflow
 
 ## Common Commands

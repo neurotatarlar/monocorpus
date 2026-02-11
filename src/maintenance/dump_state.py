@@ -26,6 +26,8 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapi
 shared_folder_id = "1WFYCcbrtKGv3KTwyKdcKHKxXwmr9iFHE"
 spread_sheet_id = "1qHkn0ZFObgUZtQbPXtdbXa1Bf0UWPKjsyuhOZCTyNGQ"
 worksheet_monocorpus = "tt"
+ARTIFACTS_DIR = "_artifacts"
+CREDENTIALS_DIR = os.path.join(ARTIFACTS_DIR, "credentials")
 OBSOLETE_CSV_COLUMNS = [
     "ya_public_key",
     "ya_resource_id",
@@ -202,13 +204,26 @@ def _export_to_gdrive(zip_path, creds, title):
     
 def _get_credentials():
     """Load or create OAuth credentials for Google APIs."""
-    token_file = "personal_token.json"
+    token_file = _preferred_artifact_path(CREDENTIALS_DIR, "personal_token.json")
     
     if os.path.exists(token_file):
         return Credentials.from_authorized_user_file(token_file, SCOPES)
     
-    flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(
+        _preferred_artifact_path(CREDENTIALS_DIR, "client_secret.json"),
+        SCOPES,
+    )
     creds = flow.run_local_server(port=0)
+    os.makedirs(os.path.dirname(token_file), exist_ok=True)
     with open(token_file, 'w') as f:
         f.write(creds.to_json())
     return Credentials.from_authorized_user_file(token_file, SCOPES)
+
+
+def _preferred_artifact_path(preferred_dir: str, filename: str) -> str:
+    """Resolve preferred _artifacts path with backward-compatible legacy fallback."""
+    preferred = os.path.join(preferred_dir, filename)
+    legacy = filename
+    if os.path.exists(preferred) or not os.path.exists(legacy):
+        return preferred
+    return legacy

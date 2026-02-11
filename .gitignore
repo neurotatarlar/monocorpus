@@ -8,6 +8,10 @@ package-lock.json
 .python-version
 unprocessables/repairables.txt
 _artifacts/expired_keys/*
+_artifacts/expired_keys_eval/*
+_artifacts/credentials/*
+_artifacts/shots/cooked
+_artifacts/unprocessables/*
 
 # Byte-compiled / optimized / DLL files
 **/__pycache__/

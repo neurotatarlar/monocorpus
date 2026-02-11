@@ -85,6 +85,9 @@ from models import Document
 from rich.progress import track
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+ARTIFACTS_DIR = "_artifacts"
+CREDENTIALS_DIR = os.path.join(ARTIFACTS_DIR, "credentials")
+UNPROCESSABLES_DIR = os.path.join(ARTIFACTS_DIR, "unprocessables")
 
 
 non_pdf_format_types = to_docx_mime_types | \
@@ -172,16 +175,29 @@ def _upload_artifacts_to_s3(doc, formatted_response_md, local_doc_path, config, 
 
 def _get_credentials():
     """Load OAuth credentials for Google Drive conversions."""
-    token_file = "personal_token.json"
+    token_file = _preferred_artifact_path(CREDENTIALS_DIR, "personal_token.json")
     
     if os.path.exists(token_file):
         return Credentials.from_authorized_user_file(token_file, SCOPES)
     
-    flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(
+        _preferred_artifact_path(CREDENTIALS_DIR, "client_secret.json"),
+        SCOPES,
+    )
     creds = flow.run_local_server(port=0)
+    os.makedirs(os.path.dirname(token_file), exist_ok=True)
     with open(token_file, 'w') as f:
         f.write(creds.to_json())
     return Credentials.from_authorized_user_file(token_file, SCOPES)
+
+
+def _preferred_artifact_path(preferred_dir: str, filename: str) -> str:
+    """Resolve preferred _artifacts path with backward-compatible legacy fallback."""
+    preferred = os.path.join(preferred_dir, filename)
+    legacy = filename
+    if os.path.exists(preferred) or not os.path.exists(legacy):
+        return preferred
+    return legacy
 
 class Channel:
     """Thread-safe shared state for PDF extraction workers."""
@@ -198,23 +214,27 @@ class Channel:
     def dump(self):
         """Persist expired keys and unprocessable doc lists to disk."""
         dump_expired_keys(self.exceeded_keys_set)
-        self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
-        self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
+        self._dump_to_file(UNPROCESSABLES_DIR, "unprocessables.txt", self.unprocessable_docs)
+        self._dump_to_file(UNPROCESSABLES_DIR, "repairables.txt", self.repairable_docs)
             
 
-    def _load_unprocessable_docs(self, dir = "unprocessables"):
+    def _load_unprocessable_docs(self, dir=UNPROCESSABLES_DIR):
         """Load persisted unprocessable and repairable doc IDs."""
         return self._load_file(dir, "unprocessables.txt"), self._load_file(dir, "repairables.txt")
     
     
     def _load_file(self, dir, file_name):
         """Load a line-delimited file into a set."""
-        file = os.path.join(dir, file_name)
-        if os.path.exists(file):
-            with open(file, "r") as f:
-                return set([l.strip() for l in f.readlines()])
-        else: 
-            return set()
+        candidates = [os.path.join(dir, file_name)]
+        if dir.startswith(f"{ARTIFACTS_DIR}/"):
+            candidates.append(os.path.join(dir.removeprefix(f"{ARTIFACTS_DIR}/"), file_name))
+
+        loaded = set()
+        for file in candidates:
+            if os.path.exists(file):
+                with open(file, "r") as f:
+                    loaded.update({l.strip() for l in f.readlines() if l.strip()})
+        return loaded
         
         
     def _dump_to_file(self, dir, file_name, items):
@@ -236,14 +256,14 @@ class Channel:
         """Record a document as unprocessable."""
         with self.lock:
             self.unprocessable_docs.add(md5)
-            self._dump_to_file("unprocessables", "unprocessables.txt", self.unprocessable_docs)
+            self._dump_to_file(UNPROCESSABLES_DIR, "unprocessables.txt", self.unprocessable_docs)
             
     
     def add_repairable_doc(self, md5):
         """Record a document as repairable for later retry."""
         with self.lock:
             self.repairable_docs.add(md5)
-            self._dump_to_file("unprocessables", "repairables.txt", self.repairable_docs)
+            self._dump_to_file(UNPROCESSABLES_DIR, "repairables.txt", self.repairable_docs)
 
     
 def _process_pdf(cli_params):

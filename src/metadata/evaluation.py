@@ -32,6 +32,8 @@ LEGAL_DOC_PATTERNS = [
     re.compile(r"^(?=.*common_crawl)(?=.*npa_ta_).*\.pdf$"),
     re.compile(r"^(?=.*pdf законов с pravo\.gov).*\.pdf$"),
 ]
+ARTIFACTS_DIR = "_artifacts"
+UNPROCESSABLES_DIR = os.path.join(ARTIFACTS_DIR, "unprocessables")
 
 
 class Evaluation(BaseModel):
@@ -275,9 +277,9 @@ class Channel:
     def __init__(self, dry_run: bool):
         self.lock = threading.Lock()
         self.dry_run = dry_run
-        self.keys_dir = "expired_keys_eval"
-        self.unprocessable_docs = self._load_file("unprocessables", "unprocessables_eval.txt")
-        self.repairable_docs = self._load_file("unprocessables", "repairables_eval.txt")
+        self.keys_dir = os.path.join(ARTIFACTS_DIR, "expired_keys_eval")
+        self.unprocessable_docs = self._load_file(UNPROCESSABLES_DIR, "unprocessables_eval.txt")
+        self.repairable_docs = self._load_file(UNPROCESSABLES_DIR, "repairables_eval.txt")
         self.exceeded_keys_set = load_expired_keys(dir=self.keys_dir)
 
     def get_all_unprocessable_docs(self) -> set[str]:
@@ -288,15 +290,20 @@ class Channel:
             return
         with self.lock:
             dump_expired_keys(self.exceeded_keys_set, dir=self.keys_dir)
-            self._dump_to_file("unprocessables", "unprocessables_eval.txt", self.unprocessable_docs)
-            self._dump_to_file("unprocessables", "repairables_eval.txt", self.repairable_docs)
+            self._dump_to_file(UNPROCESSABLES_DIR, "unprocessables_eval.txt", self.unprocessable_docs)
+            self._dump_to_file(UNPROCESSABLES_DIR, "repairables_eval.txt", self.repairable_docs)
 
     def _load_file(self, dir_name: str, file_name: str) -> set[str]:
-        file_path = os.path.join(dir_name, file_name)
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                return {line.strip() for line in f.readlines() if line.strip()}
-        return set()
+        candidates = [os.path.join(dir_name, file_name)]
+        if dir_name.startswith(f"{ARTIFACTS_DIR}/"):
+            candidates.append(os.path.join(dir_name.removeprefix(f"{ARTIFACTS_DIR}/"), file_name))
+
+        loaded = set()
+        for file_path in candidates:
+            if os.path.exists(file_path):
+                with open(file_path, "r") as f:
+                    loaded.update({line.strip() for line in f.readlines() if line.strip()})
+        return loaded
 
     def _dump_to_file(self, dir_name: str, file_name: str, items: set[str]) -> None:
         os.makedirs(dir_name, exist_ok=True)
@@ -314,10 +321,10 @@ class Channel:
         with self.lock:
             self.unprocessable_docs.add(md5)
             if not self.dry_run:
-                self._dump_to_file("unprocessables", "unprocessables_eval.txt", self.unprocessable_docs)
+                self._dump_to_file(UNPROCESSABLES_DIR, "unprocessables_eval.txt", self.unprocessable_docs)
 
     def add_repairable_doc(self, md5: str) -> None:
         with self.lock:
             self.repairable_docs.add(md5)
             if not self.dry_run:
-                self._dump_to_file("unprocessables", "repairables_eval.txt", self.repairable_docs)
+                self._dump_to_file(UNPROCESSABLES_DIR, "repairables_eval.txt", self.repairable_docs)

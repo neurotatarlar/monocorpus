@@ -211,17 +211,24 @@ def decrypt(ciphertext, config):
     return aesgcm.decrypt(nonce, ct, None).decode()
 
 
-def load_expired_keys(dir = 'expired_keys'):
+def load_expired_keys(dir='_artifacts/expired_keys'):
     """Load the set of expired keys for the current bucket window."""
+    candidates = [dir]
+    if dir.startswith("_artifacts/"):
+        candidates.append(dir.removeprefix("_artifacts/"))
+
+    ekf_name = f"expired_keys_{_get_bucket_id()}.json"
+    for candidate in candidates:
+        ekf = os.path.join(candidate, ekf_name)
+        if os.path.exists(ekf):
+            with open(ekf, "r") as f:
+                return set(json.load(f))
+
     os.makedirs(dir, exist_ok=True)
-    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
-    if os.path.exists(ekf):
-        with open(ekf, "r") as f:
-            return set(json.load(f))
-    else: return set()
+    return set()
     
 
-def dump_expired_keys(keys, dir = 'expired_keys'):
+def dump_expired_keys(keys, dir='_artifacts/expired_keys'):
     """Persist the set of expired keys for the current bucket window."""
     os.makedirs(dir, exist_ok=True)
     ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")

@@ -4,19 +4,35 @@ import os
 import base64
 import json
 
-cooked_shots_dir = "./shots/cooked"
+ARTIFACTS_SHOTS_DIR = "_artifacts/shots"
+LEGACY_SHOTS_DIR = "shots"
+COOKED_SHOTS_DIRNAME = "cooked"
+SNIPPETS_DIRNAME = "snippets"
+
+
+def _resolve_shots_dir(subdir: str) -> str:
+    """Return preferred shots subdir in _artifacts with legacy fallback."""
+    preferred = os.path.join(ARTIFACTS_SHOTS_DIR, subdir)
+    legacy = os.path.join(LEGACY_SHOTS_DIR, subdir)
+    if os.path.exists(preferred) or not os.path.exists(legacy):
+        return preferred
+    return legacy
 
 def load_inline_shots():
     """Return the prepared shots JSON, creating it if missing."""
-    shots_file = os.path.join(cooked_shots_dir, f"prepared-shots.json")
+    cooked_dir = _resolve_shots_dir(COOKED_SHOTS_DIRNAME)
+    shots_file = os.path.join(cooked_dir, "prepared-shots.json")
     if not os.path.exists(shots_file):
         print("Creating new shots file")
+        os.makedirs(cooked_dir, exist_ok=True)
         with open(shots_file, "w") as f:
             json.dump(_form_inline_shots(), f, ensure_ascii=False, indent=4)
     return shots_file
 
-def _form_inline_shots(_dir = './shots/snippets'):
+def _form_inline_shots(_dir = None):
     """Build the inline shots payload from snippets and images."""
+    if _dir is None:
+        _dir = _resolve_shots_dir(SNIPPETS_DIRNAME)
     prompt = ["Here are examples of how to extract content from a document:"]
     gt = _list_files(_dir, endswith='.md')
     for idx, ground_truth_path in enumerate(gt, start=1):
