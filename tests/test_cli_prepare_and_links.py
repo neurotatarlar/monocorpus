@@ -3,7 +3,6 @@
 import os
 import sys
 import tempfile
-import types
 import unittest
 from unittest.mock import Mock, patch
 
@@ -14,8 +13,8 @@ sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from cli import app, md5_validator  # noqa: E402
-from check_pub_links import _extension_by_mime_type, _publish_file, get_meta  # noqa: E402
-import prepare_shots  # noqa: E402
+from maintenance.check_pub_links import _extension_by_mime_type, _publish_file, get_meta  # noqa: E402
+from prompts import shots as prepare_shots  # noqa: E402
 
 
 class CliAndHelperTests(unittest.TestCase):
@@ -42,7 +41,7 @@ class CliAndHelperTests(unittest.TestCase):
 
     def test_get_meta_returns_none_on_not_found(self) -> None:
         client = Mock()
-        with patch("check_pub_links.PathNotFoundError", RuntimeError):
+        with patch("maintenance.check_pub_links.PathNotFoundError", RuntimeError):
             client.get_meta.side_effect = RuntimeError("missing")
             self.assertIsNone(get_meta("/x", client))
 
@@ -80,9 +79,8 @@ class CliAndHelperTests(unittest.TestCase):
             self.assertIn("Ground Truth", payload[3])
 
     def test_cli_dedup_dispatch(self) -> None:
-        fake_dedup = types.SimpleNamespace(run=Mock())
         runner = CliRunner()
-        with patch.dict(sys.modules, {"dedup": fake_dedup}):
+        with patch("content.dedup.run") as run_dedup:
             result = runner.invoke(
                 app,
                 [
@@ -97,7 +95,7 @@ class CliAndHelperTests(unittest.TestCase):
                 ],
             )
         self.assertEqual(0, result.exit_code, result.output)
-        fake_dedup.run.assert_called_once_with(
+        run_dedup.assert_called_once_with(
             threshold=0.97,
             force_download=True,
             max_group_size=12,
@@ -105,15 +103,14 @@ class CliAndHelperTests(unittest.TestCase):
         )
 
     def test_cli_pps_dispatch(self) -> None:
-        fake_pps = types.SimpleNamespace(run=Mock())
         runner = CliRunner()
-        with patch.dict(sys.modules, {"pps": fake_pps}):
+        with patch("content.pps.service.run") as run_pps:
             result = runner.invoke(
                 app,
                 ["pps", "--force-download", "--report", "pps_report.json"],
             )
         self.assertEqual(0, result.exit_code, result.output)
-        fake_pps.run.assert_called_once_with(force_download=True, report_path="pps_report.json")
+        run_pps.assert_called_once_with(force_download=True, report_path="pps_report.json")
 
     def test_cli_extract_invalid_md5(self) -> None:
         runner = CliRunner()
@@ -129,9 +126,8 @@ class CliAndHelperTests(unittest.TestCase):
         self.assertIn("threshold must be in (0, 1]", str(result.exception))
 
     def test_cli_dedup_unwritable_report_path_fails(self) -> None:
-        fake_dedup = types.SimpleNamespace(run=Mock(side_effect=PermissionError("report path is not writable")))
         runner = CliRunner()
-        with patch.dict(sys.modules, {"dedup": fake_dedup}):
+        with patch("content.dedup.run", side_effect=PermissionError("report path is not writable")):
             result = runner.invoke(app, ["dedup", "--report", "/root/blocked/report.json"])
         self.assertNotEqual(0, result.exit_code)
         self.assertIsInstance(result.exception, PermissionError)
@@ -145,9 +141,8 @@ class CliAndHelperTests(unittest.TestCase):
         self.assertIn("max_group_size must be >= 2", str(result.exception))
 
     def test_cli_pps_download_exception_fails(self) -> None:
-        fake_pps = types.SimpleNamespace(run=Mock(side_effect=RuntimeError("download failed")))
         runner = CliRunner()
-        with patch.dict(sys.modules, {"pps": fake_pps}):
+        with patch("content.pps.service.run", side_effect=RuntimeError("download failed")):
             result = runner.invoke(app, ["pps"])
         self.assertNotEqual(0, result.exit_code)
         self.assertIsInstance(result.exception, RuntimeError)

@@ -11,7 +11,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
-from pps import (  # noqa: E402
+from content.pps.service import (  # noqa: E402
     PpsStats,
     _apply_rules,
     _backup_path,
@@ -94,7 +94,7 @@ class PpsCoreTests(unittest.TestCase):
 
     def test_choose_title_index_uses_fasttext_fallback(self) -> None:
         titles = ["First Title", "Second Title"]
-        with patch("pps._fasttext_tatar_scores", return_value=[0.2, 0.9]):
+        with patch("content.pps.service._fasttext_tatar_scores", return_value=[0.2, 0.9]):
             self.assertEqual(1, _choose_title_index(titles))
 
     def test_parse_s3_location(self) -> None:
@@ -115,7 +115,7 @@ class PpsCoreTests(unittest.TestCase):
             doc = type("Doc", (), {"md5": "a" * 32, "content_url": "https://storage.yandexcloud.net/b/k.zip"})
             stats = PpsStats()
             s3 = Mock()
-            with patch("pps.get_in_workdir", return_value=zip_path):
+            with patch("content.pps.service.get_in_workdir", return_value=zip_path):
                 local, bucket, key = _ensure_local_zip(doc, {}, s3, "fallback", False, stats)
             self.assertEqual(zip_path, local)
             self.assertEqual("b", bucket)
@@ -129,7 +129,7 @@ class PpsCoreTests(unittest.TestCase):
             doc = type("Doc", (), {"md5": "b" * 32, "content_url": "https://storage.yandexcloud.net/b2/k2.zip"})
             stats = PpsStats()
             s3 = Mock()
-            with patch("pps.get_in_workdir", return_value=zip_path):
+            with patch("content.pps.service.get_in_workdir", return_value=zip_path):
                 local, bucket, key = _ensure_local_zip(doc, {}, s3, "fallback", True, stats)
             self.assertEqual(zip_path, local)
             self.assertEqual("b2", bucket)
@@ -139,7 +139,7 @@ class PpsCoreTests(unittest.TestCase):
 
     def test_format_markdown_restores_math_and_unescapes(self) -> None:
         input_text = "eq $a+b$"
-        with patch("pps.mdformat.text", return_value="eq MATHPLACEHOLDER00000000TOKEN \\\\ \\_ \\<"):
+        with patch("content.pps.service.mdformat.text", return_value="eq MATHPLACEHOLDER00000000TOKEN \\\\ \\_ \\<"):
             formatted = _format_markdown(input_text)
         self.assertEqual("eq $a+b$ \\ _ <", formatted)
 

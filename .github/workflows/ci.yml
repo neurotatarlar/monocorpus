@@ -32,7 +32,7 @@ jobs:
               - "Makefile"
               - "ruff.toml"
               - "scripts/**"
-              - "docs/architecture.md"
+              - "README.md"
 
   lint:
     needs: changes

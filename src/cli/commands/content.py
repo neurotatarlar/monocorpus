@@ -79,7 +79,7 @@ def register(app: typer.Typer) -> None:
         ] = None,
     ):
         """Run layout detection for the selected documents."""
-        from layout.dispatch import layouts as run_layouts
+        from experimental.layout.dispatch import layouts as run_layouts
 
         cli_params = CliParams(
             md5=md5.strip() if md5 else None,
@@ -105,9 +105,9 @@ def register(app: typer.Typer) -> None:
         ] = None,
     ):
         """Postpostprocess extracted markdown archives and upload updates to S3."""
-        import pps
+        from content.pps.service import run as run_pps
 
-        pps.run(force_download=force_download, report_path=report_path)
+        run_pps(force_download=force_download, report_path=report_path)
 
     @app.command()
     def dedup(
@@ -141,9 +141,9 @@ def register(app: typer.Typer) -> None:
         ] = None,
     ):
         """Scan for near-full duplicate documents and write a report."""
-        import dedup
+        from content.dedup import run as run_dedup
 
-        dedup.run(
+        run_dedup(
             threshold=threshold,
             force_download=force_download,
             max_group_size=max_group_size,

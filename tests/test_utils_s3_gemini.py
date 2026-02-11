@@ -18,8 +18,8 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
-from gemini import create_client, gemini_cli, upload_and_wait  # noqa: E402
-from s3 import download, upload_file  # noqa: E402
+from integrations.gemini import create_client, gemini_cli, upload_and_wait  # noqa: E402
+from integrations.s3 import download, upload_file  # noqa: E402
 from utils import (  # noqa: E402
     _get_bucket_id,
     calculate_md5,
@@ -78,7 +78,7 @@ class UtilsS3GeminiTests(unittest.TestCase):
         client.files.upload.return_value = uploaded
         client.files.get.side_effect = [state_processing, state_active]
 
-        with patch("gemini.time.sleep") as sleep:
+        with patch("integrations.gemini.time.sleep") as sleep:
             result = upload_and_wait(client, "/tmp/a.pdf", "application/pdf", poll_interval=0.1, timeout=1)
         self.assertIs(result, state_active)
         self.assertEqual(2, client.files.get.call_count)
@@ -94,7 +94,7 @@ class UtilsS3GeminiTests(unittest.TestCase):
         client.files.upload.return_value = uploaded
         client.files.get.side_effect = [state_processing, state_processing, state_processing]
 
-        with patch("gemini.time.sleep"):
+        with patch("integrations.gemini.time.sleep"):
             with self.assertRaises(TimeoutError):
                 upload_and_wait(client, "/tmp/a.pdf", "application/pdf", poll_interval=0.1, timeout=0.2)
 
@@ -108,7 +108,7 @@ class UtilsS3GeminiTests(unittest.TestCase):
         client.files.upload.return_value = uploaded
         client.files.get.return_value = state_active
 
-        with patch("gemini.time.sleep") as sleep:
+        with patch("integrations.gemini.time.sleep") as sleep:
             result = upload_and_wait(client, "/tmp/a.pdf", "application/pdf", poll_interval=0.1, timeout=1)
         self.assertIs(result, state_active)
         sleep.assert_not_called()
@@ -126,7 +126,7 @@ class UtilsS3GeminiTests(unittest.TestCase):
             ]
             s3.get_paginator.return_value = paginator
 
-            with patch("s3.create_session", return_value=s3):
+            with patch("integrations.s3.create_session", return_value=s3):
                 yielded = list(download("bucket", tmp, prefix="root/"))
 
             self.assertEqual([existing, os.path.join(tmp, "sub", "b.txt")], yielded)
@@ -138,13 +138,13 @@ class UtilsS3GeminiTests(unittest.TestCase):
             paginator = Mock()
             paginator.paginate.return_value = [{"Contents": []}, {}]
             s3.get_paginator.return_value = paginator
-            with patch("s3.create_session", return_value=s3):
+            with patch("integrations.s3.create_session", return_value=s3):
                 yielded = list(download("bucket", tmp, prefix="root/"))
             self.assertEqual([], yielded)
             s3.download_file.assert_not_called()
 
     def test_gemini_api_uploads_files_and_passes_config(self) -> None:
-        from gemini import gemini_api
+        from integrations.gemini import gemini_api
 
         client = Mock()
         client.models.generate_content_stream.return_value = "stream"
@@ -152,7 +152,7 @@ class UtilsS3GeminiTests(unittest.TestCase):
         prompt = ["user text"]
         schema = {"type": "object"}
 
-        with patch("gemini.upload_and_wait", return_value=uploaded) as upload_wait:
+        with patch("integrations.gemini.upload_and_wait", return_value=uploaded) as upload_wait:
             stream, uploaded_files = gemini_api(
                 prompt=prompt,
                 model="gemini-model",
@@ -173,7 +173,7 @@ class UtilsS3GeminiTests(unittest.TestCase):
     def test_gemini_cli_invokes_subprocess_with_env(self) -> None:
         config = {"google_api_key": {"free": "secret-key"}}
         proc = Mock()
-        with patch("gemini.subprocess.run", return_value=proc) as run:
+        with patch("integrations.gemini.subprocess.run", return_value=proc) as run:
             result = gemini_cli(config, "hello")
         self.assertIs(proc, result)
         kwargs = run.call_args.kwargs
@@ -184,12 +184,12 @@ class UtilsS3GeminiTests(unittest.TestCase):
     def test_gemini_cli_raises_on_subprocess_error(self) -> None:
         config = {"google_api_key": {"free": "secret-key"}}
         err = subprocess.CalledProcessError(1, "cmd", stderr="boom")
-        with patch("gemini.subprocess.run", side_effect=err):
+        with patch("integrations.gemini.subprocess.run", side_effect=err):
             with self.assertRaises(subprocess.CalledProcessError):
                 gemini_cli(config, "hello")
 
     def test_create_client_calls_genai_client(self) -> None:
-        with patch("gemini.genai.Client", return_value="client") as client_ctor:
+        with patch("integrations.gemini.genai.Client", return_value="client") as client_ctor:
             client = create_client("k")
         self.assertEqual("client", client)
         client_ctor.assert_called_once_with(api_key="k")

@@ -18,6 +18,6 @@ def register(app: typer.Typer) -> None:
     @app.command()
     def hf():
         """Assemble structured dataset from content files stored in S3."""
-        import hf
+        from dataset.hf import assemble_dataset
 
-        hf.assemble_dataset()
+        assemble_dataset()

@@ -17,14 +17,16 @@ ALLOWED_UTILS_IMPORTERS = {
     Path("src/core/yadisk.py"),
 }
 
-ALLOWED_GEMINI_IMPORTERS = {
-    Path("src/gemini.py"),
-    Path("src/integrations/gemini.py"),
-}
-
-ALLOWED_S3_IMPORTERS = {
-    Path("src/s3.py"),
-    Path("src/integrations/s3.py"),
+FORBIDDEN_ROOT_SHIMS = {
+    "gemini",
+    "s3",
+    "db",
+    "prompt",
+    "prepare_shots",
+    "check_pub_links",
+    "dump_state",
+    "match_limited",
+    "sharing_restricted",
 }
 
 
@@ -36,7 +38,8 @@ def _imported_modules(path: Path) -> set[str]:
             for alias in node.names:
                 modules.add(alias.name)
         elif isinstance(node, ast.ImportFrom):
-            if node.module:
+            # Skip relative imports; only enforce boundaries on absolute imports.
+            if node.module and node.level == 0:
                 modules.add(node.module)
     return modules
 
@@ -49,11 +52,9 @@ def main() -> int:
         if ("utils" in modules or any(m.startswith("utils.") for m in modules)) and path not in ALLOWED_UTILS_IMPORTERS:
             errors.append(f"{path}: direct utils import is forbidden outside core/*")
 
-        if ("gemini" in modules or any(m.startswith("gemini.") for m in modules)) and path not in ALLOWED_GEMINI_IMPORTERS:
-            errors.append(f"{path}: import integrations.gemini instead of gemini")
-
-        if ("s3" in modules or any(m.startswith("s3.") for m in modules)) and path not in ALLOWED_S3_IMPORTERS:
-            errors.append(f"{path}: import integrations.s3 instead of s3")
+        for module in FORBIDDEN_ROOT_SHIMS:
+            if module in modules or any(m.startswith(f"{module}.") for m in modules):
+                errors.append(f"{path}: root module '{module}' is deprecated; import package variant")
 
         if "meta_fields" in modules or any(m.startswith("meta_fields.") for m in modules):
             errors.append(f"{path}: meta_fields module is deprecated, use metadata.fields")

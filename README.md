@@ -31,6 +31,36 @@ High-level flow:
 
 In short: **Yandex.Disk → DB → extraction → S3**, with maintenance tools keeping everything aligned.
 
+## Architecture Boundaries
+
+### Modules
+
+- `src/core/`: runtime primitives (config, db sessions, paths, encryption, worker state)
+- `src/integrations/`: adapters for external systems (Gemini, S3, Yandex Disk)
+- `src/content/`: content extraction and postprocessing pipelines
+- `src/metadata/`: metadata extraction and applicability evaluation
+- `src/dataset/`: dataset assembly pipelines
+- `src/experimental/layout/`: layout-specific experimental processing
+- `src/sync/`: synchronization workflows and helpers
+- `src/maintenance/`: operational and maintenance workflows
+- `src/prompts/`: content/metadata prompt templates and helpers
+- `src/cli/`: command registration and CLI argument mapping
+
+### Import Boundaries
+
+- Domain modules should import shared runtime behavior from `core/*`.
+- External APIs should be consumed via `integrations/*`.
+- Deprecated modules:
+  - `meta_fields` -> use `metadata.fields`
+  - `meta` package -> use `metadata`
+
+### Enforcement
+
+`make lint` runs:
+
+1. Ruff lint checks
+2. `scripts/check_architecture.py` boundary checks
+
 ## Quick Start
 
 1) Create a virtual environment and install dependencies:

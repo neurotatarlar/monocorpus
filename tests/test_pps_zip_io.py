@@ -10,7 +10,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
-from pps import _write_zip_with_updated_md  # noqa: E402
+from content.pps.service import _write_zip_with_updated_md  # noqa: E402
 
 
 class PpsZipIoTests(unittest.TestCase):

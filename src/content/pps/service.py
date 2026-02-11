@@ -18,7 +18,7 @@ from sqlalchemy import select, func
 
 from dirs import Dirs
 from models import Document
-from pps_text import (
+from .text import (
     mask_math_segments,
     normalize_mixed_script_lookalikes,
     restore_math_segments,

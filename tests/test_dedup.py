@@ -12,7 +12,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
-from dedup import (  # noqa: E402
+from content.dedup import (  # noqa: E402
     DedupStats,
     DocMeta,
     Fingerprint,
@@ -164,7 +164,7 @@ class DedupTests(unittest.TestCase):
             with open(zpath, "wb") as f:
                 f.write(b"x")
             s3 = Mock()
-            with patch("dedup.get_in_workdir", return_value=zpath):
+            with patch("content.dedup.get_in_workdir", return_value=zpath):
                 local, bucket, key = _ensure_local_zip(
                     "a" * 32,
                     "https://storage.yandexcloud.net/bucket/key.zip",
@@ -188,7 +188,7 @@ class DedupTests(unittest.TestCase):
 
             s3.download_file.side_effect = _download
 
-            with patch("dedup.get_in_workdir", return_value=zpath):
+            with patch("content.dedup.get_in_workdir", return_value=zpath):
                 local, bucket, key = _ensure_local_zip(
                     "b" * 32,
                     "https://storage.yandexcloud.net/bucket2/key2.zip",
@@ -205,7 +205,7 @@ class DedupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             zpath = os.path.join(tmp, "x.zip")
             s3 = Mock()
-            with patch("dedup.get_in_workdir", return_value=zpath):
+            with patch("content.dedup.get_in_workdir", return_value=zpath):
                 with self.assertRaises(FileNotFoundError):
                     _ensure_local_zip(
                         "c" * 32,

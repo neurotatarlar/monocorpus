@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pps_text import (  # noqa: E402
+from content.pps.text import (  # noqa: E402
     mask_math_segments,
     normalize_mixed_script_lookalikes,
     restore_math_segments,
