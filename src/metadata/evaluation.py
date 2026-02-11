@@ -19,6 +19,7 @@ import fitz
 import isbnlib
 import requests
 from google.genai.errors import ClientError
+from google.genai.errors import ServerError
 from pydantic import BaseModel
 from prompts.metadata_evaluation import build_library_applicability_prompt
 from rich import print
@@ -50,6 +51,7 @@ ARTIFACTS_DIR = "_artifacts"
 UNPROCESSABLES_DIR = os.path.join(ARTIFACTS_DIR, "unprocessables")
 DEFAULT_EXCERPT_CHARS = 10_000
 DEFAULT_KNOWN_CLASSIFICATIONS_LIMIT = 500
+HIGH_DEMAND_SLEEP_SECONDS = 60
 EXCERPT_PARTS = 3
 EXCERPT_SEPARATOR = "\n\n[...]\n\n"
 EVAL_PDF_SLICE_SIZE = 5
@@ -328,13 +330,26 @@ class LibraryApplicabilityWorker:
                     self.channel.add_unprocessable_doc(doc.md5)
                     continue
                 self._save_result(doc.md5, evaluation)
+            except ServerError as e:
+                if _is_retryable_server_error(e):
+                    self.log(
+                        f"Gemini 503 for {doc.md5}; sleeping "
+                        f"{HIGH_DEMAND_SLEEP_SECONDS}s and retrying"
+                    )
+                    self.tasks_queue.put(doc)
+                    if self.stop_event.wait(HIGH_DEMAND_SLEEP_SECONDS):
+                        self.log("Stop signal received during 503 backoff")
+                        return
+                    continue
+                self.log(f"ServerError for {doc.md5}: {e}")
+                self.channel.add_unprocessable_doc(doc.md5)
             except ClientError as e:
                 self.log(f"ClientError for {doc.md5}: {e}")
-                self.channel.add_unprocessable_doc(doc.md5)
-                if e.code == 429:
+                if _is_daily_free_tier_quota_exhausted(e):
                     self.channel.add_exceeded_key(self.key)
                     self.tasks_queue.put(doc)
                     return
+                self.channel.add_unprocessable_doc(doc.md5)
             except Exception as e:  # noqa: BLE001
                 import traceback
 
@@ -389,7 +404,10 @@ class LibraryApplicabilityWorker:
         )
         try:
             raw_response = stream_text(response)
-            self.log(f"Raw eval response for {doc.md5}: {raw_response}")
+            self.log(
+                f"Raw eval response for {doc.md5}:\n"
+                f"{_format_response_for_log(raw_response)}"
+            )
             if not raw_response:
                 return None
             evaluation = Evaluation.model_validate_json(raw_response)
@@ -630,6 +648,68 @@ def _build_content_excerpt(text: str, max_chars: int) -> str | None:
     tail = normalized[-chunk:]
     excerpt = EXCERPT_SEPARATOR.join([head, middle, tail])
     return excerpt[:max_chars]
+
+
+def _is_retryable_server_error(error: Exception) -> bool:
+    """Return True for temporary retryable Gemini server errors (503)."""
+    for value in (getattr(error, "status_code", None), getattr(error, "code", None)):
+        if isinstance(value, int) and value == 503:
+            return True
+    message = str(error).casefold()
+    if "503" in message and "unavailable" in message:
+        return True
+    if "currently experiencing high demand" in message:
+        return True
+    return False
+
+
+def _is_daily_free_tier_quota_exhausted(error: Exception) -> bool:
+    """Return True when key hit daily free-tier request quota and worker should rotate key."""
+    text = str(error)
+    if "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in text:
+        return True
+    if "generate_content_free_tier_requests" in text:
+        return True
+    details = getattr(error, "details", None)
+    if not details:
+        return False
+    if isinstance(details, str):
+        return "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in details
+    if not isinstance(details, dict):
+        return False
+    error_obj = details.get("error")
+    if not isinstance(error_obj, dict):
+        return False
+    detail_items = error_obj.get("details")
+    if not isinstance(detail_items, list):
+        return False
+    for item in detail_items:
+        if not isinstance(item, dict):
+            continue
+        violations = item.get("violations")
+        if not isinstance(violations, list):
+            continue
+        for violation in violations:
+            if not isinstance(violation, dict):
+                continue
+            quota_id = str(violation.get("quotaId") or "")
+            if quota_id == "GenerateRequestsPerDayPerProjectPerModel-FreeTier":
+                return True
+    return False
+
+
+def _format_response_for_log(response_text: str | None) -> str:
+    """Pretty-print JSON responses for readable logs, fallback to plain text."""
+    if response_text is None:
+        return ""
+    raw = response_text.strip()
+    if not raw:
+        return ""
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return raw
+    return json.dumps(parsed, ensure_ascii=False, indent=2)
 
 
 def _collect_patch_fields(schema_org: dict | str | None) -> list[str]:

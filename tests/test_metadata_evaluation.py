@@ -12,6 +12,7 @@ from metadata.evaluation import (
     LibraryApplicabilityWorker,
     _apply_metadata_patch,
     _build_content_excerpt,
+    _format_response_for_log,
     _normalize_library_classification,
     _normalize_metadata_patch,
     _sync_auxiliary_terms_in_about,
@@ -47,6 +48,119 @@ class MetadataEvaluationTests(unittest.TestCase):
     def test_worker_excerpt_chars_is_int(self) -> None:
         worker = self._worker()
         self.assertIsInstance(worker.excerpt_chars, int)
+
+    @patch("metadata.evaluation.create_client")
+    def test_worker_sleeps_and_retries_on_high_demand_503(self, create_client_mock) -> None:
+        create_client_mock.return_value = object()
+        task_queue: Queue = Queue()
+        task_queue.put(self._task())
+        worker = LibraryApplicabilityWorker(
+            gemini_api_key="k",
+            tasks_queue=task_queue,
+            config={},
+            channel=_DummyChannel(),
+            dry_run=True,
+        )
+
+        class FakeServerError(Exception):
+            pass
+
+        with (
+            patch("metadata.evaluation.ServerError", FakeServerError),
+            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None),
+            patch.object(
+                LibraryApplicabilityWorker,
+                "_evaluate",
+                side_effect=[
+                    FakeServerError(
+                        "503 UNAVAILABLE. This model is currently experiencing high demand."
+                    ),
+                    object(),
+                ],
+            ),
+            patch.object(LibraryApplicabilityWorker, "_save_result") as save_result_mock,
+            patch.object(worker.stop_event, "wait", return_value=False) as wait_mock,
+        ):
+            worker()
+
+        wait_mock.assert_called_once_with(60)
+        save_result_mock.assert_called_once()
+
+    @patch("metadata.evaluation.create_client")
+    def test_worker_retries_on_generic_503_unavailable(self, create_client_mock) -> None:
+        create_client_mock.return_value = object()
+        task_queue: Queue = Queue()
+        task_queue.put(self._task())
+        worker = LibraryApplicabilityWorker(
+            gemini_api_key="k",
+            tasks_queue=task_queue,
+            config={},
+            channel=_DummyChannel(),
+            dry_run=True,
+        )
+
+        class FakeServerError(Exception):
+            pass
+
+        with (
+            patch("metadata.evaluation.ServerError", FakeServerError),
+            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None),
+            patch.object(
+                LibraryApplicabilityWorker,
+                "_evaluate",
+                side_effect=[
+                    FakeServerError("503 UNAVAILABLE."),
+                    object(),
+                ],
+            ),
+            patch.object(LibraryApplicabilityWorker, "_save_result") as save_result_mock,
+            patch.object(worker.stop_event, "wait", return_value=False) as wait_mock,
+        ):
+            worker()
+
+        wait_mock.assert_called_once_with(60)
+        save_result_mock.assert_called_once()
+
+    @patch("metadata.evaluation.create_client")
+    def test_worker_requeues_and_stops_on_daily_quota_429(self, create_client_mock) -> None:
+        create_client_mock.return_value = object()
+        task_queue: Queue = Queue()
+        task_queue.put(self._task())
+        channel = SimpleNamespace(
+            add_unprocessable_doc=unittest.mock.Mock(),
+            add_exceeded_key=unittest.mock.Mock(),
+            exceeded_keys_set=set(),
+        )
+        worker = LibraryApplicabilityWorker(
+            gemini_api_key="k",
+            tasks_queue=task_queue,
+            config={},
+            channel=channel,
+            dry_run=True,
+        )
+
+        class FakeClientError(Exception):
+            def __init__(self, message: str, code: int = 429):
+                super().__init__(message)
+                self.code = code
+
+        with (
+            patch("metadata.evaluation.ClientError", FakeClientError),
+            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None),
+            patch.object(
+                LibraryApplicabilityWorker,
+                "_evaluate",
+                side_effect=FakeClientError(
+                    "429 RESOURCE_EXHAUSTED. "
+                    "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+                ),
+            ),
+        ):
+            worker()
+
+        self.assertEqual(1, task_queue.qsize())
+        channel.add_exceeded_key.assert_called_once_with("k")
+        channel.add_unprocessable_doc.assert_not_called()
 
     def _task(self) -> EvaluationTask:
         return EvaluationTask(
@@ -130,6 +244,14 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     def test_build_content_excerpt_returns_none_when_disabled(self) -> None:
         self.assertIsNone(_build_content_excerpt("text", 0))
+
+    def test_format_response_for_log_pretty_json(self) -> None:
+        formatted = _format_response_for_log('{"a":1,"b":{"c":2}}')
+        self.assertIn('\n  "a": 1,', formatted)
+        self.assertIn('\n  "b": {', formatted)
+
+    def test_format_response_for_log_plain_text_fallback(self) -> None:
+        self.assertEqual("not-json", _format_response_for_log("not-json"))
 
     def test_normalize_metadata_patch_keeps_only_missing_fields(self) -> None:
         task = EvaluationTask(
