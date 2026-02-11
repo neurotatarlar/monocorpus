@@ -281,7 +281,6 @@ def _normalize_base_schema_org(schema_org: dict) -> dict:
         normalized_about.append(
             {
                 "@type": "DefinedTerm",
-                "name": term_code,
                 "termCode": term_code,
                 "inDefinedTermSet": termset,
             }

@@ -24,7 +24,7 @@ METADATA_GAP_FILL_RULES_TEXT = (
     "do not fabricate author/date/ISBN/page count; keep UTF-8; "
     "when multiple values are explicitly present include all as arrays. "
     "For each requested field, put either extracted/normalized value or null in metadata_patch. "
-    "If page count is missing and the file is PDF, using source page count is acceptable."
+    "If page count is missing then return null."
 )
 
 METADATA_PATCH_SHAPE_TEXT = (
@@ -90,8 +90,10 @@ def _build_missing_fields_text(missing_fields: list[str] | None) -> str:
 
 def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str, str]]:
     """Build a structured prompt: gap-fill metadata, then evaluate, then classify."""
-    missing_fields_text = _build_missing_fields_text(payload.get("missing_fields"))
-    return [
+    payload_copy = dict(payload)
+    content_excerpt = payload_copy.pop("content_excerpt", None)
+    missing_fields_text = _build_missing_fields_text(payload_copy.get("missing_fields"))
+    prompt = [
         {"text": LIBRARY_APPLICABILITY_TASK_TEXT},
         {"text": METADATA_GAP_FILL_RULES_TEXT},
         {"text": METADATA_PATCH_SHAPE_TEXT},
@@ -105,8 +107,11 @@ def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str
                 "to produce the required JSON response."
             )
         },
-        {"text": json.dumps(payload, ensure_ascii=False)},
+        {"text": json.dumps(payload_copy, ensure_ascii=False)},
     ]
+    if content_excerpt:
+        prompt.append({"text": "CONTENT_EXCERPT:\n" + str(content_excerpt)})
+    return prompt
 
 
 __all__ = [

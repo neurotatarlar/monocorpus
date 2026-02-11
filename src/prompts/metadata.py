@@ -64,8 +64,8 @@ Use the `Book` schema where appropriate, but apply a more specific `@type` if a 
 - `numberOfPages`: If identified
 - `about`: Use schema.org `DefinedTerm` items for auxiliary metadata previously placed in `additionalProperty`
   (UDC, BBK, and other source-provided classification codes), e.g.
-  `{"@type":"DefinedTerm","name":"821.512.145","termCode":"821.512.145","inDefinedTermSet":"UDC"}`
-  `{"@type":"DefinedTerm","name":"84(2=411.2)","termCode":"84(2=411.2)","inDefinedTermSet":"BBK"}`
+  `{"@type":"DefinedTerm","termCode":"821.512.145","inDefinedTermSet":"UDC"}`
+  `{"@type":"DefinedTerm","termCode":"84(2=411.2)","inDefinedTermSet":"BBK"}`
 - Do **not** infer or generate DDC in this base extraction flow.
 - Do **not** generate `CategoryPath` in this base extraction flow.
 - `genre`: optional; if present, keep in English

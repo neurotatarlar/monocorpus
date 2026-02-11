@@ -152,9 +152,6 @@ def evaluate(args) -> None:
                 thread.start()
                 workers.append(thread)
                 time.sleep(2)
-                
-                stop_event.set()
-                break
 
             for thread in workers:
                 thread.join()
