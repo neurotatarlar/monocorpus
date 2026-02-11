@@ -367,7 +367,6 @@ class LibraryApplicabilityWorker:
             "publish_year": flattened_meta["publish_year"],
             "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
-            "content_excerpt": excerpt,
             "upstream_metadata": upstream_metadata,
             "pdf_slice_attached": bool(files),
             "missing_fields": _collect_patch_fields(doc.schema_org),
@@ -377,7 +376,7 @@ class LibraryApplicabilityWorker:
             ],
         })
 
-        prompt = build_library_applicability_prompt(payload)
+        prompt = build_library_applicability_prompt(payload, content_excerpt=excerpt)
         self._dump_prompt(doc.md5, prompt)
 
         response, uploaded_files = gemini_api(

@@ -65,7 +65,10 @@ class MetadataEvaluationTests(unittest.TestCase):
         )
 
     def test_build_applicability_prompt_includes_core_policy(self) -> None:
-        prompt = build_library_applicability_prompt({"md5": "x"})
+        prompt = build_library_applicability_prompt(
+            {"md5": "x", "missing_fields": []},
+            content_excerpt="excerpt",
+        )
         self.assertGreaterEqual(len(prompt), 2)
         text = prompt[0]["text"]
         self.assertIn("applicable(bool)", text)
@@ -77,6 +80,8 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIn("If upstream_metadata is provided", all_text)
         payload_text = self._payload_text(prompt)
         self.assertIn('"md5": "x"', payload_text)
+        self.assertNotIn('"content_excerpt"', payload_text)
+        self.assertTrue(any("CONTENT_EXCERPT:\nexcerpt" == part["text"] for part in prompt))
 
     @staticmethod
     def _payload_text(prompt: list[dict[str, str]]) -> str:

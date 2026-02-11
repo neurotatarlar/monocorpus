@@ -88,11 +88,13 @@ def _build_missing_fields_text(missing_fields: list[str] | None) -> str:
     return "\n".join(lines)
 
 
-def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str, str]]:
+def build_library_applicability_prompt(
+    payload: dict[str, Any],
+    *,
+    content_excerpt: str | None = None,
+) -> list[dict[str, str]]:
     """Build a structured prompt: gap-fill metadata, then evaluate, then classify."""
-    payload_copy = dict(payload)
-    content_excerpt = payload_copy.pop("content_excerpt", None)
-    missing_fields_text = _build_missing_fields_text(payload_copy.get("missing_fields"))
+    missing_fields_text = _build_missing_fields_text(payload.get("missing_fields"))
     prompt = [
         {"text": LIBRARY_APPLICABILITY_TASK_TEXT},
         {"text": METADATA_GAP_FILL_RULES_TEXT},
@@ -107,7 +109,7 @@ def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str
                 "to produce the required JSON response."
             )
         },
-        {"text": json.dumps(payload_copy, ensure_ascii=False)},
+        {"text": json.dumps(payload, ensure_ascii=False)},
     ]
     if content_excerpt:
         prompt.append({"text": "CONTENT_EXCERPT:\n" + str(content_excerpt)})
