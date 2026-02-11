@@ -79,11 +79,11 @@ import pymupdf
 import typer
 from rich.console import Console
 from rich.table import Table
-from sync_constants import TATAR_BCP_47_CODES, NOT_DOCUMENT_TYPES
-from sync_plan import flush, get_wiping_plan
-from sync_repository import get_all_md5s, lookup_upstream_metadata, list_docs_with_schema_org
-from sync_rules import normalize_isbn, should_be_skipped
-from sync_storage import move_to_filtered_out, publish_file, remove_from_s3
+from .constants import TATAR_BCP_47_CODES, NOT_DOCUMENT_TYPES
+from .plan import flush, get_wiping_plan
+from .repository import get_all_md5s, lookup_upstream_metadata, list_docs_with_schema_org
+from .rules import normalize_isbn, should_be_skipped
+from .storage import move_to_filtered_out, publish_file, remove_from_s3
 
 
 def sync():

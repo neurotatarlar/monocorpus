@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sync_constants import NOT_DOCUMENT_TYPES
+from .constants import NOT_DOCUMENT_TYPES
 
 
 def normalize_isbn(value):
