@@ -10,8 +10,11 @@ from unittest.mock import patch
 from metadata.evaluation import (
     EvaluationTask,
     LibraryApplicabilityWorker,
+    _apply_metadata_patch,
     _build_applicability_prompt,
     _build_content_excerpt,
+    _normalize_library_classification,
+    _normalize_metadata_patch,
 )
 
 
@@ -47,6 +50,9 @@ class MetadataEvaluationTests(unittest.TestCase):
             page_count=123,
             full=True,
             sharing_restricted=False,
+            ya_public_url="https://storage.example/public.pdf",
+            mime_type="application/pdf",
+            document_url=None,
             content_url="https://storage.example/content/0.zip",
             schema_org={"name": "Sample title", "datePublished": "2018"},
         )
@@ -57,6 +63,7 @@ class MetadataEvaluationTests(unittest.TestCase):
         text = prompt[0]["text"]
         self.assertIn("applicable(bool)", text)
         self.assertIn("reason(str|null)", text)
+        self.assertIn("library_classification", text)
         self.assertIn("If uncertain, prefer applicable=false.", text)
         self.assertIn('"md5": "x"', prompt[1]["text"])
 
@@ -64,7 +71,7 @@ class MetadataEvaluationTests(unittest.TestCase):
     def test_evaluate_parses_library_decision(self, gemini_api_mock) -> None:
         gemini_api_mock.return_value = (
             [SimpleNamespace(text='{"applicable": false, "reason": "legal act"}')],
-            None,
+            [],
         )
 
         with patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value="sample excerpt"):
@@ -79,9 +86,12 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_returns_none_for_empty_response(self, gemini_api_mock) -> None:
-        gemini_api_mock.return_value = ([SimpleNamespace(text="")], None)
+        gemini_api_mock.return_value = ([SimpleNamespace(text="")], [])
 
-        with patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value=None):
+        with (
+            patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value=None),
+            patch.object(LibraryApplicabilityWorker, "_prepare_pdf_slice_for_eval", return_value=None),
+        ):
             evaluation = self._worker()._evaluate(self._task(), gemini_client=object())
 
         self.assertIsNone(evaluation)
@@ -98,3 +108,91 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     def test_build_content_excerpt_returns_none_when_disabled(self) -> None:
         self.assertIsNone(_build_content_excerpt("text", 0))
+
+    def test_normalize_metadata_patch_keeps_only_missing_fields(self) -> None:
+        task = EvaluationTask(
+            md5="1" * 32,
+            ya_path="/docs/book.pdf",
+            language="tt",
+            page_count=None,
+            full=True,
+            sharing_restricted=False,
+            ya_public_url=None,
+            mime_type="application/pdf",
+            document_url=None,
+            content_url="https://storage.example/content/1.zip",
+            schema_org={
+                "name": "Existing",
+                "datePublished": "2020",
+                "isbn": ["9780306406157"],
+            },
+        )
+        patch = _normalize_metadata_patch(
+            {
+                "name": "New title should be ignored",
+                "datePublished": "1999",
+                "isbn": ["9781111111111"],
+                "description": "Some description",
+                "publisher": "Test Publisher",
+            },
+            task,
+            config={},
+        )
+        self.assertIsNotNone(patch)
+        assert patch is not None
+        self.assertNotIn("name", patch)
+        self.assertNotIn("datePublished", patch)
+        self.assertNotIn("isbn", patch)
+        self.assertEqual("Some description", patch["description"])
+        self.assertEqual("Test Publisher", patch["publisher"]["name"])
+
+    def test_apply_metadata_patch_updates_missing_values(self) -> None:
+        schema = {"name": "Existing title", "publisher": {"@type": "Organization", "name": ""}}
+        patch = {
+            "name": "Should not overwrite",
+            "description": "Desc",
+            "publisher": {"@type": "Organization", "name": "Pub"},
+        }
+        updated, applied = _apply_metadata_patch(schema, patch)
+        self.assertEqual("Existing title", updated["name"])
+        self.assertEqual("Desc", updated["description"])
+        self.assertEqual("Pub", updated["publisher"]["name"])
+        self.assertIn("description", applied)
+        self.assertIn("publisher", applied)
+
+    @patch("metadata.evaluation.gemini_api")
+    def test_evaluate_attaches_pdf_slice_when_no_text_excerpt(self, gemini_api_mock) -> None:
+        gemini_api_mock.return_value = (
+            [SimpleNamespace(text='{"applicable": true, "reason": null, "library_classification": {"ddc": "600", "path": ["Technology", "Engineering"]}}')],
+            [],
+        )
+        with (
+            patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value=None),
+            patch.object(LibraryApplicabilityWorker, "_prepare_pdf_slice_for_eval", return_value="/tmp/eval-slice.pdf"),
+        ):
+            evaluation = self._worker()._evaluate(self._task(), gemini_client=object())
+
+        self.assertIsNotNone(evaluation)
+        files = gemini_api_mock.call_args.kwargs["files"]
+        self.assertEqual({"/tmp/eval-slice.pdf": "application/pdf"}, files)
+
+    @patch("metadata.evaluation.gemini_api")
+    def test_evaluate_requires_classification_for_applicable_doc(self, gemini_api_mock) -> None:
+        gemini_api_mock.return_value = (
+            [SimpleNamespace(text='{"applicable": true, "reason": "book"}')],
+            [],
+        )
+        with patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value="sample excerpt"):
+            evaluation = self._worker()._evaluate(self._task(), gemini_client=object())
+        self.assertIsNone(evaluation)
+
+    def test_normalize_library_classification_marks_existing(self) -> None:
+        known = [{"ddc": "600", "path": ["Technology", "Engineering"]}]
+        normalized = _normalize_library_classification(
+            {"ddc": "600", "path": ["Technology", "Engineering"]},
+            applicable=True,
+            known_classifications=known,
+        )
+        self.assertIsNotNone(normalized)
+        assert normalized is not None
+        self.assertEqual("existing", normalized["source"])

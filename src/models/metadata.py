@@ -1,6 +1,6 @@
 """Metadata ORM model."""
 
-from sqlalchemy import JSON, Boolean, Column, ForeignKey, String
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import relationship
 
 from .base import Base
@@ -14,8 +14,11 @@ class Metadata(Base):
     md5 = Column(String, ForeignKey("document.md5", ondelete="CASCADE"), primary_key=True)
     schema_org = Column(JSON)
     lib = Column(Boolean)
+    lib_eval_method = Column(String)
+    classification_id = Column(Integer, ForeignKey("classification.id", ondelete="SET NULL"), nullable=True)
 
     document = relationship("Document", back_populates="metadata_row")
+    classification = relationship("Classification", back_populates="metadata_rows")
 
     def __str__(self):
         return "%s(%s)" % (

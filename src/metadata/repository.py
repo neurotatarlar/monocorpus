@@ -39,7 +39,10 @@ def fetch_docs_for_evaluation(
     predicate = (
         Metadata.lib.is_(None)
         & Document.language.in_(lang_codes)
-        & Document.content_url.is_not(None)
+        & (
+            Document.content_url.is_not(None)
+            | (Document.mime_type == "application/pdf")
+        )
     )
     if excluded_md5s:
         predicate = predicate & Document.md5.not_in(excluded_md5s)
