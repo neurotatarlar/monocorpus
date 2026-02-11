@@ -4,7 +4,7 @@ PYTHON ?= $(shell \
 	else echo python; \
 	fi)
 
-.PHONY: help lint lint-fix arch-check test compile check check-artifacts clean
+.PHONY: help lint lint-fix arch-check test compile check clean
 
 help:
 	@echo "Available targets:"
@@ -13,9 +13,8 @@ help:
 	@echo "  make arch-check      - verify source import boundaries"
 	@echo "  make test            - run unit tests"
 	@echo "  make compile         - compile-check Python sources"
-	@echo "  make check-artifacts - run artifact checks command"
 	@echo "  make clean           - remove local Python cache artifacts"
-	@echo "  make check           - run lint + compile + tests + artifact checks"
+	@echo "  make check           - run lint + compile + tests"
 
 lint:
 	$(PYTHON) -m ruff check src tests
@@ -33,10 +32,7 @@ test:
 compile:
 	$(PYTHON) -m compileall -q src tests
 
-check-artifacts:
-	$(PYTHON) src/main.py check-artifacts
-
-check: lint compile test check-artifacts
+check: lint compile test
 
 clean:
 	find . -type d -name '__pycache__' -prune -exec rm -rf {} +

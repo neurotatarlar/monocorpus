@@ -22,13 +22,6 @@ def register(app: typer.Typer) -> None:
 
         check_sharing_restricted()
 
-    @app.command("check-artifacts")
-    def check_artifacts():
-        """Run artifact validation checks."""
-        from maintenance.check_artifacts import check
-
-        check()
-
     @app.command("check-pub-links")
     def check_pub_links():
         """Check public links of documents in Yandex Disk and restore if needed."""
