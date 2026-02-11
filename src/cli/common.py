@@ -33,6 +33,7 @@ class MetaCliArgs:
     batch_size: int
     workers: int
     dry_run: bool
+    excerpt_chars: int
 
 
 def md5_validator(value: str):

@@ -25,6 +25,12 @@ def register(meta_app: typer.Typer) -> None:
         batch_size: int = typer.Option(300, help="Number of documents to process in one batch."),
         workers: int = typer.Option(5, help="Number of parallel workers to use."),
         dry_run: bool = typer.Option(False, "--dry-run", help="Run evaluation without persisting any state changes."),
+        excerpt_chars: int = typer.Option(
+            10_000,
+            "--excerpt-chars",
+            min=0,
+            help="Total number of content excerpt characters to include in Gemini payload.",
+        ),
     ):
         """Decide if books are applicable for library management and taxonomy."""
         from metadata.evaluation import evaluate
@@ -33,5 +39,6 @@ def register(meta_app: typer.Typer) -> None:
             batch_size=batch_size,
             workers=workers,
             dry_run=dry_run,
+            excerpt_chars=excerpt_chars,
         )
         evaluate(args)

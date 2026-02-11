@@ -9,17 +9,22 @@ import random
 import re
 import threading
 import time
+import zipfile
 from dataclasses import dataclass
 from queue import Empty, Queue
 from typing import Iterable
+from urllib.parse import urlparse
 
 from google.genai.errors import ClientError
 from pydantic import BaseModel
 from rich import print
 
 from integrations.gemini import create_client, gemini_api
+from integrations.s3 import create_session
+from dirs import Dirs
 from .fields import extract_flat_fields
 from models import Document, Metadata
+from core.paths import get_in_workdir
 from core.config import read_config
 from core.db import get_session
 from core.state import dump_expired_keys, load_expired_keys
@@ -34,6 +39,11 @@ LEGAL_DOC_PATTERNS = [
 ]
 ARTIFACTS_DIR = "_artifacts"
 UNPROCESSABLES_DIR = os.path.join(ARTIFACTS_DIR, "unprocessables")
+DEFAULT_EXCERPT_CHARS = 10_000
+EXCERPT_PARTS = 3
+EXCERPT_SEPARATOR = "\n\n[...]\n\n"
+CODE_FENCE_RE = re.compile(r"```.*?```|~~~.*?~~~", flags=re.DOTALL)
+BLANK_LINES_RE = re.compile(r"\n{3,}")
 
 
 class Evaluation(BaseModel):
@@ -41,8 +51,6 @@ class Evaluation(BaseModel):
 
     applicable: bool = True
     reason: str | None = None
-    ddc: str | None = None
-    topics: list[str] | None = None
 
     @classmethod
     def nonapplicable(cls, reason: str) -> "Evaluation":
@@ -58,6 +66,7 @@ class EvaluationTask:
     page_count: int | None
     full: bool | None
     sharing_restricted: bool | None
+    content_url: str | None
     schema_org: dict | str | None
 
 
@@ -67,6 +76,8 @@ def evaluate(args) -> None:
     channel = Channel(dry_run=args.dry_run)
     if args.dry_run:
         print("Running in dry-run mode: no DB/file state changes will be persisted.")
+
+    excerpt_chars = max(0, getattr(args, "excerpt_chars", DEFAULT_EXCERPT_CHARS))
 
     while True:
         docs = _load_batch(config, args.batch_size, channel)
@@ -95,6 +106,7 @@ def evaluate(args) -> None:
                 config=config,
                 channel=channel,
                 dry_run=args.dry_run,
+                excerpt_chars=excerpt_chars,
             )
             thread = threading.Thread(target=worker, name=f"eval-{key[-6:]}")
             thread.start()
@@ -122,6 +134,7 @@ def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[Evalu
             page_count=extract_flat_fields(meta.schema_org if meta else None).get("page_count"),
             full=doc.full,
             sharing_restricted=doc.sharing_restricted,
+            content_url=doc.content_url,
             schema_org=meta.schema_org if meta else None,
         )
         for doc, meta in rows
@@ -167,15 +180,47 @@ def _create_queue(docs: list[EvaluationTask]) -> Queue:
     return tasks_queue
 
 
+def _build_applicability_prompt(payload: dict) -> list[dict[str, str]]:
+    """Build Gemini prompt for strict library-applicability classification."""
+    return [
+        {
+            "text": (
+                "You classify if a document should be included in a public library "
+                "collection for general readers. Return strict JSON with fields: "
+                "applicable(bool), reason(str|null). "
+                "Use applicable=false for legal/regulatory/bureaucratic and utility "
+                "documents: laws, decrees, orders, resolutions, court acts, statutes, "
+                "budgets, reports, procurement docs, forms, blank templates, applications, "
+                "notices, instructions, accounting/tax docs, schedules, meeting minutes. "
+                "Use applicable=true for reader-oriented books: fiction, poetry, drama, "
+                "children's literature, biographies, history, culture, popular science, "
+                "dictionaries, encyclopedias, textbooks/manuals meant for broad reading. "
+                "If uncertain, prefer applicable=false. Reason must be short (2-8 words)."
+            )
+        },
+        {"text": json.dumps(payload, ensure_ascii=False)},
+    ]
+
+
 class LibraryApplicabilityWorker:
     """Single worker that consumes docs and saves applicability result."""
 
-    def __init__(self, gemini_api_key: str, tasks_queue: Queue, config: dict, channel: "Channel", dry_run: bool):
+    def __init__(
+        self,
+        gemini_api_key: str,
+        tasks_queue: Queue,
+        config: dict,
+        channel: "Channel",
+        dry_run: bool,
+        excerpt_chars: int = DEFAULT_EXCERPT_CHARS,
+    ):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
         self.config = config
         self.channel = channel
         self.dry_run = dry_run
+        self.excerpt_chars = max(0, excerpt_chars)
+        self._s3client = None
 
     def __call__(self) -> None:
         gemini_client = create_client(self.key)
@@ -218,6 +263,7 @@ class LibraryApplicabilityWorker:
 
     def _evaluate(self, doc: EvaluationTask, gemini_client) -> Evaluation | None:
         flattened_meta = extract_flat_fields(doc.schema_org)
+        excerpt = self._load_content_excerpt(doc)
         payload = {
             "md5": doc.md5,
             "ya_path": doc.ya_path,
@@ -229,21 +275,11 @@ class LibraryApplicabilityWorker:
             "publish_year": flattened_meta["publish_year"],
             "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
+            "content_excerpt": excerpt,
             "meta": doc.schema_org,
         }
 
-        prompt = [
-            {
-                "text": (
-                    "You classify if a document should be included in a public library collection. "
-                    "Return strict JSON with fields: applicable(bool), reason(str|null), "
-                    "ddc(str|null), topics(array[str]|null). "
-                    "Mark non-applicable for legal acts, forms, blank templates, notices, "
-                    "or non-book utility documents."
-                )
-            },
-            {"text": json.dumps(payload, ensure_ascii=False)},
-        ]
+        prompt = _build_applicability_prompt(payload)
 
         response, _ = gemini_api(
             prompt=prompt,
@@ -256,6 +292,24 @@ class LibraryApplicabilityWorker:
         if not raw_response:
             return None
         return Evaluation.model_validate_json(raw_response)
+
+    def _load_content_excerpt(self, doc: EvaluationTask) -> str | None:
+        if self.excerpt_chars <= 0 or not doc.content_url:
+            return None
+        try:
+            content_bucket = self.config["yandex"]["cloud"]["bucket"]["content"]
+            s3client = self._get_s3client()
+            local_zip, _, _ = _ensure_local_zip(doc.md5, doc.content_url, s3client, content_bucket)
+            markdown = _read_markdown_from_zip(local_zip, doc.md5)
+            return _build_content_excerpt(markdown, self.excerpt_chars)
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"Could not build excerpt for {doc.md5}: {exc}")
+            return None
+
+    def _get_s3client(self):
+        if self._s3client is None:
+            self._s3client = create_session(self.config)
+        return self._s3client
 
     def _save_result(self, md5: str, evaluation: Evaluation) -> None:
         if self.dry_run:
@@ -325,6 +379,65 @@ class Channel:
 
     def add_repairable_doc(self, md5: str) -> None:
         with self.lock:
-            self.repairable_docs.add(md5)
-            if not self.dry_run:
-                self._dump_to_file(UNPROCESSABLES_DIR, "repairables_eval.txt", self.repairable_docs)
+                self.repairable_docs.add(md5)
+                if not self.dry_run:
+                    self._dump_to_file(UNPROCESSABLES_DIR, "repairables_eval.txt", self.repairable_docs)
+
+
+def _ensure_local_zip(md5: str, content_url: str, s3client, fallback_bucket: str) -> tuple[str, str, str]:
+    local_zip = get_in_workdir(Dirs.CONTENT, file=f"{md5}.zip")
+    bucket, key = _parse_s3_location(content_url, fallback_bucket, f"{md5}.zip")
+    if not os.path.exists(local_zip):
+        s3client.download_file(bucket, key, local_zip)
+    if not os.path.exists(local_zip):
+        raise FileNotFoundError(local_zip)
+    return local_zip, bucket, key
+
+
+def _parse_s3_location(content_url: str, fallback_bucket: str, fallback_key: str) -> tuple[str, str]:
+    if content_url:
+        try:
+            parsed = urlparse(content_url)
+            if parsed.scheme and parsed.netloc:
+                path = parsed.path.lstrip("/")
+                if path:
+                    parts = path.split("/", 1)
+                    bucket = parts[0]
+                    key = parts[1] if len(parts) > 1 and parts[1] else fallback_key
+                    return bucket, key
+        except Exception:
+            pass
+    return fallback_bucket, fallback_key
+
+
+def _read_markdown_from_zip(zip_path: str, md5: str) -> str:
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        md_name = f"{md5}.md"
+        names = zf.namelist()
+        if md_name not in names:
+            md_candidates = [n for n in names if n.lower().endswith(".md")]
+            if not md_candidates:
+                raise ValueError("No markdown file found in archive")
+            md_name = md_candidates[0]
+        return zf.read(md_name).decode("utf-8", errors="replace")
+
+
+def _build_content_excerpt(text: str, max_chars: int) -> str | None:
+    if max_chars <= 0:
+        return None
+
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = CODE_FENCE_RE.sub("\n", normalized)
+    normalized = BLANK_LINES_RE.sub("\n\n", normalized).strip()
+    if not normalized:
+        return None
+    if len(normalized) <= max_chars:
+        return normalized
+
+    chunk = max_chars // EXCERPT_PARTS
+    head = normalized[:chunk]
+    mid_start = max(0, (len(normalized) // 2) - (chunk // 2))
+    middle = normalized[mid_start : mid_start + chunk]
+    tail = normalized[-chunk:]
+    excerpt = EXCERPT_SEPARATOR.join([head, middle, tail])
+    return excerpt[:max_chars]
