@@ -287,7 +287,7 @@ class LibraryApplicabilityWorker:
         self.config = config
         self.channel = channel
         self.dry_run = dry_run
-        self.excerpt_chars = max(0, excerpt_chars)
+        self.excerpt_chars = excerpt_chars,
         self.known_classifications = known_classifications or []
         self.stop_event = stop_event or threading.Event()
         self._s3client = None
