@@ -54,6 +54,7 @@ class MetadataEvaluationTests(unittest.TestCase):
             ya_public_url="https://storage.example/public.pdf",
             mime_type="application/pdf",
             document_url=None,
+            upstream_meta_url=None,
             content_url="https://storage.example/content/0.zip",
             schema_org={"name": "Sample title", "datePublished": "2018"},
         )
@@ -66,6 +67,7 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIn("reason(str|null)", text)
         self.assertIn("library_classification", text)
         self.assertIn("If uncertain, prefer applicable=false.", text)
+        self.assertIn("If upstream_metadata is provided", text)
         self.assertIn('"md5": "x"', prompt[1]["text"])
 
     @patch("metadata.evaluation.gemini_api")
@@ -121,6 +123,7 @@ class MetadataEvaluationTests(unittest.TestCase):
             ya_public_url=None,
             mime_type="application/pdf",
             document_url=None,
+            upstream_meta_url=None,
             content_url="https://storage.example/content/1.zip",
             schema_org={
                 "name": "Existing",
@@ -176,6 +179,21 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIsNotNone(evaluation)
         files = gemini_api_mock.call_args.kwargs["files"]
         self.assertEqual({"/tmp/eval-slice.pdf": "application/pdf"}, files)
+
+    @patch("metadata.evaluation.gemini_api")
+    @patch("metadata.evaluation.load_upstream_metadata")
+    def test_evaluate_includes_upstream_metadata_when_available(self, load_upstream_metadata_mock, gemini_api_mock) -> None:
+        load_upstream_metadata_mock.return_value = '{"name":"Upstream"}'
+        gemini_api_mock.return_value = (
+            [SimpleNamespace(text='{"applicable": false, "reason": "legal act"}')],
+            [],
+        )
+        task = self._task()
+        task.upstream_meta_url = "https://storage.example/upstream.zip"
+        with patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value="sample excerpt"):
+            self._worker()._evaluate(task, gemini_client=object())
+        prompt = gemini_api_mock.call_args.kwargs["prompt"]
+        self.assertIn('"upstream_metadata": "{\\"name\\":\\"Upstream\\"}"', prompt[1]["text"])
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_requires_classification_for_applicable_doc(self, gemini_api_mock) -> None:

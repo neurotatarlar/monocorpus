@@ -32,7 +32,9 @@ def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str
                 "ddc (string, 3 digits with optional decimal extension, e.g. 600 or 621.3) "
                 "and path (array of 2-8 category labels, top->leaf). "
                 "Use one of known_classifications if there is a close match; otherwise "
-                "suggest a new classification with best-fit ddc and path."
+                "suggest a new classification with best-fit ddc and path. "
+                "If upstream_metadata is provided, treat it as trustworthy external metadata "
+                "and use it together with document content."
             )
         },
         {"text": json.dumps(payload, ensure_ascii=False)},
@@ -40,4 +42,3 @@ def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str
 
 
 __all__ = ["build_library_applicability_prompt"]
-

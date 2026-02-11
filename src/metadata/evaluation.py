@@ -21,7 +21,7 @@ from google.genai.errors import ClientError
 from pydantic import BaseModel
 from prompts.metadata_evaluation import build_library_applicability_prompt
 from rich import print
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from integrations.gemini import create_client, gemini_api
 from integrations.s3 import create_session
@@ -31,6 +31,7 @@ from models import Classification, Document, Metadata
 from core.paths import get_in_workdir
 from core.config import read_config
 from core.db import get_session
+from core.upstream_meta import load_upstream_metadata
 from core.state import dump_expired_keys, load_expired_keys
 from core.security import decrypt, prefix
 from .repository import fetch_docs_for_evaluation, mark_docs_as_non_applicable
@@ -46,6 +47,7 @@ LEGAL_DOC_PATTERNS = [
 ARTIFACTS_DIR = "_artifacts"
 UNPROCESSABLES_DIR = os.path.join(ARTIFACTS_DIR, "unprocessables")
 DEFAULT_EXCERPT_CHARS = 10_000
+DEFAULT_KNOWN_CLASSIFICATIONS_LIMIT = 500
 EXCERPT_PARTS = 3
 EXCERPT_SEPARATOR = "\n\n[...]\n\n"
 EVAL_PDF_SLICE_SIZE = 5
@@ -83,6 +85,7 @@ class EvaluationTask:
     ya_public_url: str | None
     mime_type: str | None
     document_url: str | None
+    upstream_meta_url: str | None
     content_url: str | None
     schema_org: dict | str | None
 
@@ -95,7 +98,6 @@ def evaluate(args) -> None:
         print("Running in dry-run mode: no DB/file state changes will be persisted.")
 
     excerpt_chars = max(0, args.excerpt_chars or DEFAULT_EXCERPT_CHARS)
-
     stop_event = threading.Event()
     while not stop_event.is_set():
         tasks_queue = None
@@ -181,6 +183,7 @@ def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[Evalu
             ya_public_url=doc.ya_public_url,
             mime_type=doc.mime_type,
             document_url=doc.document_url,
+            upstream_meta_url=doc.upstream_meta_url,
             content_url=doc.content_url,
             schema_org=meta.schema_org if meta else None,
         )
@@ -225,11 +228,36 @@ def _create_queue(docs: list[EvaluationTask]) -> Queue:
     return tasks_queue
 
 
-def _load_known_classifications() -> list[dict[str, Any]]:
-    """Load all distinct known library classifications from metadata table."""
+def _load_known_classifications(limit: int = DEFAULT_KNOWN_CLASSIFICATIONS_LIMIT) -> list[dict[str, Any]]:
+    """Load top-N known classifications ordered by current usage frequency."""
+    if limit <= 0:
+        return []
+
+    usage_subquery = (
+        select(
+            Metadata.classification_id.label("classification_id"),
+            func.count(Metadata.md5).label("usage_count"),
+        )
+        .where(Metadata.classification_id.is_not(None))
+        .group_by(Metadata.classification_id)
+        .subquery()
+    )
+
     known: list[dict[str, Any]] = []
     with get_session() as session:
-        stmt = select(Classification).order_by(Classification.ddc.asc(), Classification.id.asc())
+        stmt = (
+            select(Classification)
+            .outerjoin(
+                usage_subquery,
+                usage_subquery.c.classification_id == Classification.id,
+            )
+            .order_by(
+                func.coalesce(usage_subquery.c.usage_count, 0).desc(),
+                Classification.ddc.asc(),
+                Classification.id.asc(),
+            )
+            .limit(limit)
+        )
         rows = session.scalars(stmt).all()
         for row in rows:
             path = _normalize_classification_path(row.path_en)
@@ -237,7 +265,6 @@ def _load_known_classifications() -> list[dict[str, Any]]:
             if not path or not ddc:
                 continue
             known.append({"id": row.id, "ddc": ddc, "path": path})
-    known.sort(key=lambda item: (item["ddc"], " > ".join(item["path"])))  # stable prompt ordering
     return known
 
 
@@ -310,6 +337,7 @@ class LibraryApplicabilityWorker:
     def _evaluate(self, doc: EvaluationTask, gemini_client) -> Evaluation | None:
         flattened_meta = extract_flat_fields(doc.schema_org)
         excerpt = self._load_content_excerpt(doc)
+        upstream_metadata = self._load_upstream_metadata(doc)
         files: dict[str, str] = {}
         if excerpt is None and doc.mime_type == "application/pdf":
             if slice_path := self._prepare_pdf_slice_for_eval(doc):
@@ -326,6 +354,7 @@ class LibraryApplicabilityWorker:
             "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
             "content_excerpt": excerpt,
+            "upstream_metadata": upstream_metadata,
             "pdf_slice_attached": bool(files),
             "missing_fields": _collect_missing_fields(doc.schema_org),
             "known_classifications": [
@@ -386,6 +415,15 @@ class LibraryApplicabilityWorker:
             return _build_content_excerpt(markdown, self.excerpt_chars)
         except Exception as exc:  # noqa: BLE001
             self.log(f"Could not build excerpt for {doc.md5}: {exc}")
+            return None
+
+    def _load_upstream_metadata(self, doc: EvaluationTask) -> str | None:
+        if not doc.upstream_meta_url:
+            return None
+        try:
+            return load_upstream_metadata(doc.upstream_meta_url, doc.md5)
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"Could not load upstream metadata for {doc.md5}: {exc}")
             return None
 
     def _prepare_pdf_slice_for_eval(self, doc: EvaluationTask) -> str | None:
