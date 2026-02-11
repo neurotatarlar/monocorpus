@@ -11,11 +11,12 @@ from metadata.evaluation import (
     EvaluationTask,
     LibraryApplicabilityWorker,
     _apply_metadata_patch,
-    _build_applicability_prompt,
     _build_content_excerpt,
     _normalize_library_classification,
     _normalize_metadata_patch,
+    evaluate,
 )
+from prompts.metadata_evaluation import build_library_applicability_prompt
 
 
 class _DummyChannel:
@@ -58,7 +59,7 @@ class MetadataEvaluationTests(unittest.TestCase):
         )
 
     def test_build_applicability_prompt_includes_core_policy(self) -> None:
-        prompt = _build_applicability_prompt({"md5": "x"})
+        prompt = build_library_applicability_prompt({"md5": "x"})
         self.assertEqual(2, len(prompt))
         text = prompt[0]["text"]
         self.assertIn("applicable(bool)", text)
@@ -196,3 +197,35 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIsNotNone(normalized)
         assert normalized is not None
         self.assertEqual("existing", normalized["source"])
+
+    @patch("metadata.evaluation.Channel")
+    @patch("metadata.evaluation._load_batch")
+    @patch("metadata.evaluation.read_config")
+    def test_evaluate_continues_after_batch_exception(self, read_config_mock, load_batch_mock, channel_cls_mock) -> None:
+        read_config_mock.return_value = {"gemini_api_keys": ["k"], "sup_langs": {"tt": {"codes": ["tt-Cyrl"]}}}
+        load_batch_mock.side_effect = [RuntimeError("boom"), []]
+        channel = channel_cls_mock.return_value
+        channel.exceeded_keys_set = set()
+        channel.get_all_unprocessable_docs.return_value = set()
+
+        args = SimpleNamespace(dry_run=True, batch_size=100, workers=1, excerpt_chars=1000)
+        evaluate(args)
+
+        self.assertEqual(2, load_batch_mock.call_count)
+        self.assertTrue(channel.dump.called)
+
+    @patch("metadata.evaluation.Channel")
+    @patch("metadata.evaluation._load_batch")
+    @patch("metadata.evaluation.read_config")
+    def test_evaluate_handles_keyboard_interrupt(self, read_config_mock, load_batch_mock, channel_cls_mock) -> None:
+        read_config_mock.return_value = {"gemini_api_keys": ["k"], "sup_langs": {"tt": {"codes": ["tt-Cyrl"]}}}
+        load_batch_mock.side_effect = KeyboardInterrupt()
+        channel = channel_cls_mock.return_value
+        channel.exceeded_keys_set = set()
+        channel.get_all_unprocessable_docs.return_value = set()
+
+        args = SimpleNamespace(dry_run=True, batch_size=100, workers=1, excerpt_chars=1000)
+        evaluate(args)
+
+        self.assertEqual(1, load_batch_mock.call_count)
+        self.assertTrue(channel.dump.called)

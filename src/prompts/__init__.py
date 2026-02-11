@@ -15,6 +15,7 @@ from .metadata import (
     DEFINE_META_PROMPT_PDF_HEADER,
     DEFINE_META_PROMPT_TT_FOOTER,
 )
+from .metadata_evaluation import build_library_applicability_prompt
 
 __all__ = [
     "EXTRACT_CONTENT_PROMPT_PRELUDE",
@@ -27,5 +28,6 @@ __all__ = [
     "DEFINE_META_PROMPT_BODY",
     "DEFINE_META_PROMPT_TT_FOOTER",
     "DEFINE_META_PROMPT_CRH_FOOTER",
+    "build_library_applicability_prompt",
     "cook_extraction_prompt",
 ]

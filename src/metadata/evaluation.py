@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import json
 import os
 import random
 import re
@@ -20,6 +19,7 @@ import isbnlib
 import requests
 from google.genai.errors import ClientError
 from pydantic import BaseModel
+from prompts.metadata_evaluation import build_library_applicability_prompt
 from rich import print
 from sqlalchemy import select
 
@@ -36,8 +36,8 @@ from core.security import decrypt, prefix
 from .repository import fetch_docs_for_evaluation, mark_docs_as_non_applicable
 
 
-MODEL = "gemini-2.5-flash"
-EVAL_METHOD = f"{MODEL}/lib-eval.v2"
+MODEL = "gemini-3-flash-preview"
+EVAL_METHOD = f"{MODEL}/v1"
 
 LEGAL_DOC_PATTERNS = [
     re.compile(r"^(?=.*common_crawl)(?=.*npa_ta_).*\.pdf$"),
@@ -94,48 +94,73 @@ def evaluate(args) -> None:
     if args.dry_run:
         print("Running in dry-run mode: no DB/file state changes will be persisted.")
 
-    excerpt_chars = max(0, getattr(args, "excerpt_chars", DEFAULT_EXCERPT_CHARS))
+    excerpt_chars = max(0, args.excerpt_chars or DEFAULT_EXCERPT_CHARS)
 
-    while True:
-        docs = _load_batch(config, args.batch_size, channel)
-        if not docs:
-            print("No more documents to process")
-            break
+    stop_event = threading.Event()
+    while not stop_event.is_set():
+        tasks_queue = None
+        workers: list[threading.Thread] = []
+        try:
+            docs = _load_batch(config, args.batch_size, channel)
+            if not docs:
+                print("No more documents to process")
+                break
 
-        docs, non_applicables = _early_skip(docs)
-        _save_non_applicable(non_applicables, dry_run=args.dry_run)
-        if not docs:
+            docs, non_applicables = _early_skip(docs)
+            if not docs:
+                continue
+            if not args.dry_run:
+                _save_non_applicable(non_applicables)
+
+            keys = _pick_keys(config, args.workers, channel)
+            if not keys:
+                print("No gemini keys available, exiting...")
+                break
+            known_classifications = _load_known_classifications()
+
+            tasks_queue = _create_queue(docs)
+            print(f"Processing batch of {tasks_queue.qsize()} documents with {len(keys)} worker(s)")
+
+            for key in keys[: min(len(keys), tasks_queue.qsize())]:
+                worker = LibraryApplicabilityWorker(
+                    gemini_api_key=key,
+                    tasks_queue=tasks_queue,
+                    config=config,
+                    channel=channel,
+                    dry_run=args.dry_run,
+                    excerpt_chars=excerpt_chars,
+                    known_classifications=known_classifications,
+                    stop_event=stop_event,
+                )
+                thread = threading.Thread(target=worker, name=f"eval-{key[-6:]}")
+                thread.start()
+                workers.append(thread)
+                time.sleep(2)
+
+            for thread in workers:
+                thread.join()
+
+            channel.dump()
+        except (KeyboardInterrupt, Exception) as e:  # noqa: BLE001
+            is_interrupt = isinstance(e, KeyboardInterrupt)
+            if is_interrupt:
+                print("Interrupted, shutting down workers...")
+                stop_event.set()
+            else:
+                import traceback
+
+                print(f"Error during evaluation batch: {e}")
+                print(traceback.format_exc())
+
+            if tasks_queue is not None:
+                tasks_queue.queue.clear()
+            for thread in workers:
+                thread.join(timeout=120)
+            channel.dump()
+
+            if is_interrupt:
+                return
             continue
-
-        keys = _pick_keys(config, args.workers, channel)
-        if not keys:
-            print("No gemini keys available, exiting...")
-            break
-        known_classifications = _load_known_classifications()
-
-        tasks_queue = _create_queue(docs)
-        print(f"Processing batch of {tasks_queue.qsize()} documents with {len(keys)} worker(s)")
-
-        workers = []
-        for key in keys[: min(len(keys), tasks_queue.qsize())]:
-            worker = LibraryApplicabilityWorker(
-                gemini_api_key=key,
-                tasks_queue=tasks_queue,
-                config=config,
-                channel=channel,
-                dry_run=args.dry_run,
-                excerpt_chars=excerpt_chars,
-                known_classifications=known_classifications,
-            )
-            thread = threading.Thread(target=worker, name=f"eval-{key[-6:]}")
-            thread.start()
-            workers.append(thread)
-            time.sleep(2)
-
-        for thread in workers:
-            thread.join()
-
-        channel.dump()
 
 
 def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[EvaluationTask]:
@@ -186,12 +211,10 @@ def _early_skip(docs: Iterable[EvaluationTask]) -> tuple[list[EvaluationTask], l
     return probables, non_applicables
 
 
-def _save_non_applicable(non_applicables: list[tuple[str, str]], dry_run: bool) -> None:
+def _save_non_applicable(non_applicables: list[tuple[str, str]]) -> None:
     if not non_applicables:
         return
     print(f"Marking {len(non_applicables)} documents as non-applicable")
-    if dry_run:
-        return
     mark_docs_as_non_applicable([md5 for md5, _reason in non_applicables])
 
 
@@ -218,39 +241,6 @@ def _load_known_classifications() -> list[dict[str, Any]]:
     return known
 
 
-def _build_applicability_prompt(payload: dict) -> list[dict[str, str]]:
-    """Build Gemini prompt for strict library-applicability classification."""
-    return [
-        {
-            "text": (
-                "You classify if a document should be included in a public library "
-                "collection for general readers. Return strict JSON with fields: "
-                "applicable(bool), reason(str|null), metadata_patch(object|null), "
-                "library_classification(object|null). "
-                "Use applicable=false for legal/regulatory/bureaucratic and utility "
-                "documents: laws, decrees, orders, resolutions, court acts, statutes, "
-                "budgets, reports, procurement docs, forms, blank templates, applications, "
-                "notices, instructions, accounting/tax docs, schedules, meeting minutes. "
-                "Use applicable=true for reader-oriented books: fiction, poetry, drama, "
-                "children's literature, biographies, history, culture, popular science, "
-                "dictionaries, encyclopedias, textbooks/manuals meant for broad reading. "
-                "If uncertain, prefer applicable=false. Reason must be short (2-8 words). "
-                "metadata_patch must include ONLY missing fields listed in missing_fields "
-                "and ONLY if strongly supported by provided content excerpt or metadata. "
-                "Allowed patch keys: isbn, datePublished, numberOfPages, name, author, "
-                "publisher, genre, description, additionalProperty. "
-                "library_classification must be null when applicable=false. "
-                "When applicable=true, library_classification is mandatory and must include "
-                "ddc (string, 3 digits with optional decimal extension, e.g. 600 or 621.3) "
-                "and path (array of 2-8 category labels, top->leaf). "
-                "Use one of known_classifications if there is a close match; otherwise "
-                "suggest a new classification with best-fit ddc and path."
-            )
-        },
-        {"text": json.dumps(payload, ensure_ascii=False)},
-    ]
-
-
 class LibraryApplicabilityWorker:
     """Single worker that consumes docs and saves applicability result."""
 
@@ -263,6 +253,7 @@ class LibraryApplicabilityWorker:
         dry_run: bool,
         excerpt_chars: int = DEFAULT_EXCERPT_CHARS,
         known_classifications: list[dict[str, Any]] | None = None,
+        stop_event: threading.Event | None = None,
     ):
         self.key = gemini_api_key
         self.tasks_queue = tasks_queue
@@ -271,12 +262,16 @@ class LibraryApplicabilityWorker:
         self.dry_run = dry_run
         self.excerpt_chars = max(0, excerpt_chars)
         self.known_classifications = known_classifications or []
+        self.stop_event = stop_event or threading.Event()
         self._s3client = None
 
     def __call__(self) -> None:
         gemini_client = create_client(self.key)
-        prev_req_time: datetime.datetime | None = None
+        prev_req_time = None
         while True:
+            if self.stop_event.is_set():
+                self.log("Stop signal received, shutting down")
+                return
             try:
                 doc = self.tasks_queue.get(block=False)
             except Empty:
@@ -340,7 +335,7 @@ class LibraryApplicabilityWorker:
             "meta": doc.schema_org,
         }
 
-        prompt = _build_applicability_prompt(payload)
+        prompt = build_library_applicability_prompt(payload)
 
         response, uploaded_files = gemini_api(
             prompt=prompt,
@@ -383,8 +378,10 @@ class LibraryApplicabilityWorker:
             return None
         try:
             content_bucket = self.config["yandex"]["cloud"]["bucket"]["content"]
-            s3client = self._get_s3client()
-            local_zip, _, _ = _ensure_local_zip(doc.md5, doc.content_url, s3client, content_bucket)
+            local_zip = get_in_workdir(Dirs.CONTENT, file=f"{doc.md5}.zip")
+            if not os.path.exists(local_zip):
+                s3client = self._get_s3client()
+                local_zip, _, _ = _ensure_local_zip(doc.md5, doc.content_url, s3client, content_bucket)
             markdown = _read_markdown_from_zip(local_zip, doc.md5)
             return _build_content_excerpt(markdown, self.excerpt_chars)
         except Exception as exc:  # noqa: BLE001
