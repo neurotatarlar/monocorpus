@@ -18,7 +18,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.argv[0] = os.path.join(REPO_ROOT, "src", "main.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
-from integrations.gemini import create_client, gemini_cli, upload_and_wait  # noqa: E402
+from integrations.gemini import create_client, gemini_cli, stream_text, upload_and_wait  # noqa: E402
 from integrations.s3 import download, upload_file  # noqa: E402
 from utils import (  # noqa: E402
     _get_bucket_id,
@@ -33,6 +33,24 @@ from utils import (  # noqa: E402
 
 
 class UtilsS3GeminiTests(unittest.TestCase):
+    def test_stream_text_reads_candidate_parts(self) -> None:
+        part1 = Mock()
+        part1.text = "abc"
+        part2 = Mock()
+        part2.text = "def"
+        content = Mock()
+        content.parts = [part1, part2]
+        candidate = Mock()
+        candidate.content = content
+        chunk = Mock()
+        chunk.candidates = [candidate]
+        self.assertEqual("abcdef", stream_text([chunk]))
+
+    def test_stream_text_falls_back_to_mock_text_attr(self) -> None:
+        from types import SimpleNamespace
+
+        self.assertEqual("xyz", stream_text([SimpleNamespace(text="xyz")]))
+
     def test_calculate_md5(self) -> None:
         with tempfile.NamedTemporaryFile("wb", delete=True) as f:
             f.write(b"abc")

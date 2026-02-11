@@ -24,7 +24,7 @@ from prompts.metadata_evaluation import build_library_applicability_prompt
 from rich import print
 from sqlalchemy import func, select
 
-from integrations.gemini import create_client, gemini_api
+from integrations.gemini import create_client, gemini_api, stream_text
 from integrations.s3 import create_session
 from dirs import Dirs
 from .fields import extract_flat_fields
@@ -141,6 +141,9 @@ def evaluate(args) -> None:
                 thread.start()
                 workers.append(thread)
                 time.sleep(2)
+                
+                stop_event.set()
+                break
 
             for thread in workers:
                 thread.join()
@@ -290,7 +293,7 @@ class LibraryApplicabilityWorker:
         self.config = config
         self.channel = channel
         self.dry_run = dry_run
-        self.excerpt_chars = excerpt_chars,
+        self.excerpt_chars = excerpt_chars
         self.known_classifications = known_classifications or []
         self.stop_event = stop_event or threading.Event()
         self._s3client = None
@@ -309,7 +312,7 @@ class LibraryApplicabilityWorker:
                 return
 
             try:
-                self.log(f"Evaluating {doc.md5} ({doc.ya_path})")
+                self.log(f"Evaluating {doc.md5}")
                 prev_req_time = self._sleep_if_needed(prev_req_time)
                 evaluation = self._evaluate(doc, gemini_client)
                 if not evaluation:
@@ -378,7 +381,8 @@ class LibraryApplicabilityWorker:
             timeout_sec=180,
         )
         try:
-            raw_response = "".join([chunk.text for chunk in response if chunk.text])
+            raw_response = stream_text(response)
+            self.log(f"Raw eval response for {doc.md5}: {raw_response}")
             if not raw_response:
                 return None
             evaluation = Evaluation.model_validate_json(raw_response)
@@ -485,7 +489,13 @@ class LibraryApplicabilityWorker:
                     metadata.classification_id = None
                 if evaluation.metadata_patch:
                     schema_org = metadata.schema_org if isinstance(metadata.schema_org, dict) else {}
-                    patch_payload = evaluation.metadata_patch.model_dump(by_alias=True, exclude_none=True)
+                    patch_payload = json.loads(
+                        evaluation.metadata_patch.model_dump_json(
+                            by_alias=True,
+                            exclude_none=True,
+                            ensure_ascii=False,
+                        )
+                    )
                     patched, applied = _apply_metadata_patch(schema_org, patch_payload)
                     if applied:
                         metadata.schema_org = patched
@@ -654,7 +664,13 @@ def _is_missing(value: Any) -> bool:
 def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc: EvaluationTask, config: dict) -> BookPatch | None:
     if not isinstance(raw_patch, dict):
         if isinstance(raw_patch, BookPatch):
-            raw_patch = raw_patch.model_dump(by_alias=True, exclude_none=True)
+            raw_patch = json.loads(
+                raw_patch.model_dump_json(
+                    by_alias=True,
+                    exclude_none=True,
+                    ensure_ascii=False,
+                )
+            )
         else:
             raw_patch = {}
 

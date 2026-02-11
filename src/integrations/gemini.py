@@ -61,6 +61,26 @@ def gemini_api(prompt, model, client, files={}, temperature=0.1, schema=None, ti
     return resp_stream, uploaded_files
 
 
+def stream_text(resp_stream):
+    """Extract concatenated text from Gemini stream chunks without using chunk.text."""
+    parts_text = []
+    for chunk in resp_stream:
+        candidates = getattr(chunk, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                text = getattr(part, "text", None)
+                if text:
+                    parts_text.append(text)
+        # Backward-compatible fallback for unit tests that mock chunk as SimpleNamespace(text=...)
+        if not candidates:
+            raw = getattr(chunk, "__dict__", {}).get("text")
+            if raw:
+                parts_text.append(raw)
+    return "".join(parts_text)
+
+
 def upload_and_wait(client, path, mime_type, poll_interval=0.3, timeout=10):
     """Upload a file and wait until it becomes ACTIVE."""
     _f = client.files.upload(file=path, config={"mime_type": mime_type})

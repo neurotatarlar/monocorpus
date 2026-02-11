@@ -43,6 +43,10 @@ class MetadataEvaluationTests(unittest.TestCase):
             dry_run=True,
         )
 
+    def test_worker_excerpt_chars_is_int(self) -> None:
+        worker = self._worker()
+        self.assertIsInstance(worker.excerpt_chars, int)
+
     def _task(self) -> EvaluationTask:
         return EvaluationTask(
             md5="0" * 32,
@@ -166,6 +170,31 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertEqual("Pub", updated["publisher"]["name"])
         self.assertIn("description", applied)
         self.assertIn("publisher", applied)
+
+    def test_metadata_patch_serialization_keeps_utf8(self) -> None:
+        task = EvaluationTask(
+            md5="2" * 32,
+            ya_path="/docs/book.pdf",
+            language="tt",
+            page_count=None,
+            full=True,
+            sharing_restricted=False,
+            ya_public_url=None,
+            mime_type="application/pdf",
+            document_url=None,
+            upstream_meta_url=None,
+            content_url="https://storage.example/content/2.zip",
+            schema_org={},
+        )
+        patch = _normalize_metadata_patch(
+            {"description": "Китап"},
+            task,
+            config={},
+        )
+        self.assertIsNotNone(patch)
+        assert patch is not None
+        dumped_json = patch.model_dump_json(by_alias=True, exclude_none=True, ensure_ascii=False)
+        self.assertIn("Китап", dumped_json)
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_attaches_pdf_slice_when_no_text_excerpt(self, gemini_api_mock) -> None:
