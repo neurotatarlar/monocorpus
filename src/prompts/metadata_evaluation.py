@@ -23,7 +23,7 @@ METADATA_GAP_FILL_RULES_TEXT = (
     "only use verifiable information from provided evidence; if uncertain do not guess; "
     "do not fabricate author/date/ISBN/page count; keep UTF-8; "
     "when multiple values are explicitly present include all as arrays. "
-    "For each requested missing field, put either extracted value or null in metadata_patch. "
+    "For each requested field, put either extracted/normalized value or null in metadata_patch. "
     "If page count is missing and the file is PDF, using source page count is acceptable."
 )
 
@@ -31,7 +31,9 @@ METADATA_PATCH_SHAPE_TEXT = (
     "metadata_patch must be a schema.org Book-compatible PARTIAL object (or null). "
     "Allowed keys: name, author, publisher, datePublished, isbn, inLanguage, description, "
     "numberOfPages, additionalProperty, genre. "
-    "Do not include keys that were not requested as missing. "
+    "Do not include keys that were not requested. "
+    "Do not include DDC/path classification in metadata_patch.additionalProperty; "
+    "classification is stored separately by the system. "
     "Use schema.org-compatible nested shapes: "
     "author=[{'@type':'Person'|'Organization','name':...}], "
     "publisher={'@type':'Organization','name':...}, "
@@ -54,6 +56,7 @@ LIBRARY_CLASSIFICATION_RULES_TEXT = (
     "When applicable=true, both fields are mandatory: "
     "library_ddc (string, 3 digits with optional decimal extension, e.g. 600 or 621.3) "
     "and library_path (array of 2-8 category labels, top->leaf). "
+    "library_path labels must be in English. "
     "Use one of known_classifications if there is a close match; otherwise "
     "suggest a new classification with best-fit ddc and path. "
     "If upstream_metadata is provided, treat it as trustworthy external metadata "
@@ -67,7 +70,7 @@ MISSING_FIELD_REQUESTS = {
     "name": "Please add `name` (document title) or return null.",
     "author": "Please add `author` (schema.org Person/Organization list) or return null.",
     "publisher": "Please add `publisher` (schema.org Organization) or return null.",
-    "genre": "Please add `genre` (array) or return null.",
+    "genre": "Please normalize `genre` (array) from evidence, or return null if unknown.",
     "description": "Please add `description` (1-3 concise sentences) or return null.",
     "additionalProperty": "Please add `additionalProperty` (schema.org PropertyValue list) or return null.",
 }

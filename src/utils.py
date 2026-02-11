@@ -31,7 +31,11 @@ def read_config(config_file: str = "config.yaml"):
 def get_engine(echo: bool = False):
     """Create a SQLAlchemy engine from the configured database URL."""
     config = read_config()
-    return create_engine(config['database_url'], echo=echo)
+    return create_engine(
+        config["database_url"],
+        echo=echo,
+        json_serializer=lambda obj: json.dumps(obj, ensure_ascii=False),
+    )
     # return sessionmaker(autocommit=False, autoflush=False, bind=engine)
     
     

@@ -14,6 +14,7 @@ from metadata.evaluation import (
     _build_content_excerpt,
     _normalize_library_classification,
     _normalize_metadata_patch,
+    _sync_library_classification_properties,
     evaluate,
 )
 from prompts.metadata_evaluation import build_library_applicability_prompt
@@ -154,8 +155,34 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertNotIn("name", patch_data)
         self.assertNotIn("datePublished", patch_data)
         self.assertNotIn("isbn", patch_data)
+        self.assertNotIn("genre", patch_data)
         self.assertEqual("Some description", patch_data["description"])
         self.assertEqual("Test Publisher", patch_data["publisher"]["name"])
+
+    def test_normalize_metadata_patch_allows_genre_refresh(self) -> None:
+        task = EvaluationTask(
+            md5="1" * 32,
+            ya_path="/docs/book.pdf",
+            language="tt",
+            page_count=None,
+            full=True,
+            sharing_restricted=False,
+            ya_public_url=None,
+            mime_type="application/pdf",
+            document_url=None,
+            upstream_meta_url=None,
+            content_url="https://storage.example/content/1.zip",
+            schema_org={"genre": ["Old genre"]},
+        )
+        patch = _normalize_metadata_patch(
+            {"genre": ["Novel", "Novel", "Fiction"]},
+            task,
+            config={},
+        )
+        self.assertIsNotNone(patch)
+        assert patch is not None
+        patch_data = patch.model_dump(by_alias=True, exclude_none=True)
+        self.assertEqual(["Novel", "Fiction"], patch_data["genre"])
 
     def test_apply_metadata_patch_updates_missing_values(self) -> None:
         schema = {"name": "Existing title", "publisher": {"@type": "Organization", "name": ""}}
@@ -170,6 +197,45 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertEqual("Pub", updated["publisher"]["name"])
         self.assertIn("description", applied)
         self.assertIn("publisher", applied)
+
+    def test_sync_library_classification_properties_adds_and_removes_values(self) -> None:
+        schema = {
+            "additionalProperty": [
+                {"@type": "PropertyValue", "name": "DDC", "value": "300"},
+                {"@type": "PropertyValue", "name": "LibraryPathEn", "value": "Old > Path"},
+                {"@type": "PropertyValue", "name": "UDC", "value": "821.512.145"},
+            ]
+        }
+        updated, applied = _sync_library_classification_properties(
+            schema_org=schema,
+            applicable=True,
+            ddc="600",
+            path=["Technology", "Engineering"],
+        )
+        self.assertIn("additionalProperty.DDC", applied)
+        self.assertIn("additionalProperty.LibraryPathEn", applied)
+        props = updated["additionalProperty"]
+        self.assertTrue(any(p.get("name") == "UDC" for p in props if isinstance(p, dict)))
+        self.assertTrue(any(p.get("name") == "DDC" and p.get("value") == "600" for p in props if isinstance(p, dict)))
+        self.assertTrue(
+            any(
+                p.get("name") == "LibraryPathEn" and p.get("value") == "Technology > Engineering"
+                for p in props
+                if isinstance(p, dict)
+            )
+        )
+
+        cleaned, removed = _sync_library_classification_properties(
+            schema_org=updated,
+            applicable=False,
+            ddc=None,
+            path=None,
+        )
+        cleaned_props = cleaned["additionalProperty"]
+        self.assertFalse(any(p.get("name") == "DDC" for p in cleaned_props if isinstance(p, dict)))
+        self.assertFalse(any(p.get("name") == "LibraryPathEn" for p in cleaned_props if isinstance(p, dict)))
+        self.assertIn("additionalProperty.DDC", removed)
+        self.assertIn("additionalProperty.LibraryPathEn", removed)
 
     def test_metadata_patch_serialization_keeps_utf8(self) -> None:
         task = EvaluationTask(
@@ -249,6 +315,15 @@ class MetadataEvaluationTests(unittest.TestCase):
         )
         self.assertEqual("600", ddc)
         self.assertEqual(["Technology", "Engineering"], path)
+
+    def test_normalize_library_classification_rejects_cyrillic_path(self) -> None:
+        ddc, path = _normalize_library_classification(
+            "600",
+            ["Технология", "Инженерия"],
+            applicable=True,
+        )
+        self.assertIsNone(ddc)
+        self.assertIsNone(path)
 
     @patch("metadata.evaluation.Channel")
     @patch("metadata.evaluation._load_batch")

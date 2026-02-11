@@ -60,6 +60,9 @@ INT_RE = re.compile(r"\d+")
 ISBN_CLEAN_RE = re.compile(r"[^0-9Xx]")
 WHITESPACE_RE = re.compile(r"\s+")
 DDC_RE = re.compile(r"^\d{3}(?:\.\d+)?$")
+CYRILLIC_RE = re.compile(r"[\u0400-\u052F]")
+DDC_PROPERTY_NAME = "DDC"
+LIBRARY_PATH_EN_PROPERTY_NAME = "LibraryPathEn"
 
 
 class Evaluation(BaseModel):
@@ -362,7 +365,7 @@ class LibraryApplicabilityWorker:
             "content_excerpt": excerpt,
             "upstream_metadata": upstream_metadata,
             "pdf_slice_attached": bool(files),
-            "missing_fields": _collect_missing_fields(doc.schema_org),
+            "missing_fields": _collect_patch_fields(doc.schema_org),
             "known_classifications": [
                 {"ddc": item["ddc"], "path": item["path"]}
                 for item in self.known_classifications
@@ -487,8 +490,9 @@ class LibraryApplicabilityWorker:
                     )
                 else:
                     metadata.classification_id = None
+                schema_org = metadata.schema_org if isinstance(metadata.schema_org, dict) else {}
+                applied: list[str] = []
                 if evaluation.metadata_patch:
-                    schema_org = metadata.schema_org if isinstance(metadata.schema_org, dict) else {}
                     patch_payload = json.loads(
                         evaluation.metadata_patch.model_dump_json(
                             by_alias=True,
@@ -496,10 +500,18 @@ class LibraryApplicabilityWorker:
                             ensure_ascii=False,
                         )
                     )
-                    patched, applied = _apply_metadata_patch(schema_org, patch_payload)
-                    if applied:
-                        metadata.schema_org = patched
-                        self.log(f"Patched metadata for {md5}: {', '.join(applied)}")
+                    schema_org, patch_applied = _apply_metadata_patch(schema_org, patch_payload)
+                    applied.extend(patch_applied)
+                schema_org, classification_applied = _sync_library_classification_properties(
+                    schema_org=schema_org,
+                    applicable=evaluation.applicable,
+                    ddc=evaluation.library_ddc,
+                    path=evaluation.library_path,
+                )
+                applied.extend(classification_applied)
+                if applied:
+                    metadata.schema_org = schema_org
+                    self.log(f"Patched metadata for {md5}: {', '.join(applied)}")
                 session.commit()
 
     def log(self, message: str) -> None:
@@ -512,13 +524,12 @@ class Channel:
     def __init__(self, dry_run: bool):
         self.lock = threading.Lock()
         self.dry_run = dry_run
-        self.keys_dir = os.path.join(ARTIFACTS_DIR, "expired_keys_eval")
+        self.keys_dir = os.path.join(ARTIFACTS_DIR, "expired_keys")
         self.unprocessable_docs = self._load_file(UNPROCESSABLES_DIR, "unprocessables_eval.txt")
-        self.repairable_docs = self._load_file(UNPROCESSABLES_DIR, "repairables_eval.txt")
         self.exceeded_keys_set = load_expired_keys(dir=self.keys_dir)
 
     def get_all_unprocessable_docs(self) -> set[str]:
-        return self.unprocessable_docs | self.repairable_docs
+        return self.unprocessable_docs
 
     def dump(self) -> None:
         if self.dry_run:
@@ -526,7 +537,6 @@ class Channel:
         with self.lock:
             dump_expired_keys(self.exceeded_keys_set, dir=self.keys_dir)
             self._dump_to_file(UNPROCESSABLES_DIR, "unprocessables_eval.txt", self.unprocessable_docs)
-            self._dump_to_file(UNPROCESSABLES_DIR, "repairables_eval.txt", self.repairable_docs)
 
     def _load_file(self, dir_name: str, file_name: str) -> set[str]:
         candidates = [os.path.join(dir_name, file_name)]
@@ -557,12 +567,6 @@ class Channel:
             self.unprocessable_docs.add(md5)
             if not self.dry_run:
                 self._dump_to_file(UNPROCESSABLES_DIR, "unprocessables_eval.txt", self.unprocessable_docs)
-
-    def add_repairable_doc(self, md5: str) -> None:
-        with self.lock:
-            self.repairable_docs.add(md5)
-            if not self.dry_run:
-                self._dump_to_file(UNPROCESSABLES_DIR, "repairables_eval.txt", self.repairable_docs)
 
 
 def _ensure_local_zip(md5: str, content_url: str, s3client, fallback_bucket: str) -> tuple[str, str, str]:
@@ -624,7 +628,7 @@ def _build_content_excerpt(text: str, max_chars: int) -> str | None:
     return excerpt[:max_chars]
 
 
-def _collect_missing_fields(schema_org: dict | str | None) -> list[str]:
+def _collect_patch_fields(schema_org: dict | str | None) -> list[str]:
     schema = schema_org if isinstance(schema_org, dict) else {}
     fields = [
         "isbn",
@@ -637,7 +641,7 @@ def _collect_missing_fields(schema_org: dict | str | None) -> list[str]:
         "description",
         "additionalProperty",
     ]
-    return [name for name in fields if _is_schema_field_missing(schema, name)]
+    return [name for name in fields if name == "genre" or _is_schema_field_missing(schema, name)]
 
 
 def _is_schema_field_missing(schema: dict[str, Any], field: str) -> bool:
@@ -675,17 +679,18 @@ def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc:
             raw_patch = {}
 
     schema = doc.schema_org if isinstance(doc.schema_org, dict) else {}
+    patchable_fields = set(_collect_patch_fields(doc.schema_org))
     patch: dict[str, Any] = {}
 
-    if _is_schema_field_missing(schema, "isbn"):
+    if "isbn" in patchable_fields:
         if isbn_values := _normalize_isbn_values(raw_patch.get("isbn")):
             patch["isbn"] = isbn_values
 
-    if _is_schema_field_missing(schema, "datePublished"):
+    if "datePublished" in patchable_fields:
         if date_published := _normalize_date_published(raw_patch.get("datePublished")):
             patch["datePublished"] = date_published
 
-    if _is_schema_field_missing(schema, "numberOfPages"):
+    if "numberOfPages" in patchable_fields:
         number_of_pages = _normalize_number_of_pages(raw_patch.get("numberOfPages"))
         if number_of_pages is None and doc.page_count:
             number_of_pages = _normalize_number_of_pages(doc.page_count)
@@ -694,27 +699,27 @@ def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc:
         if number_of_pages is not None:
             patch["numberOfPages"] = number_of_pages
 
-    if _is_schema_field_missing(schema, "name"):
+    if "name" in patchable_fields:
         if name := _clean_text(raw_patch.get("name"), max_len=600):
             patch["name"] = name
 
-    if _is_schema_field_missing(schema, "author"):
+    if "author" in patchable_fields:
         if author := _normalize_author(raw_patch.get("author")):
             patch["author"] = author
 
-    if _is_schema_field_missing(schema, "publisher"):
+    if "publisher" in patchable_fields:
         if publisher := _normalize_publisher(raw_patch.get("publisher")):
             patch["publisher"] = publisher
 
-    if _is_schema_field_missing(schema, "genre"):
+    if "genre" in patchable_fields:
         if genre := _normalize_genre(raw_patch.get("genre")):
             patch["genre"] = genre
 
-    if _is_schema_field_missing(schema, "description"):
+    if "description" in patchable_fields:
         if description := _clean_text(raw_patch.get("description"), max_len=5000):
             patch["description"] = description
 
-    if _is_schema_field_missing(schema, "additionalProperty"):
+    if "additionalProperty" in patchable_fields:
         if additional := _normalize_additional_property(raw_patch.get("additionalProperty")):
             patch["additionalProperty"] = additional
 
@@ -885,8 +890,12 @@ def _normalize_classification_path(value: Any) -> list[str] | None:
     cleaned: list[str] = []
     for item in values:
         text = _clean_text(item, max_len=180)
-        if text:
-            cleaned.append(text)
+        if not text:
+            continue
+        # Classification labels are expected in English for stable taxonomy keys.
+        if CYRILLIC_RE.search(text):
+            return None
+        cleaned.append(text)
     if len(cleaned) < 2 or len(cleaned) > 8:
         return None
     return cleaned
@@ -1020,3 +1029,62 @@ def _apply_metadata_patch(schema_org: dict[str, Any], patch: dict[str, Any]) -> 
             updated[key] = value
             applied.append(key)
     return updated, applied
+
+
+def _sync_library_classification_properties(
+    schema_org: dict[str, Any],
+    applicable: bool,
+    ddc: str | None,
+    path: list[str] | None,
+) -> tuple[dict[str, Any], list[str]]:
+    updated = dict(schema_org)
+    raw_additional = updated.get("additionalProperty")
+    existing_items = raw_additional if isinstance(raw_additional, list) else ([raw_additional] if raw_additional else [])
+
+    old_ddc = _extract_additional_property_value(existing_items, DDC_PROPERTY_NAME)
+    old_path = _extract_additional_property_value(existing_items, LIBRARY_PATH_EN_PROPERTY_NAME)
+
+    excluded_names = {DDC_PROPERTY_NAME.casefold(), LIBRARY_PATH_EN_PROPERTY_NAME.casefold()}
+    retained_items: list[Any] = []
+    for item in existing_items:
+        if not isinstance(item, dict):
+            retained_items.append(item)
+            continue
+        name = _clean_text(item.get("name"), max_len=120)
+        if name and name.casefold() in excluded_names:
+            continue
+        retained_items.append(item)
+
+    new_ddc = None
+    new_path = None
+    if applicable and ddc and path:
+        new_ddc = ddc
+        new_path = " > ".join(path)
+        retained_items.append({"@type": "PropertyValue", "name": DDC_PROPERTY_NAME, "value": new_ddc})
+        retained_items.append(
+            {"@type": "PropertyValue", "name": LIBRARY_PATH_EN_PROPERTY_NAME, "value": new_path}
+        )
+
+    if retained_items:
+        updated["additionalProperty"] = retained_items
+    else:
+        updated.pop("additionalProperty", None)
+
+    applied: list[str] = []
+    if old_ddc != new_ddc:
+        applied.append("additionalProperty.DDC")
+    if old_path != new_path:
+        applied.append("additionalProperty.LibraryPathEn")
+    return updated, applied
+
+
+def _extract_additional_property_value(items: list[Any], property_name: str) -> str | None:
+    target_name = property_name.casefold()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = _clean_text(item.get("name"), max_len=120)
+        if not name or name.casefold() != target_name:
+            continue
+        return _clean_text(item.get("value"), max_len=500)
+    return None
