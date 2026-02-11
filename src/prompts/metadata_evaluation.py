@@ -30,14 +30,11 @@ METADATA_GAP_FILL_RULES_TEXT = (
 METADATA_PATCH_SHAPE_TEXT = (
     "metadata_patch must be a schema.org Book-compatible PARTIAL object (or null). "
     "Allowed keys: name, author, publisher, datePublished, isbn, inLanguage, description, "
-    "numberOfPages, additionalProperty, genre. "
+    "numberOfPages, genre. "
     "Do not include keys that were not requested. "
-    "Do not include DDC/path classification in metadata_patch.additionalProperty; "
-    "classification is stored separately by the system. "
     "Use schema.org-compatible nested shapes: "
     "author=[{'@type':'Person'|'Organization','name':...}], "
-    "publisher={'@type':'Organization','name':...}, "
-    "additionalProperty=[{'@type':'PropertyValue','name':...,'value':...}]."
+    "publisher={'@type':'Organization','name':...}."
 )
 
 LIBRARY_APPLICABILITY_RULES_TEXT = (
@@ -72,7 +69,6 @@ MISSING_FIELD_REQUESTS = {
     "publisher": "Please add `publisher` (schema.org Organization) or return null.",
     "genre": "Please normalize `genre` (array) from evidence, or return null if unknown.",
     "description": "Please add `description` (1-3 concise sentences) or return null.",
-    "additionalProperty": "Please add `additionalProperty` (schema.org PropertyValue list) or return null.",
 }
 
 OUTPUT_CONTRACT_TEXT = (

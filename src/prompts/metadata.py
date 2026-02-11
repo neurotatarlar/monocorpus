@@ -62,8 +62,13 @@ Use the `Book` schema where appropriate, but apply a more specific `@type` if a 
 - `publisher`: `"@type": "Organization"` if identified
 - `isbn`: array of ISBN numbers if available
 - `numberOfPages`: If identified
-- `additionalProperty`: Use this to include UDC, BBK, or other classification codes
-- `genre`: Book genre, expressed in English
+- `about`: Use schema.org `DefinedTerm` items for auxiliary metadata previously placed in `additionalProperty`
+  (UDC, BBK, and other source-provided classification codes), e.g.
+  `{"@type":"DefinedTerm","name":"821.512.145","termCode":"821.512.145","inDefinedTermSet":"UDC"}`
+  `{"@type":"DefinedTerm","name":"84(2=411.2)","termCode":"84(2=411.2)","inDefinedTermSet":"BBK"}`
+- Do **not** infer or generate DDC in this base extraction flow.
+- Do **not** generate `LibraryPathEn` in this base extraction flow.
+- `genre`: optional; if present, keep in English
 - `audience`: Target audience, expressed in English
 - `bookEdition`: Edition information
 - `description`: Preface, abstract, or annotation in document's language. Use 1–3 sentences only. Summarize the core purpose or content of the text. Do not include long quotations or excessive legal/formal language. Avoid repeating the title.

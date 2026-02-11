@@ -62,7 +62,15 @@ WHITESPACE_RE = re.compile(r"\s+")
 DDC_RE = re.compile(r"^\d{3}(?:\.\d+)?$")
 CYRILLIC_RE = re.compile(r"[\u0400-\u052F]")
 DDC_PROPERTY_NAME = "DDC"
+UDC_PROPERTY_NAME = "UDC"
 LIBRARY_PATH_EN_PROPERTY_NAME = "LibraryPathEn"
+GENRE_TERMSET = "Genre"
+MANAGED_TERMSETS = {
+    DDC_PROPERTY_NAME.casefold(),
+    UDC_PROPERTY_NAME.casefold(),
+    LIBRARY_PATH_EN_PROPERTY_NAME.casefold(),
+    GENRE_TERMSET.casefold(),
+}
 
 
 class Evaluation(BaseModel):
@@ -502,7 +510,7 @@ class LibraryApplicabilityWorker:
                     )
                     schema_org, patch_applied = _apply_metadata_patch(schema_org, patch_payload)
                     applied.extend(patch_applied)
-                schema_org, classification_applied = _sync_library_classification_properties(
+                schema_org, classification_applied = _sync_auxiliary_terms_in_about(
                     schema_org=schema_org,
                     applicable=evaluation.applicable,
                     ddc=evaluation.library_ddc,
@@ -639,7 +647,6 @@ def _collect_patch_fields(schema_org: dict | str | None) -> list[str]:
         "publisher",
         "genre",
         "description",
-        "additionalProperty",
     ]
     return [name for name in fields if name == "genre" or _is_schema_field_missing(schema, name)]
 
@@ -718,10 +725,6 @@ def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc:
     if "description" in patchable_fields:
         if description := _clean_text(raw_patch.get("description"), max_len=5000):
             patch["description"] = description
-
-    if "additionalProperty" in patchable_fields:
-        if additional := _normalize_additional_property(raw_patch.get("additionalProperty")):
-            patch["additionalProperty"] = additional
 
     if not patch:
         return None
@@ -826,35 +829,6 @@ def _normalize_genre(value: Any) -> list[str] | None:
         seen.add(key)
         normalized.append(clean)
     return normalized or None
-
-
-def _normalize_additional_property(value: Any) -> list[dict[str, str]] | None:
-    if value is None:
-        return None
-    values = value if isinstance(value, list) else [value]
-    result: list[dict[str, str]] = []
-    seen = set()
-    for item in values:
-        if isinstance(item, dict):
-            name = _clean_text(item.get("name"), max_len=120)
-            val = _clean_text(item.get("value"), max_len=300)
-        elif isinstance(item, str):
-            raw = _clean_text(item, max_len=450)
-            if not raw or ":" not in raw:
-                continue
-            left, right = raw.split(":", 1)
-            name = _clean_text(left, max_len=120)
-            val = _clean_text(right, max_len=300)
-        else:
-            continue
-        if not name or not val:
-            continue
-        key = (name.casefold(), val.casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({"@type": "PropertyValue", "name": name, "value": val})
-    return result or None
 
 
 def _normalize_library_classification(
@@ -1016,6 +990,13 @@ def _apply_metadata_patch(schema_org: dict[str, Any], patch: dict[str, Any]) -> 
     updated = dict(schema_org)
     applied: list[str] = []
     for key, value in patch.items():
+        if key == "genre":
+            normalized = _normalize_genre(value)
+            current = _normalize_genre(updated.get("genre"))
+            if normalized and normalized != current:
+                updated["genre"] = normalized
+                applied.append("genre")
+            continue
         if key == "publisher":
             current = updated.get("publisher")
             missing = _is_missing(current) or (
@@ -1031,60 +1012,92 @@ def _apply_metadata_patch(schema_org: dict[str, Any], patch: dict[str, Any]) -> 
     return updated, applied
 
 
-def _sync_library_classification_properties(
+def _sync_auxiliary_terms_in_about(
     schema_org: dict[str, Any],
     applicable: bool,
     ddc: str | None,
     path: list[str] | None,
 ) -> tuple[dict[str, Any], list[str]]:
     updated = dict(schema_org)
-    raw_additional = updated.get("additionalProperty")
-    existing_items = raw_additional if isinstance(raw_additional, list) else ([raw_additional] if raw_additional else [])
+    raw_about = updated.get("about")
+    raw_genre = updated.get("genre")
 
-    old_ddc = _extract_additional_property_value(existing_items, DDC_PROPERTY_NAME)
-    old_path = _extract_additional_property_value(existing_items, LIBRARY_PATH_EN_PROPERTY_NAME)
+    before_about = json.dumps(raw_about, ensure_ascii=False, sort_keys=True) if raw_about is not None else None
+    had_genre = "genre" in updated
 
-    excluded_names = {DDC_PROPERTY_NAME.casefold(), LIBRARY_PATH_EN_PROPERTY_NAME.casefold()}
-    retained_items: list[Any] = []
-    for item in existing_items:
-        if not isinstance(item, dict):
-            retained_items.append(item)
+    existing_about_items = raw_about if isinstance(raw_about, list) else ([raw_about] if raw_about else [])
+    existing_genre_terms = _extract_about_term_values(existing_about_items, GENRE_TERMSET)
+    existing_udc_terms = _extract_about_term_values(existing_about_items, UDC_PROPERTY_NAME)
+    retained_about_items: list[Any] = []
+    for item in existing_about_items:
+        if _is_managed_about_term(item):
             continue
-        name = _clean_text(item.get("name"), max_len=120)
-        if name and name.casefold() in excluded_names:
-            continue
-        retained_items.append(item)
+        retained_about_items.append(item)
 
-    new_ddc = None
-    new_path = None
+    genres = _normalize_genre(raw_genre) or existing_genre_terms
+    for genre in genres:
+        retained_about_items.append(_build_defined_term(genre, genre, GENRE_TERMSET))
+
+    for udc in existing_udc_terms:
+        retained_about_items.append(_build_defined_term(udc, udc, UDC_PROPERTY_NAME))
+
     if applicable and ddc and path:
-        new_ddc = ddc
-        new_path = " > ".join(path)
-        retained_items.append({"@type": "PropertyValue", "name": DDC_PROPERTY_NAME, "value": new_ddc})
-        retained_items.append(
-            {"@type": "PropertyValue", "name": LIBRARY_PATH_EN_PROPERTY_NAME, "value": new_path}
+        retained_about_items.append(_build_defined_term(path[-1], ddc, DDC_PROPERTY_NAME))
+        retained_about_items.append(
+            _build_defined_term(" > ".join(path), " > ".join(path), LIBRARY_PATH_EN_PROPERTY_NAME)
         )
 
-    if retained_items:
-        updated["additionalProperty"] = retained_items
+    if retained_about_items:
+        updated["about"] = retained_about_items
     else:
-        updated.pop("additionalProperty", None)
+        updated.pop("about", None)
+
+    updated.pop("genre", None)
+    updated.pop("additionalProperty", None)
 
     applied: list[str] = []
-    if old_ddc != new_ddc:
-        applied.append("additionalProperty.DDC")
-    if old_path != new_path:
-        applied.append("additionalProperty.LibraryPathEn")
+    after_about = json.dumps(updated.get("about"), ensure_ascii=False, sort_keys=True) if updated.get("about") is not None else None
+    if before_about != after_about:
+        applied.append("about")
+    if "additionalProperty" in schema_org:
+        applied.append("additionalProperty")
+    if had_genre:
+        applied.append("genre")
     return updated, applied
 
 
-def _extract_additional_property_value(items: list[Any], property_name: str) -> str | None:
-    target_name = property_name.casefold()
+def _build_defined_term(name: str, term_code: str, termset: str) -> dict[str, str]:
+    return {
+        "@type": "DefinedTerm",
+        "name": name,
+        "termCode": term_code,
+        "inDefinedTermSet": termset,
+    }
+
+
+def _is_managed_about_term(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    termset = _clean_text(item.get("inDefinedTermSet"), max_len=120)
+    return bool(termset and termset.casefold() in MANAGED_TERMSETS)
+
+
+def _extract_about_term_values(items: list[Any], termset: str) -> list[str]:
+    target_set = termset.casefold()
+    values: list[str] = []
+    seen: set[str] = set()
     for item in items:
         if not isinstance(item, dict):
             continue
-        name = _clean_text(item.get("name"), max_len=120)
-        if not name or name.casefold() != target_name:
+        item_set = _clean_text(item.get("inDefinedTermSet"), max_len=120)
+        if not item_set or item_set.casefold() != target_set:
             continue
-        return _clean_text(item.get("value"), max_len=500)
-    return None
+        value = _clean_text(item.get("termCode"), max_len=500) or _clean_text(item.get("name"), max_len=500)
+        if not value:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(value)
+    return values

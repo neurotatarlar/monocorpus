@@ -55,6 +55,16 @@ def extract_genre(meta: dict[str, Any]) -> str | None:
             value = _clean_text(item)
         if value and value not in genres:
             genres.append(value)
+    if not genres:
+        for item in _as_list(meta.get("about")):
+            if not isinstance(item, dict):
+                continue
+            termset = _clean_text(item.get("inDefinedTermSet"))
+            if not termset or termset.casefold() != "genre":
+                continue
+            value = _clean_text(item.get("termCode")) or _clean_text(item.get("name"))
+            if value and value not in genres:
+                genres.append(value)
     return _join_unique(genres)
 
 

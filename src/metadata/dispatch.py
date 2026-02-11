@@ -175,14 +175,15 @@ class MetadataExtractionWorker:
                     continue
                 # write metadata to zip
                 local_meta_path = get_in_workdir(Dirs.METADATA, file=f"{doc.md5}.zip")
+                schema_org = _normalize_base_schema_org(json.loads(metadata.model_dump_json(by_alias=True, exclude_none=True, exclude_unset=True, ensure_ascii=False)))
+                meta_json = json.dumps(schema_org, ensure_ascii=False)
                 with zipfile.ZipFile(local_meta_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
-                    meta_json = metadata.model_dump_json(indent=None, by_alias=True, exclude_none=True, exclude_unset=True, ensure_ascii=False)
                     zf.writestr("metadata.json", meta_json)
 
                 # upload metadata to s3
                 self._upload_artifacts_to_s3(doc, local_meta_path, local_doc_path)
                 with get_session() as session:
-                    self._update_document(doc.md5, metadata, session, meta_json)
+                    self._update_document(doc.md5, metadata, session, schema_org)
                 self.log(f"Metadata extracted and uploaded for document {doc.md5}({doc.ya_public_url})")
                 self.log(f"Metadata: {meta_json}")
             except Empty:
@@ -228,11 +229,10 @@ class MetadataExtractionWorker:
             doc.document_url = encrypt(remote_doc_url, self.config) if doc.sharing_restricted else remote_doc_url
 
 
-    def _update_document(self, doc_md5, meta, session, meta_json):
+    def _update_document(self, doc_md5, meta, session, schema_org):
         doc = session.get(Document, doc_md5)
         doc.language=", ".join(sorted([i.strip() for i in meta.inLanguage.split(",") if i.strip()])) if meta.inLanguage else None
 
-        schema_org = json.loads(meta_json)
         metadata_row = session.get(Metadata, doc_md5)
         if metadata_row is None:
             metadata_row = Metadata(md5=doc_md5)
@@ -255,4 +255,43 @@ class MetadataExtractionWorker:
         with open(log_file, "a") as log:
             log.write(f"{message}\n")
         print(message)
+
+
+def _normalize_base_schema_org(schema_org: dict) -> dict:
+    """Normalize base metadata to canonical `about` terms and drop additionalProperty."""
+    updated = dict(schema_org)
+    about_items = updated.get("about")
+    about = about_items if isinstance(about_items, list) else ([about_items] if about_items else [])
+
+    seen = set()
+    normalized_about = []
+    for item in about:
+        if not isinstance(item, dict):
+            continue
+        termset = str(item.get("inDefinedTermSet") or "").strip()
+        term_code = str(item.get("termCode") or item.get("name") or "").strip()
+        if not termset or not term_code:
+            continue
+        if termset.casefold() == "ddc":
+            continue
+        key = (termset.casefold(), term_code.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_about.append(
+            {
+                "@type": "DefinedTerm",
+                "name": term_code,
+                "termCode": term_code,
+                "inDefinedTermSet": termset,
+            }
+        )
+
+    if normalized_about:
+        updated["about"] = normalized_about
+    elif "about" in updated:
+        updated.pop("about", None)
+
+    updated.pop("additionalProperty", None)
+    return updated
     

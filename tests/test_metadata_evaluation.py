@@ -14,7 +14,7 @@ from metadata.evaluation import (
     _build_content_excerpt,
     _normalize_library_classification,
     _normalize_metadata_patch,
-    _sync_library_classification_properties,
+    _sync_auxiliary_terms_in_about,
     evaluate,
 )
 from prompts.metadata_evaluation import build_library_applicability_prompt
@@ -198,44 +198,76 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIn("description", applied)
         self.assertIn("publisher", applied)
 
-    def test_sync_library_classification_properties_adds_and_removes_values(self) -> None:
+    def test_sync_auxiliary_terms_in_about_adds_and_removes_values(self) -> None:
         schema = {
+            "genre": ["Novel"],
+            "about": [
+                {"@type": "Thing", "name": "Preserved"},
+                {"@type": "DefinedTerm", "name": "821.512.145", "termCode": "821.512.145", "inDefinedTermSet": "UDC"},
+            ],
             "additionalProperty": [
                 {"@type": "PropertyValue", "name": "DDC", "value": "300"},
                 {"@type": "PropertyValue", "name": "LibraryPathEn", "value": "Old > Path"},
-                {"@type": "PropertyValue", "name": "UDC", "value": "821.512.145"},
             ]
         }
-        updated, applied = _sync_library_classification_properties(
+        updated, applied = _sync_auxiliary_terms_in_about(
             schema_org=schema,
             applicable=True,
             ddc="600",
             path=["Technology", "Engineering"],
         )
-        self.assertIn("additionalProperty.DDC", applied)
-        self.assertIn("additionalProperty.LibraryPathEn", applied)
-        props = updated["additionalProperty"]
-        self.assertTrue(any(p.get("name") == "UDC" for p in props if isinstance(p, dict)))
-        self.assertTrue(any(p.get("name") == "DDC" and p.get("value") == "600" for p in props if isinstance(p, dict)))
+        self.assertIn("about", applied)
+        self.assertIn("additionalProperty", applied)
+        self.assertIn("genre", applied)
+        self.assertNotIn("genre", updated)
+        about = updated["about"]
+        self.assertTrue(any(item.get("name") == "Preserved" for item in about if isinstance(item, dict)))
         self.assertTrue(
             any(
-                p.get("name") == "LibraryPathEn" and p.get("value") == "Technology > Engineering"
-                for p in props
-                if isinstance(p, dict)
+                item.get("inDefinedTermSet") == "Genre" and item.get("name") == "Novel"
+                for item in about
+                if isinstance(item, dict)
             )
         )
+        self.assertTrue(
+            any(
+                item.get("inDefinedTermSet") == "UDC" and item.get("termCode") == "821.512.145"
+                for item in about
+                if isinstance(item, dict)
+            )
+        )
+        self.assertTrue(
+            any(
+                item.get("inDefinedTermSet") == "DDC" and item.get("termCode") == "600"
+                for item in about
+                if isinstance(item, dict)
+            )
+        )
+        self.assertTrue(
+            any(
+                item.get("inDefinedTermSet") == "LibraryPathEn"
+                and item.get("termCode") == "Technology > Engineering"
+                for item in about
+                if isinstance(item, dict)
+            )
+        )
+        self.assertNotIn("additionalProperty", updated)
 
-        cleaned, removed = _sync_library_classification_properties(
+        cleaned, removed = _sync_auxiliary_terms_in_about(
             schema_org=updated,
             applicable=False,
             ddc=None,
             path=None,
         )
-        cleaned_props = cleaned["additionalProperty"]
-        self.assertFalse(any(p.get("name") == "DDC" for p in cleaned_props if isinstance(p, dict)))
-        self.assertFalse(any(p.get("name") == "LibraryPathEn" for p in cleaned_props if isinstance(p, dict)))
-        self.assertIn("additionalProperty.DDC", removed)
-        self.assertIn("additionalProperty.LibraryPathEn", removed)
+        cleaned_about = cleaned["about"]
+        self.assertFalse(any(item.get("inDefinedTermSet") == "DDC" for item in cleaned_about if isinstance(item, dict)))
+        self.assertFalse(
+            any(item.get("inDefinedTermSet") == "LibraryPathEn" for item in cleaned_about if isinstance(item, dict))
+        )
+        self.assertTrue(any(item.get("inDefinedTermSet") == "Genre" for item in cleaned_about if isinstance(item, dict)))
+        self.assertTrue(any(item.get("inDefinedTermSet") == "UDC" for item in cleaned_about if isinstance(item, dict)))
+        self.assertTrue(any(item.get("name") == "Preserved" for item in cleaned_about if isinstance(item, dict)))
+        self.assertIn("about", removed)
 
     def test_metadata_patch_serialization_keeps_utf8(self) -> None:
         task = EvaluationTask(

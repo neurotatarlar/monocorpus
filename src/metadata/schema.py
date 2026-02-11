@@ -9,11 +9,12 @@ class PersonOrOrganization(BaseModel):
     name: str
     role: Optional[str] = None
 
-class PropertyValue(BaseModel):
-    """Schema.org PropertyValue entry."""
+class DefinedTerm(BaseModel):
+    """Schema.org DefinedTerm entry."""
     type: str = Field(alias="@type")
-    name: str
-    value: str
+    name: Optional[str] = None
+    termCode: Optional[str] = None
+    inDefinedTermSet: Optional[str] = None
     
 class CreativeWork(BaseModel):
     """Schema.org CreativeWork reference."""
@@ -40,7 +41,7 @@ class Book(BaseModel):
     description: Optional[str] = None
     numberOfPages: Optional[int] = None
     bookEdition: Optional[int] = None
-    additionalProperty: Optional[List[PropertyValue]] = None
+    about: Optional[List[DefinedTerm]] = None
 
     # Optional enhancements
     genre: Optional[List[str]] = None
