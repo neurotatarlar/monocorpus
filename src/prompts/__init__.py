@@ -1,15 +1,14 @@
-"""Backward-compatible prompt shim."""
+"""Prompt modules for content and metadata extraction."""
 
-from prompts.content import (
+from .content import (
     EXTRACT_CONTENT_PROMPT_FOOTNOTE_PART,
     EXTRACT_CONTENT_PROMPT_NO_TITLE,
     EXTRACT_CONTENT_PROMPT_POSSIBLE_TITLE,
     EXTRACT_CONTENT_PROMPT_PRELUDE,
     EXTRACT_CONTENT_PROMPT_STATIC_BODY,
-    _get_remote_file_or_upload,
     cook_extraction_prompt,
 )
-from prompts.metadata import (
+from .metadata import (
     DEFINE_META_PROMPT_BODY,
     DEFINE_META_PROMPT_CRH_FOOTER,
     DEFINE_META_PROMPT_NON_PDF_HEADER,
@@ -29,5 +28,4 @@ __all__ = [
     "DEFINE_META_PROMPT_TT_FOOTER",
     "DEFINE_META_PROMPT_CRH_FOOTER",
     "cook_extraction_prompt",
-    "_get_remote_file_or_upload",
 ]

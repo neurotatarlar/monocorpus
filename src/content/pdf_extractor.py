@@ -18,7 +18,7 @@ from integrations.gemini import gemini_api, create_client
 import pymupdf
 import shutil
 from content.pdf_postprocess import postprocess, NoBboxError
-from prompt import cook_extraction_prompt
+from prompts.content import cook_extraction_prompt
 import json
 from content.continuity_checker import continue_smoothly
 from pydantic import BaseModel, ValidationError

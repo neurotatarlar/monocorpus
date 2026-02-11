@@ -1,6 +1,11 @@
 """Metadata extraction from already-extracted text content."""
 
-from prompt import DEFINE_META_PROMPT_NON_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
+from prompts.metadata import (
+    DEFINE_META_PROMPT_BODY,
+    DEFINE_META_PROMPT_CRH_FOOTER,
+    DEFINE_META_PROMPT_NON_PDF_HEADER,
+    DEFINE_META_PROMPT_TT_FOOTER,
+)
 from core.paths import get_in_workdir
 from dirs import Dirs
 from integrations.gemini import gemini_api

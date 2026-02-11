@@ -1,7 +1,5 @@
-"""Artifact integrity checks (placeholder)."""
+"""Backward-compatible shim for maintenance.check_artifacts."""
 
+from maintenance.check_artifacts import check
 
-def check():
-    """Run artifact validation checks (currently a no-op)."""
-    pass
-    
+__all__ = ["check"]

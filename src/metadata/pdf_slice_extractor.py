@@ -7,7 +7,12 @@ from metadata.schema import Book
 from dirs import Dirs
 from itertools import groupby
 import pymupdf
-from prompt import DEFINE_META_PROMPT_PDF_HEADER, DEFINE_META_PROMPT_BODY, DEFINE_META_PROMPT_TT_FOOTER, DEFINE_META_PROMPT_CRH_FOOTER
+from prompts.metadata import (
+    DEFINE_META_PROMPT_BODY,
+    DEFINE_META_PROMPT_CRH_FOOTER,
+    DEFINE_META_PROMPT_PDF_HEADER,
+    DEFINE_META_PROMPT_TT_FOOTER,
+)
 import json
 
 SLICE_SIZE = 5
