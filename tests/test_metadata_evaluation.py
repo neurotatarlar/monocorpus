@@ -207,7 +207,7 @@ class MetadataEvaluationTests(unittest.TestCase):
             ],
             "additionalProperty": [
                 {"@type": "PropertyValue", "name": "DDC", "value": "300"},
-                {"@type": "PropertyValue", "name": "LibraryPathEn", "value": "Old > Path"},
+                {"@type": "PropertyValue", "name": "CategoryPath", "value": "Old > Path"},
             ]
         }
         updated, applied = _sync_auxiliary_terms_in_about(
@@ -245,8 +245,16 @@ class MetadataEvaluationTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                item.get("inDefinedTermSet") == "LibraryPathEn"
+                item.get("inDefinedTermSet") == "DDC" and item.get("name") == "Engineering"
+                for item in about
+                if isinstance(item, dict)
+            )
+        )
+        self.assertTrue(
+            any(
+                item.get("inDefinedTermSet") == "CategoryPath"
                 and item.get("termCode") == "Technology > Engineering"
+                and item.get("name") == "Engineering"
                 for item in about
                 if isinstance(item, dict)
             )
@@ -262,7 +270,7 @@ class MetadataEvaluationTests(unittest.TestCase):
         cleaned_about = cleaned["about"]
         self.assertFalse(any(item.get("inDefinedTermSet") == "DDC" for item in cleaned_about if isinstance(item, dict)))
         self.assertFalse(
-            any(item.get("inDefinedTermSet") == "LibraryPathEn" for item in cleaned_about if isinstance(item, dict))
+            any(item.get("inDefinedTermSet") == "CategoryPath" for item in cleaned_about if isinstance(item, dict))
         )
         self.assertTrue(any(item.get("inDefinedTermSet") == "Genre" for item in cleaned_about if isinstance(item, dict)))
         self.assertTrue(any(item.get("inDefinedTermSet") == "UDC" for item in cleaned_about if isinstance(item, dict)))

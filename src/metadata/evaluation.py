@@ -63,12 +63,12 @@ DDC_RE = re.compile(r"^\d{3}(?:\.\d+)?$")
 CYRILLIC_RE = re.compile(r"[\u0400-\u052F]")
 DDC_PROPERTY_NAME = "DDC"
 UDC_PROPERTY_NAME = "UDC"
-LIBRARY_PATH_EN_PROPERTY_NAME = "LibraryPathEn"
+CATEGORY_PATH_TERMSET = "CategoryPath"
 GENRE_TERMSET = "Genre"
 MANAGED_TERMSETS = {
     DDC_PROPERTY_NAME.casefold(),
     UDC_PROPERTY_NAME.casefold(),
-    LIBRARY_PATH_EN_PROPERTY_NAME.casefold(),
+    CATEGORY_PATH_TERMSET.casefold(),
     GENRE_TERMSET.casefold(),
 }
 
@@ -1044,7 +1044,7 @@ def _sync_auxiliary_terms_in_about(
     if applicable and ddc and path:
         retained_about_items.append(_build_defined_term(path[-1], ddc, DDC_PROPERTY_NAME))
         retained_about_items.append(
-            _build_defined_term(" > ".join(path), " > ".join(path), LIBRARY_PATH_EN_PROPERTY_NAME)
+            _build_defined_term(path[-1], " > ".join(path), CATEGORY_PATH_TERMSET)
         )
 
     if retained_about_items:

@@ -67,7 +67,7 @@ Use the `Book` schema where appropriate, but apply a more specific `@type` if a 
   `{"@type":"DefinedTerm","name":"821.512.145","termCode":"821.512.145","inDefinedTermSet":"UDC"}`
   `{"@type":"DefinedTerm","name":"84(2=411.2)","termCode":"84(2=411.2)","inDefinedTermSet":"BBK"}`
 - Do **not** infer or generate DDC in this base extraction flow.
-- Do **not** generate `LibraryPathEn` in this base extraction flow.
+- Do **not** generate `CategoryPath` in this base extraction flow.
 - `genre`: optional; if present, keep in English
 - `audience`: Target audience, expressed in English
 - `bookEdition`: Edition information

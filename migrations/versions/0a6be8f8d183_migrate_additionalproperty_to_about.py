@@ -63,6 +63,8 @@ def _normalize_schema_org(schema_org: Any) -> dict[str, Any] | None:
         term_code = _clean(item.get("termCode")) or _clean(item.get("name"))
         if not term_set or not term_code:
             continue
+        if term_set.casefold() == "librarypathen":
+            term_set = "CategoryPath"
         key = (term_set.casefold(), term_code.casefold())
         if key in seen:
             continue
@@ -132,4 +134,3 @@ def downgrade() -> None:
     auxiliary metadata into `about` terms.
     """
     pass
-
