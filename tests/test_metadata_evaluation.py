@@ -66,7 +66,8 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIn("applicable(bool)", text)
         self.assertIn("reason(str|null)", text)
         all_text = "\n".join([part["text"] for part in prompt[:-1]])
-        self.assertIn("library_classification", all_text)
+        self.assertIn("library_ddc", all_text)
+        self.assertIn("library_path", all_text)
         self.assertIn("If uncertain, prefer applicable=false.", all_text)
         self.assertIn("If upstream_metadata is provided", all_text)
         self.assertIn('"md5": "x"', prompt[-1]["text"])
@@ -145,11 +146,12 @@ class MetadataEvaluationTests(unittest.TestCase):
         )
         self.assertIsNotNone(patch)
         assert patch is not None
-        self.assertNotIn("name", patch)
-        self.assertNotIn("datePublished", patch)
-        self.assertNotIn("isbn", patch)
-        self.assertEqual("Some description", patch["description"])
-        self.assertEqual("Test Publisher", patch["publisher"]["name"])
+        patch_data = patch.model_dump(by_alias=True, exclude_none=True)
+        self.assertNotIn("name", patch_data)
+        self.assertNotIn("datePublished", patch_data)
+        self.assertNotIn("isbn", patch_data)
+        self.assertEqual("Some description", patch_data["description"])
+        self.assertEqual("Test Publisher", patch_data["publisher"]["name"])
 
     def test_apply_metadata_patch_updates_missing_values(self) -> None:
         schema = {"name": "Existing title", "publisher": {"@type": "Organization", "name": ""}}
@@ -168,7 +170,7 @@ class MetadataEvaluationTests(unittest.TestCase):
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_attaches_pdf_slice_when_no_text_excerpt(self, gemini_api_mock) -> None:
         gemini_api_mock.return_value = (
-            [SimpleNamespace(text='{"applicable": true, "reason": null, "library_classification": {"ddc": "600", "path": ["Technology", "Engineering"]}}')],
+            [SimpleNamespace(text='{"applicable": true, "reason": null, "library_ddc": "600", "library_path": ["Technology", "Engineering"]}')],
             [],
         )
         with (
@@ -180,6 +182,10 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIsNotNone(evaluation)
         files = gemini_api_mock.call_args.kwargs["files"]
         self.assertEqual({"/tmp/eval-slice.pdf": "application/pdf"}, files)
+        payload_text = gemini_api_mock.call_args.kwargs["prompt"][-1]["text"]
+        self.assertNotIn('"content_excerpt": null', payload_text)
+        self.assertNotIn('"content_excerpt"', payload_text)
+        self.assertNotIn('"upstream_metadata"', payload_text)
 
     @patch("metadata.evaluation.gemini_api")
     @patch("metadata.evaluation.load_upstream_metadata")
@@ -206,16 +212,14 @@ class MetadataEvaluationTests(unittest.TestCase):
             evaluation = self._worker()._evaluate(self._task(), gemini_client=object())
         self.assertIsNone(evaluation)
 
-    def test_normalize_library_classification_marks_existing(self) -> None:
-        known = [{"ddc": "600", "path": ["Technology", "Engineering"]}]
-        normalized = _normalize_library_classification(
-            {"ddc": "600", "path": ["Technology", "Engineering"]},
+    def test_normalize_library_classification_returns_normalized_tuple(self) -> None:
+        ddc, path = _normalize_library_classification(
+            "600",
+            ["Technology", "Engineering"],
             applicable=True,
-            known_classifications=known,
         )
-        self.assertIsNotNone(normalized)
-        assert normalized is not None
-        self.assertEqual("existing", normalized["source"])
+        self.assertEqual("600", ddc)
+        self.assertEqual(["Technology", "Engineering"], path)
 
     @patch("metadata.evaluation.Channel")
     @patch("metadata.evaluation._load_batch")

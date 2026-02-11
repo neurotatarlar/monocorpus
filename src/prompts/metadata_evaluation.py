@@ -7,36 +7,53 @@ from typing import Any
 
 
 LIBRARY_APPLICABILITY_TASK_TEXT = (
-    "You classify if a document should be included in a public library "
-    "collection for general readers. Return strict JSON with fields: "
-    "applicable(bool), reason(str|null), metadata_patch(object), "
-    "library_classification(object|null)."
+    "You are helping build a high-quality digital library of Tatar-language documents. "
+    "For each document, do three tasks in order: "
+    "(1) fill missing metadata fields when evidence is present, "
+    "(2) decide library applicability, "
+    "(3) assign DDC-based library classification when applicable=true. "
+    "Decisions are about inclusion in a public library collection for general readers. "
+    "Return strict JSON with fields: applicable(bool), reason(str|null), "
+    "metadata_patch(object), library_ddc(str|null), library_path(array|null). "
+    "Return JSON only."
 )
 
 METADATA_GAP_FILL_RULES_TEXT = (
-    "First, fill gaps in known metadata using the same strict rules as metadata extraction flow: "
+    "Metadata gap filling rules (apply first): "
     "only use verifiable information from provided evidence; if uncertain do not guess; "
-    "do not fabricate author/date/ISBN; dehyphenate broken words mentally; "
-    "keep UTF-8; when multiple values are explicitly present include all as arrays. "
-    "For each requested missing field, put either extracted value or null in metadata_patch."
+    "do not fabricate author/date/ISBN/page count; keep UTF-8; "
+    "when multiple values are explicitly present include all as arrays. "
+    "For each requested missing field, put either extracted value or null in metadata_patch. "
+    "If page count is missing and the file is PDF, using source page count is acceptable."
+)
+
+METADATA_PATCH_SHAPE_TEXT = (
+    "metadata_patch must be a schema.org Book-compatible PARTIAL object (or null). "
+    "Allowed keys: name, author, publisher, datePublished, isbn, inLanguage, description, "
+    "numberOfPages, additionalProperty, genre. "
+    "Do not include keys that were not requested as missing. "
+    "Use schema.org-compatible nested shapes: "
+    "author=[{'@type':'Person'|'Organization','name':...}], "
+    "publisher={'@type':'Organization','name':...}, "
+    "additionalProperty=[{'@type':'PropertyValue','name':...,'value':...}]."
 )
 
 LIBRARY_APPLICABILITY_RULES_TEXT = (
-    "Use applicable=false for legal/regulatory/bureaucratic and utility "
-    "documents: laws, decrees, orders, resolutions, court acts, statutes, "
-    "budgets, reports, procurement docs, forms, blank templates, applications, "
-    "notices, instructions, accounting/tax docs, schedules, meeting minutes. "
-    "Use applicable=true for reader-oriented books: fiction, poetry, drama, "
-    "children's literature, biographies, history, culture, popular science, "
-    "dictionaries, encyclopedias, textbooks/manuals meant for broad reading. "
+    "Decide if the document should be included in a public library collection for general readers. "
+    "Use applicable=true for reader-oriented materials: books, textbooks, educational materials, "
+    "literature, children works, biographies, history, cultural works, high-quality journalism, "
+    "popular science, dictionaries, encyclopedias. "
+    "Use applicable=false for government/legal/bureaucratic/utility documents: laws, decrees, "
+    "regulations, standards, budgets, procurement docs, forms, schedules, meeting minutes, "
+    "administrative paperwork, low-value fragments. "
     "If uncertain, prefer applicable=false. Reason must be short (2-8 words)."
 )
 
 LIBRARY_CLASSIFICATION_RULES_TEXT = (
-    "library_classification must be null when applicable=false. "
-    "When applicable=true, library_classification is mandatory and must include "
-    "ddc (string, 3 digits with optional decimal extension, e.g. 600 or 621.3) "
-    "and path (array of 2-8 category labels, top->leaf). "
+    "library_ddc and library_path must both be null when applicable=false. "
+    "When applicable=true, both fields are mandatory: "
+    "library_ddc (string, 3 digits with optional decimal extension, e.g. 600 or 621.3) "
+    "and library_path (array of 2-8 category labels, top->leaf). "
     "Use one of known_classifications if there is a close match; otherwise "
     "suggest a new classification with best-fit ddc and path. "
     "If upstream_metadata is provided, treat it as trustworthy external metadata "
@@ -55,11 +72,17 @@ MISSING_FIELD_REQUESTS = {
     "additionalProperty": "Please add `additionalProperty` (schema.org PropertyValue list) or return null.",
 }
 
+OUTPUT_CONTRACT_TEXT = (
+    "Output contract: return one JSON object with exactly these top-level fields: "
+    "applicable, reason, metadata_patch, library_ddc, library_path. "
+    "Do not include markdown, code fences, or explanatory text."
+)
+
 
 def _build_missing_fields_text(missing_fields: list[str] | None) -> str:
     items = [field for field in (missing_fields or []) if field in MISSING_FIELD_REQUESTS]
     if not items:
-        return "No metadata gaps are requested in this run; keep metadata_patch empty."
+        return "No metadata gaps are requested in this run; metadata_patch must be null."
     lines = ["Missing metadata fields to fill (value or null):"]
     for field in items:
         lines.append(f"- {MISSING_FIELD_REQUESTS[field]}")
@@ -72,9 +95,11 @@ def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str
     return [
         {"text": LIBRARY_APPLICABILITY_TASK_TEXT},
         {"text": METADATA_GAP_FILL_RULES_TEXT},
+        {"text": METADATA_PATCH_SHAPE_TEXT},
         {"text": missing_fields_text},
         {"text": LIBRARY_APPLICABILITY_RULES_TEXT},
         {"text": LIBRARY_CLASSIFICATION_RULES_TEXT},
+        {"text": OUTPUT_CONTRACT_TEXT},
         {
             "text": (
                 "Now use known metadata, upstream metadata (if any), and content excerpt or PDF slice "
@@ -88,7 +113,9 @@ def build_library_applicability_prompt(payload: dict[str, Any]) -> list[dict[str
 __all__ = [
     "LIBRARY_APPLICABILITY_TASK_TEXT",
     "METADATA_GAP_FILL_RULES_TEXT",
+    "METADATA_PATCH_SHAPE_TEXT",
     "LIBRARY_APPLICABILITY_RULES_TEXT",
     "LIBRARY_CLASSIFICATION_RULES_TEXT",
+    "OUTPUT_CONTRACT_TEXT",
     "build_library_applicability_prompt",
 ]

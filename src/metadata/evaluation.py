@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import random
 import re
@@ -27,6 +28,7 @@ from integrations.gemini import create_client, gemini_api
 from integrations.s3 import create_session
 from dirs import Dirs
 from .fields import extract_flat_fields
+from .schema import BookPatch
 from models import Classification, Document, Metadata
 from core.paths import get_in_workdir
 from core.config import read_config
@@ -65,8 +67,9 @@ class Evaluation(BaseModel):
 
     applicable: bool = True
     reason: str | None = None
-    metadata_patch: dict[str, Any] | None = None
-    library_classification: dict[str, Any] | None = None
+    metadata_patch: BookPatch | None = None
+    library_ddc: str | None = None
+    library_path: list[str] | None = None
 
     @classmethod
     def nonapplicable(cls, reason: str) -> "Evaluation":
@@ -342,7 +345,7 @@ class LibraryApplicabilityWorker:
         if excerpt is None and doc.mime_type == "application/pdf":
             if slice_path := self._prepare_pdf_slice_for_eval(doc):
                 files[slice_path] = "application/pdf"
-        payload = {
+        payload = _drop_none_values({
             "md5": doc.md5,
             "ya_path": doc.ya_path,
             "title": flattened_meta["title"],
@@ -361,10 +364,10 @@ class LibraryApplicabilityWorker:
                 {"ddc": item["ddc"], "path": item["path"]}
                 for item in self.known_classifications
             ],
-            "meta": doc.schema_org,
-        }
+        })
 
         prompt = build_library_applicability_prompt(payload)
+        self._dump_prompt(doc.md5, prompt)
 
         response, uploaded_files = gemini_api(
             prompt=prompt,
@@ -384,12 +387,14 @@ class LibraryApplicabilityWorker:
                 doc,
                 self.config,
             )
-            evaluation.library_classification = _normalize_library_classification(
-                evaluation.library_classification,
+            normalized_ddc, normalized_path = _normalize_library_classification(
+                evaluation.library_ddc,
+                evaluation.library_path,
                 applicable=evaluation.applicable,
-                known_classifications=self.known_classifications,
             )
-            if evaluation.applicable and not evaluation.library_classification:
+            evaluation.library_ddc = normalized_ddc
+            evaluation.library_path = normalized_path
+            if evaluation.applicable and (not evaluation.library_ddc or not evaluation.library_path):
                 self.log(f"Missing mandatory library classification for {doc.md5}")
                 return None
             return evaluation
@@ -425,6 +430,14 @@ class LibraryApplicabilityWorker:
         except Exception as exc:  # noqa: BLE001
             self.log(f"Could not load upstream metadata for {doc.md5}: {exc}")
             return None
+
+    def _dump_prompt(self, md5: str, prompt: list[dict[str, Any]]) -> None:
+        try:
+            prompt_path = get_in_workdir(Dirs.PROMPTS, file=f"{md5}-meta-eval-prompt.txt")
+            with open(prompt_path, "w") as fh:
+                fh.write(json.dumps(prompt, ensure_ascii=False, indent=4))
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"Could not dump eval prompt for {md5}: {exc}")
 
     def _prepare_pdf_slice_for_eval(self, doc: EvaluationTask) -> str | None:
         if doc.mime_type != "application/pdf":
@@ -462,13 +475,18 @@ class LibraryApplicabilityWorker:
             if metadata:
                 metadata.lib = bool(evaluation.applicable)
                 metadata.lib_eval_method = EVAL_METHOD
-                if evaluation.applicable and evaluation.library_classification:
-                    metadata.classification_id = _resolve_classification_id(session, evaluation.library_classification)
+                if evaluation.applicable and evaluation.library_ddc and evaluation.library_path:
+                    metadata.classification_id = _resolve_classification_id(
+                        session,
+                        evaluation.library_ddc,
+                        evaluation.library_path,
+                    )
                 else:
                     metadata.classification_id = None
                 if evaluation.metadata_patch:
                     schema_org = metadata.schema_org if isinstance(metadata.schema_org, dict) else {}
-                    patched, applied = _apply_metadata_patch(schema_org, evaluation.metadata_patch)
+                    patch_payload = evaluation.metadata_patch.model_dump(by_alias=True, exclude_none=True)
+                    patched, applied = _apply_metadata_patch(schema_org, patch_payload)
                     if applied:
                         metadata.schema_org = patched
                         self.log(f"Patched metadata for {md5}: {', '.join(applied)}")
@@ -633,9 +651,12 @@ def _is_missing(value: Any) -> bool:
     return False
 
 
-def _normalize_metadata_patch(raw_patch: dict[str, Any] | None, doc: EvaluationTask, config: dict) -> dict[str, Any] | None:
+def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc: EvaluationTask, config: dict) -> BookPatch | None:
     if not isinstance(raw_patch, dict):
-        raw_patch = {}
+        if isinstance(raw_patch, BookPatch):
+            raw_patch = raw_patch.model_dump(by_alias=True, exclude_none=True)
+        else:
+            raw_patch = {}
 
     schema = doc.schema_org if isinstance(doc.schema_org, dict) else {}
     patch: dict[str, Any] = {}
@@ -681,7 +702,9 @@ def _normalize_metadata_patch(raw_patch: dict[str, Any] | None, doc: EvaluationT
         if additional := _normalize_additional_property(raw_patch.get("additionalProperty")):
             patch["additionalProperty"] = additional
 
-    return patch or None
+    if not patch:
+        return None
+    return BookPatch.model_validate(patch)
 
 
 def _normalize_isbn_values(value: Any) -> list[str] | None:
@@ -814,37 +837,18 @@ def _normalize_additional_property(value: Any) -> list[dict[str, str]] | None:
 
 
 def _normalize_library_classification(
-    raw_classification: Any,
+    raw_ddc: Any,
+    raw_path: Any,
     applicable: bool,
-    known_classifications: list[dict[str, Any]],
-) -> dict[str, Any] | None:
+) -> tuple[str | None, list[str] | None]:
     if not applicable:
-        return None
-    if not isinstance(raw_classification, dict):
-        return None
+        return None, None
 
-    ddc = _normalize_ddc(raw_classification.get("ddc"))
-    path = _normalize_classification_path(raw_classification.get("path"))
+    ddc = _normalize_ddc(raw_ddc)
+    path = _normalize_classification_path(raw_path)
     if not ddc or not path:
-        return None
-
-    known_by_key: dict[str, int] = {}
-    known_keys: set[str] = set()
-    for candidate in known_classifications:
-        candidate_key = _classification_key(
-            _normalize_ddc(candidate.get("ddc")),
-            _normalize_classification_path(candidate.get("path")),
-        )
-        if candidate_key:
-            known_keys.add(candidate_key)
-            known_by_key[candidate_key] = int(candidate.get("id", 0) or 0)
-    key = _classification_key(ddc, path)
-    existing_id = known_by_key.get(key) or None
-    source = "existing" if key in known_keys else "new"
-    normalized = {"ddc": ddc, "path": path, "source": source}
-    if existing_id:
-        normalized["classification_id"] = existing_id
-    return normalized
+        return None, None
+    return ddc, path
 
 
 def _normalize_ddc(value: Any) -> str | None:
@@ -872,22 +876,12 @@ def _normalize_classification_path(value: Any) -> list[str] | None:
     return cleaned
 
 
-def _classification_key(ddc: str | None, path: list[str] | None) -> str:
-    if not ddc or not path:
-        return ""
-    return f"{ddc}|{'|'.join([p.casefold() for p in path])}"
-
-
-def _resolve_classification_id(session, normalized_classification: dict[str, Any]) -> int | None:
+def _resolve_classification_id(session, ddc_raw: str | None, path_raw: list[str] | None) -> int | None:
     """Resolve existing classification id or create a new pending one."""
-    if not normalized_classification:
+    if not ddc_raw or not path_raw:
         return None
-    existing_id = normalized_classification.get("classification_id")
-    if isinstance(existing_id, int) and existing_id > 0:
-        return existing_id
-
-    ddc = _normalize_ddc(normalized_classification.get("ddc"))
-    path = _normalize_classification_path(normalized_classification.get("path"))
+    ddc = _normalize_ddc(ddc_raw)
+    path = _normalize_classification_path(path_raw)
     if not ddc or not path:
         return None
     path_key = _classification_path_key(path)
@@ -930,6 +924,10 @@ def _extract_candidate_strings(value: Any, dict_keys: tuple[str, ...] = ("name",
                     output.append(candidate)
                     break
     return output
+
+
+def _drop_none_values(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def _clean_text(value: Any, max_len: int = 1000) -> str | None:

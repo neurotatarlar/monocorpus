@@ -52,3 +52,10 @@ class Book(BaseModel):
     
     class Config:
         populate_by_name = True
+
+
+class BookPatch(Book):
+    """Partial Book payload used for metadata patching."""
+
+    context: Optional[str] = Field(alias="@context", default=None)
+    type: Optional[str] = Field(alias="@type", default=None)
