@@ -75,7 +75,12 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIn("library_path", all_text)
         self.assertIn("If uncertain, prefer applicable=false.", all_text)
         self.assertIn("If upstream_metadata is provided", all_text)
-        self.assertIn('"md5": "x"', prompt[-1]["text"])
+        payload_text = self._payload_text(prompt)
+        self.assertIn('"md5": "x"', payload_text)
+
+    @staticmethod
+    def _payload_text(prompt: list[dict[str, str]]) -> str:
+        return next(part["text"] for part in prompt if part["text"].startswith("{"))
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_parses_library_decision(self, gemini_api_mock) -> None:
@@ -92,7 +97,9 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertEqual("legal act", evaluation.reason)
         prompt = gemini_api_mock.call_args.kwargs["prompt"]
         self.assertIn("public library collection for general readers", prompt[0]["text"])
-        self.assertIn('"content_excerpt": "sample excerpt"', prompt[-1]["text"])
+        payload_text = self._payload_text(prompt)
+        self.assertNotIn('"content_excerpt"', payload_text)
+        self.assertTrue(any("CONTENT_EXCERPT:\nsample excerpt" == part["text"] for part in prompt))
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_returns_none_for_empty_response(self, gemini_api_mock) -> None:
@@ -200,10 +207,11 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     def test_sync_auxiliary_terms_in_about_adds_and_removes_values(self) -> None:
         schema = {
-            "genre": ["Novel"],
             "about": [
                 {"@type": "Thing", "name": "Preserved"},
                 {"@type": "DefinedTerm", "name": "821.512.145", "termCode": "821.512.145", "inDefinedTermSet": "UDC"},
+                {"@type": "DefinedTerm", "name": "Novel", "termCode": "Novel", "inDefinedTermSet": "Genre"},
+                {"@type": "DefinedTerm", "name": "Caption", "termCode": "O-1", "inDefinedTermSet": "OtherSet"},
             ],
             "additionalProperty": [
                 {"@type": "PropertyValue", "name": "DDC", "value": "300"},
@@ -219,12 +227,13 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIn("about", applied)
         self.assertIn("additionalProperty", applied)
         self.assertIn("genre", applied)
-        self.assertNotIn("genre", updated)
+        self.assertEqual(["Novel"], updated["genre"])
         about = updated["about"]
         self.assertTrue(any(item.get("name") == "Preserved" for item in about if isinstance(item, dict)))
+        self.assertFalse(any(item.get("inDefinedTermSet") == "Genre" for item in about if isinstance(item, dict)))
         self.assertTrue(
             any(
-                item.get("inDefinedTermSet") == "Genre" and item.get("name") == "Novel"
+                item.get("inDefinedTermSet") == "OtherSet" and item.get("termCode") == "O-1"
                 for item in about
                 if isinstance(item, dict)
             )
@@ -245,16 +254,15 @@ class MetadataEvaluationTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                item.get("inDefinedTermSet") == "DDC" and item.get("name") == "Engineering"
+                item.get("inDefinedTermSet") == "CategoryPath"
+                and item.get("termCode") == "Technology > Engineering"
                 for item in about
                 if isinstance(item, dict)
             )
         )
-        self.assertTrue(
+        self.assertFalse(
             any(
-                item.get("inDefinedTermSet") == "CategoryPath"
-                and item.get("termCode") == "Technology > Engineering"
-                and item.get("name") == "Engineering"
+                item.get("@type") == "DefinedTerm" and "name" in item
                 for item in about
                 if isinstance(item, dict)
             )
@@ -268,11 +276,11 @@ class MetadataEvaluationTests(unittest.TestCase):
             path=None,
         )
         cleaned_about = cleaned["about"]
+        self.assertEqual(["Novel"], cleaned.get("genre"))
         self.assertFalse(any(item.get("inDefinedTermSet") == "DDC" for item in cleaned_about if isinstance(item, dict)))
         self.assertFalse(
             any(item.get("inDefinedTermSet") == "CategoryPath" for item in cleaned_about if isinstance(item, dict))
         )
-        self.assertTrue(any(item.get("inDefinedTermSet") == "Genre" for item in cleaned_about if isinstance(item, dict)))
         self.assertTrue(any(item.get("inDefinedTermSet") == "UDC" for item in cleaned_about if isinstance(item, dict)))
         self.assertTrue(any(item.get("name") == "Preserved" for item in cleaned_about if isinstance(item, dict)))
         self.assertIn("about", removed)
@@ -317,10 +325,12 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertIsNotNone(evaluation)
         files = gemini_api_mock.call_args.kwargs["files"]
         self.assertEqual({"/tmp/eval-slice.pdf": "application/pdf"}, files)
-        payload_text = gemini_api_mock.call_args.kwargs["prompt"][-1]["text"]
+        prompt = gemini_api_mock.call_args.kwargs["prompt"]
+        payload_text = self._payload_text(prompt)
         self.assertNotIn('"content_excerpt": null', payload_text)
         self.assertNotIn('"content_excerpt"', payload_text)
         self.assertNotIn('"upstream_metadata"', payload_text)
+        self.assertFalse(any(part["text"].startswith("CONTENT_EXCERPT:\n") for part in prompt))
 
     @patch("metadata.evaluation.gemini_api")
     @patch("metadata.evaluation.load_upstream_metadata")
@@ -335,7 +345,8 @@ class MetadataEvaluationTests(unittest.TestCase):
         with patch.object(LibraryApplicabilityWorker, "_load_content_excerpt", return_value="sample excerpt"):
             self._worker()._evaluate(task, gemini_client=object())
         prompt = gemini_api_mock.call_args.kwargs["prompt"]
-        self.assertIn('"upstream_metadata": "{\\"name\\":\\"Upstream\\"}"', prompt[-1]["text"])
+        payload_text = self._payload_text(prompt)
+        self.assertIn('"upstream_metadata": "{\\"name\\":\\"Upstream\\"}"', payload_text)
 
     @patch("metadata.evaluation.gemini_api")
     def test_evaluate_requires_classification_for_applicable_doc(self, gemini_api_mock) -> None:

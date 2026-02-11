@@ -360,13 +360,13 @@ class LibraryApplicabilityWorker:
             if slice_path := self._prepare_pdf_slice_for_eval(doc):
                 files[slice_path] = "application/pdf"
         payload = _drop_none_values({
-            "md5": doc.md5,
-            "ya_path": doc.ya_path,
+            # "md5": doc.md5,
+            # "ya_path": doc.ya_path,
             "title": flattened_meta["title"],
             "author": flattened_meta["author"],
             "publisher": flattened_meta["publisher"],
             "genre": flattened_meta["genre"],
-            "language": doc.language,
+            # "language": doc.language,
             "publish_year": flattened_meta["publish_year"],
             "isbn": flattened_meta["isbn"],
             "page_count": doc.page_count,
@@ -1023,7 +1023,7 @@ def _sync_auxiliary_terms_in_about(
     raw_genre = updated.get("genre")
 
     before_about = json.dumps(raw_about, ensure_ascii=False, sort_keys=True) if raw_about is not None else None
-    had_genre = "genre" in updated
+    before_genre = _normalize_genre(raw_genre)
 
     existing_about_items = raw_about if isinstance(raw_about, list) else ([raw_about] if raw_about else [])
     existing_genre_terms = _extract_about_term_values(existing_about_items, GENRE_TERMSET)
@@ -1032,19 +1032,26 @@ def _sync_auxiliary_terms_in_about(
     for item in existing_about_items:
         if _is_managed_about_term(item):
             continue
+        if isinstance(item, dict) and str(item.get("@type") or "").strip().casefold() == "definedterm":
+            normalized_item = dict(item)
+            normalized_item.pop("name", None)
+            retained_about_items.append(normalized_item)
+            continue
         retained_about_items.append(item)
 
     genres = _normalize_genre(raw_genre) or existing_genre_terms
-    for genre in genres:
-        retained_about_items.append(_build_defined_term(genre, genre, GENRE_TERMSET))
+    if genres:
+        updated["genre"] = genres
+    else:
+        updated.pop("genre", None)
 
     for udc in existing_udc_terms:
-        retained_about_items.append(_build_defined_term(udc, udc, UDC_PROPERTY_NAME))
+        retained_about_items.append(_build_defined_term(udc, UDC_PROPERTY_NAME))
 
     if applicable and ddc and path:
-        retained_about_items.append(_build_defined_term(path[-1], ddc, DDC_PROPERTY_NAME))
+        retained_about_items.append(_build_defined_term(ddc, DDC_PROPERTY_NAME))
         retained_about_items.append(
-            _build_defined_term(path[-1], " > ".join(path), CATEGORY_PATH_TERMSET)
+            _build_defined_term(" > ".join(path), CATEGORY_PATH_TERMSET)
         )
 
     if retained_about_items:
@@ -1052,7 +1059,6 @@ def _sync_auxiliary_terms_in_about(
     else:
         updated.pop("about", None)
 
-    updated.pop("genre", None)
     updated.pop("additionalProperty", None)
 
     applied: list[str] = []
@@ -1061,15 +1067,14 @@ def _sync_auxiliary_terms_in_about(
         applied.append("about")
     if "additionalProperty" in schema_org:
         applied.append("additionalProperty")
-    if had_genre:
+    if before_genre != _normalize_genre(updated.get("genre")):
         applied.append("genre")
     return updated, applied
 
 
-def _build_defined_term(name: str, term_code: str, termset: str) -> dict[str, str]:
+def _build_defined_term(term_code: str, termset: str) -> dict[str, str]:
     return {
         "@type": "DefinedTerm",
-        "name": name,
         "termCode": term_code,
         "inDefinedTermSet": termset,
     }
