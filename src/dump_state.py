@@ -15,7 +15,7 @@ import csv
 import zipfile
 import json
 from rich.progress import track
-from meta_fields import extract_flat_fields
+from metadata.fields import extract_flat_fields
 from models import Document
 
 

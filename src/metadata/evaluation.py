@@ -16,12 +16,12 @@ from typing import Iterable
 from google.genai.errors import ClientError
 from pydantic import BaseModel
 from rich import print
-from sqlalchemy import select
 
 from gemini import create_client, gemini_api
-from meta_fields import extract_flat_fields
+from .fields import extract_flat_fields
 from models import Document, Metadata
 from utils import dump_expired_keys, get_session, load_expired_keys, read_config
+from .repository import fetch_docs_for_evaluation, mark_docs_as_non_applicable
 
 
 MODEL = "gemini-2.5-flash"
@@ -105,37 +105,23 @@ def evaluate(args) -> None:
 
 def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[EvaluationTask]:
     lang_codes = config["sup_langs"]["tt"]["codes"]
-    predicate = _get_predicate(lang_codes, channel.get_all_unprocessable_docs())
-    with get_session() as session:
-        rows = session.execute(
-            select(Document, Metadata)
-            .join(Metadata, Metadata.md5 == Document.md5)
-            .where(predicate)
-            .limit(batch_size)
-        )
-        return [
-            EvaluationTask(
-                md5=doc.md5,
-                ya_path=doc.ya_path,
-                language=doc.language,
-                page_count=extract_flat_fields(meta.schema_org if meta else None).get("page_count"),
-                full=doc.full,
-                sharing_restricted=doc.sharing_restricted,
-                schema_org=meta.schema_org if meta else None,
-            )
-            for doc, meta in rows
-        ]
-
-
-def _get_predicate(codes: list[str], unprocessable: set[str]):
-    predicate = (
-        Metadata.lib.is_(None)
-        & Document.language.in_(codes)
-        & Document.content_url.is_not(None)
+    rows = fetch_docs_for_evaluation(
+        batch_size=batch_size,
+        lang_codes=lang_codes,
+        excluded_md5s=channel.get_all_unprocessable_docs(),
     )
-    if unprocessable:
-        predicate = predicate & Document.md5.not_in(unprocessable)
-    return predicate
+    return [
+        EvaluationTask(
+            md5=doc.md5,
+            ya_path=doc.ya_path,
+            language=doc.language,
+            page_count=extract_flat_fields(meta.schema_org if meta else None).get("page_count"),
+            full=doc.full,
+            sharing_restricted=doc.sharing_restricted,
+            schema_org=meta.schema_org if meta else None,
+        )
+        for doc, meta in rows
+    ]
 
 
 def _pick_keys(config: dict, workers: int, channel: "Channel") -> list[str]:
@@ -167,12 +153,7 @@ def _save_non_applicable(non_applicables: list[tuple[str, str]], dry_run: bool) 
     print(f"Marking {len(non_applicables)} documents as non-applicable")
     if dry_run:
         return
-    with get_session() as session:
-        for md5, _reason in non_applicables:
-            stored = session.get(Metadata, md5)
-            if stored:
-                stored.lib = False
-        session.commit()
+    mark_docs_as_non_applicable([md5 for md5, _reason in non_applicables])
 
 
 def _create_queue(docs: list[EvaluationTask]) -> Queue:

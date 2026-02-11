@@ -69,7 +69,7 @@ from rich import print
 from models import Document, Metadata
 from s3 import  create_session
 from sqlalchemy import select
-from meta_fields import extract_isbn_values, parse_meta
+from metadata.fields import extract_isbn_values, parse_meta
 import json
 from dirs import Dirs
 import os

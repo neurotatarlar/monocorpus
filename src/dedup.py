@@ -16,7 +16,7 @@ from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from sqlalchemy import select, func
 
 from dirs import Dirs
-from meta_fields import (
+from metadata.fields import (
     extract_author,
     extract_isbn,
     extract_publish_year,

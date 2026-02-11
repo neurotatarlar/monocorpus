@@ -93,7 +93,7 @@ def meta_evaluate(
     """
     Decide if books are applicable for library management and taxonomy.
     """
-    from meta.evaluation import evaluate
+    from metadata.evaluation import evaluate
 
     args = MetaCliArgs(
         batch_size=batch_size,
@@ -281,4 +281,3 @@ def dedup(
         max_group_size=max_group_size,
         report_path=report_path,
     )
-

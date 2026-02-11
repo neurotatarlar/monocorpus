@@ -13,8 +13,6 @@ Key Features:
 - State persistence for failed extractions
 """
 
-
-from sqlalchemy import select
 from rich import print
 from s3 import upload_file, create_session
 from utils import read_config, get_in_workdir, download_file_locally, load_expired_keys, dump_expired_keys, get_session
@@ -34,6 +32,7 @@ import datetime
 import time
 import json
 from models import Document, Metadata
+from .repository import fetch_docs_for_metadata_extraction
 import random
 
 model = 'gemini-3-flash-preview'
@@ -54,10 +53,9 @@ def extract_metadata():
     
 def _process_by_predicate(docs_batch_size=5000, keys_batch_size=1):
     """
-    Process documents matching the given predicate using parallel workers.
+    Process metadata extraction batches using parallel workers.
     
     Args:
-        predicate: SQLAlchemy filter predicate
         docs_batch_size: Number of documents to process in one batch
         keys_batch_size: Number of API keys to use in parallel
     """
@@ -72,13 +70,6 @@ def _process_by_predicate(docs_batch_size=5000, keys_batch_size=1):
         gc.collect()
         try: 
             unprocessles = _load_unprocessables()
-            predicate = (
-                Metadata.md5.is_(None) &
-                (
-                    Document.content_url.is_not(None) | (Document.mime_type == 'application/pdf')
-                ) &
-                Document.md5.not_in(unprocessles)
-            )
             with exceeded_keys_lock:
                 available_keys =  list(set(config["gemini_api_keys"]) - exceeded_keys_set)
             random.shuffle(available_keys)
@@ -89,14 +80,10 @@ def _process_by_predicate(docs_batch_size=5000, keys_batch_size=1):
             else:
                 print(f"Available keys: {available_keys}, Total keys: {config['gemini_api_keys']}, Exceeded keys: {exceeded_keys_set}, Extracting with keys: {keys_slice}")
                 
-            with get_session() as session:
-                stmt = (
-                    select(Document)
-                    .outerjoin(Metadata, Metadata.md5 == Document.md5)
-                    .where(predicate)
-                    .limit(docs_batch_size)
-                )
-                docs = list(session.scalars(stmt))
+            docs = fetch_docs_for_metadata_extraction(
+                limit=docs_batch_size,
+                excluded_md5s=unprocessles,
+            )
 
             print(f"Got {len(docs)} docs for metadata extraction")
             tasks_queue = Queue(maxsize=len(docs))

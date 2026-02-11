@@ -25,7 +25,7 @@ from rich.progress import track
 from sqlalchemy import select
 
 from dirs import Dirs
-from meta_fields import extract_genre, extract_publish_year, parse_meta
+from metadata.fields import extract_genre, extract_publish_year, parse_meta
 from models import Document
 from s3 import download
 from utils import get_in_workdir, get_session, read_config
