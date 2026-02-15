@@ -118,6 +118,39 @@ class CliAndHelperTests(unittest.TestCase):
         self.assertNotEqual(0, result.exit_code)
         self.assertIn("MD5 should be 32 characters long", result.output)
 
+    def test_cli_extract_md5_file_dispatch(self) -> None:
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
+            f.write("# comment\n")
+            f.write("a" * 32 + "\n")
+            f.write("A" * 32 + "\n")
+            f.write("\n")
+            f.write("b" * 32 + "\n")
+            md5_file = f.name
+        self.addCleanup(lambda: os.path.exists(md5_file) and os.remove(md5_file))
+
+        with patch("content.extract_content") as extract_content:
+            result = runner.invoke(app, ["extract", "--md5-file", md5_file, "--workers", "2"])
+
+        self.assertEqual(0, result.exit_code, result.output)
+        extract_content.assert_called_once()
+        cli_params = extract_content.call_args.args[0]
+        self.assertIsNone(cli_params.md5)
+        self.assertEqual(["a" * 32, "b" * 32], cli_params.md5s)
+        self.assertIsNone(cli_params.path)
+        self.assertEqual(2, cli_params.workers)
+
+    def test_cli_extract_md5_file_conflict_fails(self) -> None:
+        runner = CliRunner()
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as f:
+            f.write("a" * 32 + "\n")
+            md5_file = f.name
+        self.addCleanup(lambda: os.path.exists(md5_file) and os.remove(md5_file))
+
+        result = runner.invoke(app, ["extract", "--md5", "a" * 32, "--md5-file", md5_file])
+        self.assertNotEqual(0, result.exit_code)
+        self.assertIn("Use either --md5 or --md5-file", result.output)
+
     def test_cli_dedup_bad_threshold_fails(self) -> None:
         runner = CliRunner()
         result = runner.invoke(app, ["dedup", "--threshold", "0"])

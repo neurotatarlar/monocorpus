@@ -102,8 +102,8 @@ non_pdf_format_types = to_docx_mime_types | \
 
 def extract_content(cli_params):
     """Dispatch extraction for both non-PDF and PDF documents."""
-    _process_non_pdf(cli_params)
-    # _process_pdf(cli_params)
+    # _process_non_pdf(cli_params)
+    _process_pdf(cli_params)
     
  
 def _process_non_pdf(cli_params):
@@ -271,7 +271,6 @@ def _process_pdf(cli_params):
     config = read_config()
     stop_event = threading.Event()
     print("Extracting content of pdf documents")
-    entity_cls = Document
     
     while not stop_event.is_set():
         tasks_queue = None
@@ -279,12 +278,18 @@ def _process_pdf(cli_params):
         
         channel = Channel()
         predicate = (
-            entity_cls.content_url.is_(None) &
-            (entity_cls.mime_type ==  "application/pdf") &
-            (entity_cls.language == "tt-Cyrl") &
-            (entity_cls.full == True) & 
+            # Document.content_url.is_(None) &
+            (Document.mime_type ==  "application/pdf") &
+            (Document.language == "tt-Cyrl") &
+            (Document.full == True) & 
             (
-                (entity_cls.md5 == cli_params.md5) if cli_params.md5 else entity_cls.md5.not_in(channel.get_all_unprocessable_docs())
+                (Document.md5 == cli_params.md5)
+                if cli_params.md5
+                else (
+                    Document.md5.in_(cli_params.md5s)
+                    if cli_params.md5s
+                    else Document.md5.not_in(channel.get_all_unprocessable_docs())
+                )
             )
         )
         
@@ -300,7 +305,7 @@ def _process_pdf(cli_params):
             
             with YaDisk(config['yandex']['disk']['oauth_token'], proxy=config['proxy']) as ya_client:
                 with get_session() as session:
-                    docs = list(obtain_documents(cli_params, ya_client, entity_cls=entity_cls, predicate=predicate, limit=cli_params.batch_size, session=session))
+                    docs = list(obtain_documents(cli_params, ya_client, entity_cls=Document, predicate=predicate, limit=cli_params.batch_size, session=session))
                     
                 if not docs:
                     print("No docs for processing, exiting...")

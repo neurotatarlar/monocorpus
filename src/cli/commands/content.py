@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 from typing_extensions import Annotated
 
-from cli.common import CliParams, ExtractParams, md5_validator
+from cli.common import CliParams, ExtractParams, load_md5s_from_file, md5_validator
 
 
 def register(app: typer.Typer) -> None:
@@ -21,6 +21,13 @@ def register(app: typer.Typer) -> None:
                 "--md5",
                 callback=md5_validator,
                 help="MD5 hash of the document. If not provided, all local documents will be processed.",
+            ),
+        ] = None,
+        md5_file: Annotated[
+            Optional[str],
+            typer.Option(
+                "--md5-file",
+                help="Path to a text file with one MD5 per line.",
             ),
         ] = None,
         path: Annotated[
@@ -51,8 +58,20 @@ def register(app: typer.Typer) -> None:
         """Extract content from documents stored in Yandex Disk."""
         import content
 
+        if md5 and md5_file:
+            raise typer.BadParameter("Use either --md5 or --md5-file, not both.")
+        if path and md5_file:
+            raise typer.BadParameter("Use either --path or --md5-file, not both.")
+
+        md5s = None
+        if md5_file:
+            md5s = load_md5s_from_file(md5_file)
+            if not md5s:
+                raise typer.BadParameter(f"No MD5 values found in file: {md5_file}")
+
         cli_params = ExtractParams(
             md5=md5.strip() if md5 else None,
+            md5s=md5s,
             path=path.strip() if path else None,
             workers=workers,
             batch_size=batch_size if batch_size and batch_size > 0 else workers * 3,

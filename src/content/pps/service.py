@@ -20,7 +20,6 @@ from dirs import Dirs
 from models import Document
 from .text import (
     mask_math_segments,
-    normalize_mixed_script_lookalikes,
     restore_math_segments,
     truncate_underscore_runs,
 )
@@ -207,14 +206,14 @@ def _apply_rules(text: str) -> Tuple[str, Dict[str, int]]:
     # if removed:
     #     issues["replacement_chars_removed"] = removed
 
-    # # first deduplicate
+    # deduplicate before running
     # text, demoted = _normalize_multiple_titles(text)
     # if demoted:
     #     issues["multiple_titles_normalized"] = demoted
 
-    text, replaced = normalize_mixed_script_lookalikes(text)
-    if replaced:
-        issues["mixed_script_lookalikes_fixed"] = replaced
+    # text, replaced = normalize_mixed_script_lookalikes(text)
+    # if replaced:
+    #     issues["mixed_script_lookalikes_fixed"] = replaced
 
     return text, issues
 

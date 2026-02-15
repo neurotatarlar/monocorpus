@@ -87,6 +87,9 @@ def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=No
     """Yield documents based on CLI filters (md5/path) and optional predicates."""
     if session is None:
         session = get_session()
+    md5 = getattr(cli_params, "md5", None)
+    md5s = getattr(cli_params, "md5s", None)
+    path = getattr(cli_params, "path", None)
 
     def _yield_by_md5(_md5, _predicate):
         print(f"Looking for document by md5 '{_md5}'")
@@ -95,6 +98,14 @@ def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=No
         else:
             _predicate &= (entity_cls.md5 == _md5)
         yield from _find(session, predicate=_predicate, limit=1, entity_cls=entity_cls)
+
+    def _yield_by_md5s(_md5s, _predicate):
+        print(f"Looking for {len(_md5s)} documents by provided md5 list")
+        if _predicate is None:
+            _predicate = entity_cls.md5.in_(_md5s)
+        else:
+            _predicate &= entity_cls.md5.in_(_md5s)
+        yield from _find(session, predicate=_predicate, limit=limit, offset=offset, entity_cls=entity_cls)
 
     def _yield_by_path(_path, _predicate):
         _meta = ya_client.get_meta(_path, fields=['md5', 'type', 'path'])
@@ -117,10 +128,12 @@ def obtain_documents(cli_params, ya_client, entity_cls, predicate=None, limit=No
                             if counter >= limit:
                                 return
                         
-    if cli_params.md5:
-        yield from _yield_by_md5(cli_params.md5, predicate)
-    elif cli_params.path:
-        yield from _yield_by_path(cli_params.path, predicate)
+    if md5:
+        yield from _yield_by_md5(md5, predicate)
+    elif md5s:
+        yield from _yield_by_md5s(md5s, predicate)
+    elif path:
+        yield from _yield_by_path(path, predicate)
     else:
         print("Traversing all unprocessed documents")
         yield from _find(session, predicate=predicate, limit=limit, offset=offset, entity_cls=entity_cls)

@@ -89,6 +89,34 @@ class ObtainDocumentsTests(unittest.TestCase):
         find_docs.assert_called_once()
         self.assertEqual([fake_doc], docs)
 
+    def test_obtain_documents_md5s_uses_single_in_lookup(self) -> None:
+        md5s = ["a" * 32, "b" * 32]
+        cli_params = types.SimpleNamespace(md5=None, md5s=md5s, path=None)
+        explicit_session = object()
+        fake_docs = [types.SimpleNamespace(md5=md5s[0]), types.SimpleNamespace(md5=md5s[1])]
+
+        class _FakeCol:
+            def in_(self, items):
+                return ("in", tuple(items))
+
+        fake_entity = types.SimpleNamespace(md5=_FakeCol())
+
+        with patch("utils._find", return_value=iter(fake_docs)) as find_docs:
+            docs = list(
+                obtain_documents(
+                    cli_params=cli_params,
+                    ya_client=Mock(),
+                    entity_cls=fake_entity,
+                    predicate=None,
+                    session=explicit_session,
+                )
+            )
+
+        find_docs.assert_called_once()
+        kwargs = find_docs.call_args.kwargs
+        self.assertEqual(("in", tuple(md5s)), kwargs["predicate"])
+        self.assertEqual(fake_docs, docs)
+
 
 if __name__ == "__main__":
     unittest.main()
