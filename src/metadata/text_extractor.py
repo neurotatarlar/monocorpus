@@ -14,7 +14,7 @@ import zipfile
 import requests
 import json
 
-SLICE_SIZE = 30_000
+SLICE_SIZE = 25_000
 
 class FromTextMetadataExtractor:
     """Extract metadata from Markdown content using Gemini."""
