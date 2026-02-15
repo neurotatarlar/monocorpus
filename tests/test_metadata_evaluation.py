@@ -5,7 +5,7 @@ from __future__ import annotations
 from queue import Queue
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from metadata.evaluation import (
     EvaluationTask,
@@ -15,6 +15,7 @@ from metadata.evaluation import (
     _format_response_for_log,
     _normalize_library_classification,
     _normalize_metadata_patch,
+    _sanitize_schema_urls,
     _sync_auxiliary_terms_in_about,
     evaluate,
 )
@@ -67,7 +68,7 @@ class MetadataEvaluationTests(unittest.TestCase):
 
         with (
             patch("metadata.evaluation.ServerError", FakeServerError),
-            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None),
+            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None) as sleep_mock,
             patch.object(
                 LibraryApplicabilityWorker,
                 "_evaluate",
@@ -79,11 +80,12 @@ class MetadataEvaluationTests(unittest.TestCase):
                 ],
             ),
             patch.object(LibraryApplicabilityWorker, "_save_result") as save_result_mock,
-            patch.object(worker.stop_event, "wait", return_value=False) as wait_mock,
         ):
             worker()
 
-        wait_mock.assert_called_once_with(60)
+        sleep_mock.assert_has_calls(
+            [call(None, min_delay_seconds=12), call(None, min_delay_seconds=50)]
+        )
         save_result_mock.assert_called_once()
 
     @patch("metadata.evaluation.create_client")
@@ -104,7 +106,7 @@ class MetadataEvaluationTests(unittest.TestCase):
 
         with (
             patch("metadata.evaluation.ServerError", FakeServerError),
-            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None),
+            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None) as sleep_mock,
             patch.object(
                 LibraryApplicabilityWorker,
                 "_evaluate",
@@ -114,11 +116,12 @@ class MetadataEvaluationTests(unittest.TestCase):
                 ],
             ),
             patch.object(LibraryApplicabilityWorker, "_save_result") as save_result_mock,
-            patch.object(worker.stop_event, "wait", return_value=False) as wait_mock,
         ):
             worker()
 
-        wait_mock.assert_called_once_with(60)
+        sleep_mock.assert_has_calls(
+            [call(None, min_delay_seconds=12), call(None, min_delay_seconds=50)]
+        )
         save_result_mock.assert_called_once()
 
     @patch("metadata.evaluation.create_client")
@@ -158,9 +161,51 @@ class MetadataEvaluationTests(unittest.TestCase):
         ):
             worker()
 
-        self.assertEqual(1, task_queue.qsize())
+        self.assertEqual(0, task_queue.qsize())
         channel.add_exceeded_key.assert_called_once_with("k")
-        channel.add_unprocessable_doc.assert_not_called()
+        channel.add_unprocessable_doc.assert_called_once_with(self._task().md5)
+
+    @patch("metadata.evaluation.create_client")
+    def test_worker_sleeps_after_non_quota_client_error(self, create_client_mock) -> None:
+        create_client_mock.return_value = object()
+        task_queue: Queue = Queue()
+        task_queue.put(self._task())
+        channel = SimpleNamespace(
+            add_unprocessable_doc=unittest.mock.Mock(),
+            add_exceeded_key=unittest.mock.Mock(),
+            exceeded_keys_set=set(),
+        )
+        worker = LibraryApplicabilityWorker(
+            gemini_api_key="k",
+            tasks_queue=task_queue,
+            config={},
+            channel=channel,
+            dry_run=True,
+        )
+
+        class FakeClientError(Exception):
+            def __init__(self, message: str, code: int = 400):
+                super().__init__(message)
+                self.code = code
+
+        with (
+            patch("metadata.evaluation.ClientError", FakeClientError),
+            patch.object(LibraryApplicabilityWorker, "_sleep_if_needed", return_value=None) as sleep_mock,
+            patch.object(
+                LibraryApplicabilityWorker,
+                "_evaluate",
+                side_effect=FakeClientError("400 BAD_REQUEST"),
+            ),
+            patch.object(LibraryApplicabilityWorker, "_save_result") as save_result_mock,
+        ):
+            worker()
+
+        channel.add_unprocessable_doc.assert_called_once_with(self._task().md5)
+        channel.add_exceeded_key.assert_called_once_with("k")
+        sleep_mock.assert_has_calls(
+            [call(None, min_delay_seconds=12)]
+        )
+        save_result_mock.assert_not_called()
 
     def _task(self) -> EvaluationTask:
         return EvaluationTask(
@@ -318,6 +363,28 @@ class MetadataEvaluationTests(unittest.TestCase):
         patch_data = patch.model_dump(by_alias=True, exclude_none=True)
         self.assertEqual(["Novel", "Fiction"], patch_data["genre"])
 
+    def test_normalize_metadata_patch_ignores_null_number_of_pages(self) -> None:
+        task = EvaluationTask(
+            md5="1" * 32,
+            ya_path="/docs/book.pdf",
+            language="tt",
+            page_count=321,
+            full=True,
+            sharing_restricted=False,
+            ya_public_url=None,
+            mime_type="application/pdf",
+            document_url=None,
+            upstream_meta_url=None,
+            content_url="https://storage.example/content/1.zip",
+            schema_org={},
+        )
+        patch = _normalize_metadata_patch(
+            {"numberOfPages": None},
+            task,
+            config={},
+        )
+        self.assertIsNone(patch)
+
     def test_apply_metadata_patch_updates_missing_values(self) -> None:
         schema = {"name": "Existing title", "publisher": {"@type": "Organization", "name": ""}}
         patch = {
@@ -412,6 +479,27 @@ class MetadataEvaluationTests(unittest.TestCase):
         self.assertTrue(any(item.get("name") == "Preserved" for item in cleaned_about if isinstance(item, dict)))
         self.assertIn("about", removed)
 
+    def test_sanitize_schema_urls_drops_invalid_entries(self) -> None:
+        cleaned, changed = _sanitize_schema_urls(
+            {
+                "url": [
+                    "https://example.org/ok",
+                    "mailto:test@example.org",
+                    "https://example.org/ok",
+                ],
+                "isBasedOn": {
+                    "@type": "CreativeWork",
+                    "url": ["javascript:alert(1)", "https://source.example/book"],
+                },
+            }
+        )
+        self.assertTrue(changed)
+        self.assertEqual(["https://example.org/ok"], cleaned["url"])
+        self.assertEqual(
+            ["https://source.example/book"],
+            cleaned["isBasedOn"]["url"],
+        )
+
     def test_metadata_patch_serialization_keeps_utf8(self) -> None:
         task = EvaluationTask(
             md5="2" * 32,
@@ -505,9 +593,17 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     @patch("metadata.evaluation.Channel")
     @patch("metadata.evaluation._load_batch")
+    @patch("metadata.evaluation.count_docs_for_evaluation")
     @patch("metadata.evaluation.read_config")
-    def test_evaluate_continues_after_batch_exception(self, read_config_mock, load_batch_mock, channel_cls_mock) -> None:
+    def test_evaluate_continues_after_batch_exception(
+        self,
+        read_config_mock,
+        count_docs_mock,
+        load_batch_mock,
+        channel_cls_mock,
+    ) -> None:
         read_config_mock.return_value = {"gemini_api_keys": ["k"], "sup_langs": {"tt": {"codes": ["tt-Cyrl"]}}}
+        count_docs_mock.return_value = 0
         load_batch_mock.side_effect = [RuntimeError("boom"), []]
         channel = channel_cls_mock.return_value
         channel.exceeded_keys_set = set()
@@ -521,9 +617,17 @@ class MetadataEvaluationTests(unittest.TestCase):
 
     @patch("metadata.evaluation.Channel")
     @patch("metadata.evaluation._load_batch")
+    @patch("metadata.evaluation.count_docs_for_evaluation")
     @patch("metadata.evaluation.read_config")
-    def test_evaluate_handles_keyboard_interrupt(self, read_config_mock, load_batch_mock, channel_cls_mock) -> None:
+    def test_evaluate_handles_keyboard_interrupt(
+        self,
+        read_config_mock,
+        count_docs_mock,
+        load_batch_mock,
+        channel_cls_mock,
+    ) -> None:
         read_config_mock.return_value = {"gemini_api_keys": ["k"], "sup_langs": {"tt": {"codes": ["tt-Cyrl"]}}}
+        count_docs_mock.return_value = 0
         load_batch_mock.side_effect = KeyboardInterrupt()
         channel = channel_cls_mock.return_value
         channel.exceeded_keys_set = set()

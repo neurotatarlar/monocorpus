@@ -37,7 +37,8 @@ from content.dedup import (  # noqa: E402
 class DedupTests(unittest.TestCase):
     def test_normalization_helpers(self) -> None:
         self.assertEqual("hello world", _normalize_key("  Hello,   World! "))
-        self.assertEqual("9781234567890", _normalize_isbn("978-1-234-56789-0"))
+        self.assertEqual("9781402894626", _normalize_isbn("978-1-4028-9462-6"))
+        self.assertEqual("", _normalize_isbn("978-1-234-56789-0"))
         self.assertEqual("2012", _extract_year("published in 2012, reprint"))
         self.assertEqual("", _extract_year("unknown"))
 

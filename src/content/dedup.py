@@ -11,6 +11,7 @@ import zipfile
 from collections import defaultdict
 from urllib.parse import urlparse
 
+import isbnlib
 from rich import print
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from sqlalchemy import select, func
@@ -303,11 +304,11 @@ def _normalize_isbn(value: Optional[str]) -> str:
         return ""
     parts = re.split(r"[,\s;]+", value)
     for part in parts:
-        cleaned = re.sub(r"[^0-9Xx]", "", part).upper()
-        if len(cleaned) in (10, 13):
+        cleaned = isbnlib.canonical(part.strip())
+        if cleaned and (isbnlib.is_isbn10(cleaned) or isbnlib.is_isbn13(cleaned)):
             return cleaned
-    cleaned = re.sub(r"[^0-9Xx]", "", value).upper()
-    if len(cleaned) in (10, 13):
+    cleaned = isbnlib.canonical(value.strip())
+    if cleaned and (isbnlib.is_isbn10(cleaned) or isbnlib.is_isbn13(cleaned)):
         return cleaned
     return ""
 

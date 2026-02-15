@@ -16,7 +16,6 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import fitz
-import isbnlib
 import requests
 from google.genai.errors import ClientError
 from google.genai.errors import ServerError
@@ -37,7 +36,9 @@ from core.db import get_session
 from core.upstream_meta import load_upstream_metadata
 from core.state import dump_expired_keys, load_expired_keys
 from core.security import decrypt, prefix
-from .repository import fetch_docs_for_evaluation, mark_docs_as_non_applicable
+from .isbn_utils import canonicalize_isbn_values
+from .repository import count_docs_for_evaluation, fetch_docs_for_evaluation, mark_docs_as_non_applicable
+from .url_utils import normalize_url_list
 
 
 MODEL = "gemini-3-flash-preview"
@@ -49,17 +50,17 @@ LEGAL_DOC_PATTERNS = [
 ]
 ARTIFACTS_DIR = "_artifacts"
 UNPROCESSABLES_DIR = os.path.join(ARTIFACTS_DIR, "unprocessables")
-DEFAULT_EXCERPT_CHARS = 10_000
+DEFAULT_EXCERPT_CHARS = 5_000
 DEFAULT_KNOWN_CLASSIFICATIONS_LIMIT = 500
 HIGH_DEMAND_SLEEP_SECONDS = 60
+ERROR_BACKOFF_SECONDS = 5
 EXCERPT_PARTS = 3
 EXCERPT_SEPARATOR = "\n\n[...]\n\n"
-EVAL_PDF_SLICE_SIZE = 5
+EVAL_PDF_SLICE_SIZE = 3
 CODE_FENCE_RE = re.compile(r"```.*?```|~~~.*?~~~", flags=re.DOTALL)
 BLANK_LINES_RE = re.compile(r"\n{3,}")
 YEAR_RE = re.compile(r"(1[5-9]\d{2}|20\d{2})")
 INT_RE = re.compile(r"\d+")
-ISBN_CLEAN_RE = re.compile(r"[^0-9Xx]")
 WHITESPACE_RE = re.compile(r"\s+")
 DDC_RE = re.compile(r"^\d{3}(?:\.\d+)?$")
 CYRILLIC_RE = re.compile(r"[\u0400-\u052F]")
@@ -113,12 +114,15 @@ def evaluate(args) -> None:
     if args.dry_run:
         print("Running in dry-run mode: no DB/file state changes will be persisted.")
 
+    remaining = _count_remaining(config, channel)
+    print(f"Documents remaining for evaluation: {remaining}")
     excerpt_chars = max(0, args.excerpt_chars or DEFAULT_EXCERPT_CHARS)
     stop_event = threading.Event()
     while not stop_event.is_set():
         tasks_queue = None
         workers: list[threading.Thread] = []
         try:
+
             docs = _load_batch(config, args.batch_size, channel)
             if not docs:
                 print("No more documents to process")
@@ -205,6 +209,15 @@ def _load_batch(config: dict, batch_size: int, channel: "Channel") -> list[Evalu
         )
         for doc, meta in rows
     ]
+
+
+def _count_remaining(config: dict, channel: "Channel") -> int:
+    """Count docs still pending evaluation for current language filters."""
+    lang_codes = config["sup_langs"]["tt"]["codes"]
+    return count_docs_for_evaluation(
+        lang_codes=lang_codes,
+        excluded_md5s=channel.get_all_unprocessable_docs(),
+    )
 
 
 def _pick_keys(config: dict, workers: int, channel: "Channel") -> list[str]:
@@ -323,7 +336,7 @@ class LibraryApplicabilityWorker:
 
             try:
                 self.log(f"Evaluating {doc.md5}")
-                prev_req_time = self._sleep_if_needed(prev_req_time)
+                prev_req_time = self._sleep_if_needed(prev_req_time, min_delay_seconds=12)
                 evaluation = self._evaluate(doc, gemini_client)
                 if not evaluation:
                     self.log(f"Empty model response for {doc.md5}")
@@ -332,35 +345,37 @@ class LibraryApplicabilityWorker:
                 self._save_result(doc.md5, evaluation)
             except ServerError as e:
                 if _is_retryable_server_error(e):
-                    self.log(
-                        f"Gemini 503 for {doc.md5}; sleeping "
-                        f"{HIGH_DEMAND_SLEEP_SECONDS}s and retrying"
-                    )
+                    self.log(f"Gemini 503 for {doc.md5}")
                     self.tasks_queue.put(doc)
-                    if self.stop_event.wait(HIGH_DEMAND_SLEEP_SECONDS):
-                        self.log("Stop signal received during 503 backoff")
-                        return
+                    prev_req_time = self._sleep_if_needed(prev_req_time, min_delay_seconds=50)
                     continue
                 self.log(f"ServerError for {doc.md5}: {e}")
                 self.channel.add_unprocessable_doc(doc.md5)
             except ClientError as e:
                 self.log(f"ClientError for {doc.md5}: {e}")
-                if _is_daily_free_tier_quota_exhausted(e):
-                    self.channel.add_exceeded_key(self.key)
-                    self.tasks_queue.put(doc)
-                    return
+                # if _is_daily_free_tier_quota_exhausted(e):
+                #     self.channel.add_exceeded_key(self.key)
+                #     self.tasks_queue.put(doc)
+                #     return
+                # self.channel.add_unprocessable_doc(doc.md5)
+                self.channel.add_exceeded_key(self.key)
                 self.channel.add_unprocessable_doc(doc.md5)
+                return
             except Exception as e:  # noqa: BLE001
                 import traceback
 
                 self.log(f"Unhandled error for {doc.md5}: {e}\n{traceback.format_exc()}")
                 self.channel.add_unprocessable_doc(doc.md5)
 
-    def _sleep_if_needed(self, prev_req_time: datetime.datetime | None) -> datetime.datetime:
+    def _sleep_if_needed(
+        self,
+        prev_req_time: datetime.datetime | None,
+        min_delay_seconds: int = 60,
+    ) -> datetime.datetime:
         if prev_req_time:
             elapsed = datetime.datetime.now() - prev_req_time
-            if elapsed < datetime.timedelta(seconds=2):
-                time.sleep(2 - elapsed.total_seconds())
+            if elapsed < datetime.timedelta(seconds=min_delay_seconds):
+                time.sleep(min_delay_seconds - elapsed.total_seconds())
         return datetime.datetime.now()
 
     def _evaluate(self, doc: EvaluationTask, gemini_client) -> Evaluation | None:
@@ -531,6 +546,9 @@ class LibraryApplicabilityWorker:
                     path=evaluation.library_path,
                 )
                 applied.extend(classification_applied)
+                schema_org, url_applied = _sanitize_schema_urls(schema_org)
+                if url_applied:
+                    applied.append("url")
                 if applied:
                     metadata.schema_org = schema_org
                     self.log(f"Patched metadata for {md5}: {', '.join(applied)}")
@@ -775,10 +793,6 @@ def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc:
 
     if "numberOfPages" in patchable_fields:
         number_of_pages = _normalize_number_of_pages(raw_patch.get("numberOfPages"))
-        if number_of_pages is None and doc.page_count:
-            number_of_pages = _normalize_number_of_pages(doc.page_count)
-        if number_of_pages is None and doc.mime_type == "application/pdf":
-            number_of_pages = _fallback_pdf_page_count(doc, config)
         if number_of_pages is not None:
             patch["numberOfPages"] = number_of_pages
 
@@ -808,19 +822,7 @@ def _normalize_metadata_patch(raw_patch: BookPatch | dict[str, Any] | None, doc:
 
 
 def _normalize_isbn_values(value: Any) -> list[str] | None:
-    candidates = _extract_candidate_strings(value)
-    result: list[str] = []
-    for candidate in candidates:
-        clean = ISBN_CLEAN_RE.sub("", candidate)
-        if len(clean) == 10 and isbnlib.is_isbn10(clean):
-            norm = clean.upper()
-        elif len(clean) == 13 and isbnlib.is_isbn13(clean):
-            norm = clean
-        else:
-            continue
-        if norm not in result:
-            result.append(norm)
-    return result or None
+    return canonicalize_isbn_values(value)
 
 
 def _normalize_date_published(value: Any) -> str | None:
@@ -1146,6 +1148,37 @@ def _sync_auxiliary_terms_in_about(
     if before_genre != _normalize_genre(updated.get("genre")):
         applied.append("genre")
     return updated, applied
+
+
+def _sanitize_schema_urls(schema_org: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Drop invalid URL values from schema.org payload."""
+    updated = dict(schema_org)
+    changed = False
+
+    if "url" in updated:
+        normalized = normalize_url_list(updated.get("url"))
+        if normalized:
+            if updated.get("url") != normalized:
+                updated["url"] = normalized
+                changed = True
+        else:
+            updated.pop("url", None)
+            changed = True
+
+    based_on = updated.get("isBasedOn")
+    if isinstance(based_on, dict):
+        normalized_based_on = dict(based_on)
+        normalized_urls = normalize_url_list(based_on.get("url"))
+        if normalized_urls:
+            if based_on.get("url") != normalized_urls:
+                normalized_based_on["url"] = normalized_urls
+                changed = True
+        elif "url" in normalized_based_on:
+            normalized_based_on.pop("url", None)
+            changed = True
+        updated["isBasedOn"] = normalized_based_on
+
+    return updated, changed
 
 
 def _build_defined_term(term_code: str, termset: str) -> dict[str, str]:

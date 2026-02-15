@@ -81,7 +81,14 @@ from rich.console import Console
 from rich.table import Table
 from .constants import TATAR_BCP_47_CODES, NOT_DOCUMENT_TYPES
 from .plan import flush, get_wiping_plan
-from .repository import get_all_md5s, lookup_upstream_metadata, list_docs_with_schema_org
+from .repository import (
+    delete_isbn_keep_many,
+    get_all_md5s,
+    list_docs_with_schema_org,
+    load_isbn_keep_many_map,
+    lookup_upstream_metadata,
+    replace_isbn_keep_many,
+)
 from .rules import normalize_isbn, should_be_skipped
 from .storage import move_to_filtered_out, publish_file, remove_from_s3
 
@@ -165,7 +172,7 @@ def _define_docs_for_wiping(yaclient, config):
         docs_for_wiping.update(nontextual_docs)
         flush(docs_for_wiping)
     
-    _dedup_by_isbn(docs_for_wiping, yaclient, config)
+    # _dedup_by_isbn(docs_for_wiping, yaclient, config)
     
     return docs_for_wiping
     
@@ -175,6 +182,7 @@ def _dedup_by_isbn(plan, yaclient, config):
     # Get all docs that have metadata with potential ISBNs.
     with get_session() as session:
         docs = list_docs_with_schema_org(session)
+        keep_many_map = load_isbn_keep_many_map(session)
     
     # Group them by ISBN
     md5s_to_docs = {}
@@ -199,6 +207,9 @@ def _dedup_by_isbn(plan, yaclient, config):
     duplicated_docs_md5s = set()
     for isbn, md5s in isbns_to_docs.items():
         if len(md5s) > 1 and isbn:
+            if _is_isbn_group_marked_keep_many(isbn, md5s, keep_many_map):
+                print(f"Skipping duplicate ISBN '{isbn}' (keep-many decision already stored)")
+                continue
             print(f"Found duplicate ISBN: '{isbn}' with md5s {md5s}")
             duplicated_isbn_to_md5s[isbn].update(md5s)
             duplicated_docs_md5s.update(md5s)
@@ -223,15 +234,15 @@ def _dedup_by_isbn(plan, yaclient, config):
             _full_docs = set([d for d in _docs if d.full == True])
             # if we have only one full document among duplicates then keep it and move anothers
             if len(_full_docs) == 1:
-                return _docs - _full_docs
+                return _docs - _full_docs, False
             _pdf_docs = set([d for d in _docs if d.mime_type in ['application/pdf', 'application/x-pdf'] and d.full == True])
             # if we have exactly one full pdf among duplicates then keep it and move anothers
             if len(_pdf_docs) == 1:
-                return _docs - _pdf_docs
+                return _docs - _pdf_docs, False
             _extracted_pdf_docs = set([d for d in _pdf_docs if d.content_url])
             #  if we have multiple pdf docs, but only one of them already extracted then keep it and move anothers
             if len(_extracted_pdf_docs) == 1:
-                return _docs - _extracted_pdf_docs
+                return _docs - _extracted_pdf_docs, False
             
             _choices = {idx: doc for idx, doc in enumerate(sorted(_docs, key=lambda d: d.ya_public_url), start=1)}
             # _hint = []
@@ -254,83 +265,53 @@ def _dedup_by_isbn(plan, yaclient, config):
                 _params.add(f"{pages_count}-{size}-{doc.mime_type.strip()}-{doc.full}")
             if len(_params) == 1:
                 # all files have same size and pages count, just pick the first
-                return _docs - {_choices[1]}
+                return _docs - {_choices[1]}, False
             else:
                 # ask user to choose which document to keep
                 console.print(table)
-                res = typer.prompt(f"Multiple documents with ISBN '{isbn}' found, choose which one to keep", prompt_suffix="> ")
+                res = typer.prompt(
+                    f"Multiple documents with ISBN '{isbn}' found, choose which one to keep "
+                    "(or type 'all' to keep all docs for this ISBN)",
+                    prompt_suffix="> ",
+                )
+                if res.strip().lower() in {"all", "a"}:
+                    return set(), True
                 if res.isdigit() and int(res) in _choices:
-                    return _docs - {_choices[int(res)]}
+                    return _docs - {_choices[int(res)]}, False
                 else:
                     print(f"Invalid choice '{res}', skipping ISBN {isbn}")
-                    return None
+                    return None, False
 
         docs_same_isbn = {md5s_to_docs[md5] for md5 in md5s}
-        docs_for_wiping = _define_docs_to_move(docs_same_isbn)
+        docs_for_wiping, keep_many = _define_docs_to_move(docs_same_isbn)
+        if docs_for_wiping is None:
+            continue
+        with get_session() as session:
+            if keep_many:
+                replace_isbn_keep_many(session, isbn, {doc.md5 for doc in docs_same_isbn})
+                print(f"Stored keep-many decision for ISBN '{isbn}'")
+            else:
+                delete_isbn_keep_many(session, isbn)
         if docs_for_wiping:
             plan.update({d.md5: f"duplicated_isbn/{isbn}" for d in docs_for_wiping})
             flush(plan)
 
 
+def _is_isbn_group_marked_keep_many(isbn_key: str, md5s: set[str], keep_many_map: dict[str, set[str]]) -> bool:
+    """Return True when current ISBN group is already covered by a stored keep-many decision."""
+    allowed_md5s = keep_many_map.get(isbn_key)
+    return bool(allowed_md5s) and md5s.issubset(allowed_md5s)
+
+
 def _process_file(ya_client, file, all_md5s, skipped_by_mime_type_files, upstream_meta, config, lang_tag, entry_point):
     """Process a single Yandex Disk file and return a Document to upsert."""
-    if file.path.startswith("disk:/НейроТатарлар/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
+    if file.path.startswith("disk:/neurotatarlar/kitaplar/monocorpus/Anna's archive/") and file.path.endswith('.txt'):
         print(f"Skipping Anna's archive file '{file.path}'")
         return
-    if '/НейроТатарлар/kitaplar/monocorpus/_1st_priority_for_OCR/random_files_thru_yandex_search/ilbyak-school.narod.ru' in file.path and file.path.endswith('.htm'):
+    if '/neurotatarlar/kitaplar/monocorpus/_1st_priority_for_OCR/random_files_thru_yandex_search/ilbyak-school.narod.ru' in file.path and file.path.endswith('.htm'):
         print(f"Skipping ilbyak-school.narod.ru file '{file.path}'")
         return
     
-    if '/НейроТатарлар/other_turkic_langs/Крымскотатарский/' in file.path and (
-        file.path.endswith('.layout') 
-        or
-        file.path.endswith('.frw') 
-        or
-        file.path.endswith('.txt')
-        or
-        file.path.endswith('.pac')
-        or
-        file.path.endswith('.csv')
-        or
-        file.path.endswith('.xml')
-        or
-        file.path.endswith('.jpg')
-        or
-        file.path.endswith('.hdr')
-        or
-        file.path.endswith('.dat')
-        or
-        file.path.endswith('.frdat')
-        or
-        file.path.endswith('.vtt')
-        or
-        file.path.endswith('.ini')
-        or
-        file.path.endswith('.aux')
-        or
-        file.path.endswith('.musx')
-        or
-        file.path.endswith('.mxl')
-        or
-        file.path.endswith('.zip')
-        or
-        file.path.endswith('.indd')
-        or
-        file.path.endswith('.swp')
-        or
-        file.path.endswith('.tmp')
-        or
-        file.path.endswith('.DS_Store')
-        or 
-        file.path.endswith('.parquet')
-        or 
-        file.path.endswith('.emf')
-        or 
-        file.path.endswith('.json')
-    ):
-        print(f"Skipping crimean tatar layout file '{file.path}'")
-        return
-
     _should_be_skipped, mime_type = should_be_skipped(file)
     if _should_be_skipped:
         move_to_filtered_out(file, config, ya_client, 'nontextual', entry_point)
