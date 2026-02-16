@@ -38,6 +38,7 @@ class ChunkPlanner:
     def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[5, 3, 2, 1]):
         self.chunked_results_dir = chunked_results_dir
         self.pages_count = pages_count
+        self.last_page = pages_count - 1
         self.chunk_sizes = chunk_sizes
         self.current_chunk_size_index = 0
         self.processed_ranges = self._load_processed_ranges()
@@ -50,6 +51,9 @@ class ChunkPlanner:
 
     def _load_processed_ranges(self):
         """Load already processed chunk ranges from the directory."""
+        if self.last_page < 0:
+            return []
+
         slice_pattern = re.compile(r"chunk-(\d+)-(\d+)\.json$")
         processed = []
         seen = set()
@@ -57,6 +61,12 @@ class ChunkPlanner:
             m = slice_pattern.match(filename)
             if m:
                 start, end = map(int, m.groups())
+                if end < 0 or start > self.last_page:
+                    continue
+                start = max(0, start)
+                end = min(end, self.last_page)
+                if start > end:
+                    continue
                 if (start, end) not in seen:
                     processed.append(Chunk(start, end))
                     seen.add((start, end))
@@ -65,32 +75,47 @@ class ChunkPlanner:
 
     def next(self):
         """Return the next chunk to process: either a processed one, or a gap."""
+        if self.last_page < 0:
+            return None
+
         if self.retry_mode and self.last_attempted_chunk:
             size = self.chunk_sizes[self.current_chunk_size_index]
-            end_page = min(self.last_attempted_chunk.start + size - 1, self.pages_count)
+            end_page = min(self.last_attempted_chunk.start + size - 1, self.last_page)
             chunk = Chunk(self.last_attempted_chunk.start, end_page)
             self.last_attempted_chunk = chunk
+            # Retry with smaller chunks must rewind progress to the retried tail,
+            # otherwise pages from the original larger chunk can be skipped.
+            self.cursor_page = chunk.end + 1
             self.retry_mode = False
             return chunk
 
-        while self.cursor_page <= self.pages_count:
+        while self.cursor_page <= self.last_page:
             if self.idx_processed < len(self.processed_ranges):
                 next_chunk = self.processed_ranges[self.idx_processed]
+                # Skip stale processed chunks that are fully before cursor.
+                if next_chunk.end < self.cursor_page:
+                    self.idx_processed += 1
+                    continue
                 if self.cursor_page < next_chunk.start:
                     size = self.chunk_sizes[self.current_chunk_size_index]
-                    end_page = min(self.cursor_page + size - 1, self.pages_count)
+                    end_page = min(self.cursor_page + size - 1, self.last_page)
                     chunk = Chunk(self.cursor_page, end_page)
                     self.last_attempted_chunk = chunk
                     self.cursor_page = end_page + 1
                     return chunk
+                # Partially-overlapping local chunks would duplicate pages.
+                # Skip reusing them and let planner emit only the uncovered tail.
+                if next_chunk.start < self.cursor_page:
+                    self.idx_processed += 1
+                    continue
                 else:
                     self.cursor_page = next_chunk.end + 1
                     self.idx_processed += 1
                     return next_chunk
             else:
-                if self.cursor_page <= self.pages_count:
+                if self.cursor_page <= self.last_page:
                     size = self.chunk_sizes[self.current_chunk_size_index]
-                    end_page = min(self.cursor_page + size - 1, self.pages_count)
+                    end_page = min(self.cursor_page + size - 1, self.last_page)
                     chunk = Chunk(self.cursor_page, end_page)
                     self.last_attempted_chunk = chunk
                     self.cursor_page = end_page + 1
@@ -112,8 +137,10 @@ class ChunkPlanner:
 
     def verify_complete(self):
         """Check if all pages from 0 to pages_count are covered without gaps."""
+        if self.last_page < 0:
+            return (True, [])
         covered = set()
         for chunk in self.processed_ranges:
             covered.update(range(chunk.start, chunk.end + 1))
-        missing = [p for p in range(0, self.pages_count + 1) if p not in covered]
+        missing = [p for p in range(0, self.last_page + 1) if p not in covered]
         return (len(missing) == 0, missing)
