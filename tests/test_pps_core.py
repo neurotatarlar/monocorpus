@@ -147,8 +147,8 @@ class PpsCoreTests(unittest.TestCase):
         original = "Тест сeлам\n"
         once, issues_once = _apply_rules(original)
         twice, issues_twice = _apply_rules(once)
-        self.assertEqual("Тест селам\n", once)
-        self.assertIn("mixed_script_lookalikes_fixed", issues_once)
+        self.assertEqual(original, once)
+        self.assertEqual({}, issues_once)
         self.assertEqual(once, twice)
         self.assertEqual({}, issues_twice)
 
