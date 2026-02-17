@@ -195,6 +195,19 @@ class PdfExtractorChunkingTests(unittest.TestCase):
             tokens = self._extract_page_tokens(f.read())
         self.assertEqual([0, 1, 2, 3, 4, 5], tokens)
 
+    def test_reuses_superset_local_chunk_instead_of_extracting_trimmed_chunk(self) -> None:
+        doc = self._doc("8" * 32)
+        self._write_chunk(doc.md5, 0, 0)
+        self._write_chunk(doc.md5, 1, 2)
+
+        result, gemini_mock = self._extract_with_patches(doc=doc, pages_count=2)
+        self.assertFalse(result["stop_worker"])
+        self.assertEqual(0, gemini_mock.call_count)
+
+        chunk_paths = [os.path.basename(p) for p in result["context"].chunk_paths]
+        self.assertIn("chunk-1-2.json", chunk_paths)
+        self.assertNotIn("chunk-1-1.json", chunk_paths)
+
     def test_resume_with_overlap_gap_and_stale_local_chunks(self) -> None:
         doc = self._doc("2" * 32)
         self._write_chunk(doc.md5, 0, 2)

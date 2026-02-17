@@ -47,12 +47,22 @@ class ChunkPlannerTests(unittest.TestCase):
             planner = ChunkPlanner(tmp, pages_count=50, chunk_sizes=[1])
             self.assertEqual([(0, 49)], _collect_ranges(planner))
 
-    def test_legacy_out_of_range_local_chunk_is_clamped(self) -> None:
+    def test_legacy_out_of_range_local_chunk_is_reused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             # Old buggy runs could store end index equal to page_count.
             open(os.path.join(tmp, "chunk-0-50.json"), "w", encoding="utf-8").close()
             planner = ChunkPlanner(tmp, pages_count=50, chunk_sizes=[1])
-            self.assertEqual([(0, 49)], _collect_ranges(planner))
+            self.assertEqual([(0, 50)], _collect_ranges(planner))
+            complete, missing = planner.verify_complete()
+            self.assertTrue(complete)
+            self.assertEqual([], missing)
+
+    def test_superset_chunk_within_doc_tail_is_reused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "chunk-0-0.json"), "w", encoding="utf-8").close()
+            open(os.path.join(tmp, "chunk-1-2.json"), "w", encoding="utf-8").close()
+            planner = ChunkPlanner(tmp, pages_count=2, chunk_sizes=[1])
+            self.assertEqual([(0, 0), (1, 2)], _collect_ranges(planner))
 
     def test_partially_overlapping_local_chunks_are_not_reused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,7 +127,7 @@ class ChunkPlannerTests(unittest.TestCase):
                 ranges = _collect_ranges(planner)
                 for start, end in ranges:
                     self.assertGreaterEqual(start, 0)
-                    self.assertLess(end, pages_count)
+                    self.assertLess(start, pages_count)
                     self.assertLessEqual(start, end)
                     planner.mark_success(Chunk(start, end))
 

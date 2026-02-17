@@ -63,10 +63,8 @@ class ChunkPlanner:
                 start, end = map(int, m.groups())
                 if end < 0 or start > self.last_page:
                     continue
-                start = max(0, start)
-                end = min(end, self.last_page)
-                if start > end:
-                    continue
+                # Keep original chunk bounds for file path resolution.
+                # Coverage and cursor math are clamped later against last_page.
                 if (start, end) not in seen:
                     processed.append(Chunk(start, end))
                     seen.add((start, end))
@@ -92,11 +90,13 @@ class ChunkPlanner:
         while self.cursor_page <= self.last_page:
             if self.idx_processed < len(self.processed_ranges):
                 next_chunk = self.processed_ranges[self.idx_processed]
+                next_start = max(0, next_chunk.start)
+                next_end = min(next_chunk.end, self.last_page)
                 # Skip stale processed chunks that are fully before cursor.
-                if next_chunk.end < self.cursor_page:
+                if next_end < self.cursor_page:
                     self.idx_processed += 1
                     continue
-                if self.cursor_page < next_chunk.start:
+                if self.cursor_page < next_start:
                     size = self.chunk_sizes[self.current_chunk_size_index]
                     end_page = min(self.cursor_page + size - 1, self.last_page)
                     chunk = Chunk(self.cursor_page, end_page)
@@ -105,11 +105,11 @@ class ChunkPlanner:
                     return chunk
                 # Partially-overlapping local chunks would duplicate pages.
                 # Skip reusing them and let planner emit only the uncovered tail.
-                if next_chunk.start < self.cursor_page:
+                if next_start < self.cursor_page:
                     self.idx_processed += 1
                     continue
                 else:
-                    self.cursor_page = next_chunk.end + 1
+                    self.cursor_page = next_end + 1
                     self.idx_processed += 1
                     return next_chunk
             else:
@@ -141,6 +141,9 @@ class ChunkPlanner:
             return (True, [])
         covered = set()
         for chunk in self.processed_ranges:
-            covered.update(range(chunk.start, chunk.end + 1))
+            start = max(0, chunk.start)
+            end = min(chunk.end, self.last_page)
+            if start <= end:
+                covered.update(range(start, end + 1))
         missing = [p for p in range(0, self.last_page + 1) if p not in covered]
         return (len(missing) == 0, missing)
