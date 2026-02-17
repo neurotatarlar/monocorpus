@@ -278,20 +278,16 @@ def _process_pdf(cli_params):
         
         channel = Channel()
         predicate = (
-            # Document.content_url.is_(None) &
+            Document.content_url.is_(None) &
             (Document.mime_type ==  "application/pdf") &
             (Document.language == "tt-Cyrl") &
             (Document.full == True) & 
-            (
-                (Document.md5 == cli_params.md5)
-                if cli_params.md5
-                else (
-                    Document.md5.in_(cli_params.md5s)
-                    if cli_params.md5s
-                    else Document.md5.not_in(channel.get_all_unprocessable_docs())
-                )
-            )
+            (Document.md5.not_in(channel.get_all_unprocessable_docs()))
         )
+        if cli_params.md5:
+            predicate = predicate & (Document.md5 == cli_params.md5)
+        elif cli_params.md5s:
+            predicate = predicate & (Document.md5.in_(cli_params.md5s))
         
         try:
             available_keys =  list(set(config["gemini_api_keys"]) - channel.exceeded_keys_set)

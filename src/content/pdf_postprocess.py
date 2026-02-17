@@ -18,6 +18,7 @@ import math
 REPO_ID = 'hantian/yolo-doclaynet'
 MODEL_NAME = 'yolov10b'
 MODEL_CHECKPOINT = f"{MODEL_NAME}-doclaynet.pt"
+UPLOAD_IMAGE_CLIPS = False
 
 
 class NoBboxError(BaseException):
@@ -115,7 +116,7 @@ def _proccess_images(context, content, config):
             boxed_image.save(path_to_page_image_boxed, format = 'png')
             pairs = _pair_model_boxes(details, centroid_distance_threshold = (width + height) / 10)
             _clips(pix, pairs, page_no, clips_dir, context.md5)
-            _upload_to_s3(pairs, session, config)
+            _upload_to_s3(pairs, session, config, upload=UPLOAD_IMAGE_CLIPS)
             _compile_replacement_str(pairs)
             result.extend([(p['gemini']['html'], p['replacement']) for p in pairs])
     
@@ -149,14 +150,18 @@ def _replace_images(result, content):
         content = content.replace(target, replacement)
     return content
 
-def _upload_to_s3(pairs, session, config):
-    """Upload generated image clips to S3 and store URLs."""
+def _upload_to_s3(pairs, session, config, upload=False):
+    """Attach image URLs and optionally upload generated clips to S3."""
+    endpoint = str(session._endpoint.host).rstrip("/")
+    bucket = config["yandex"]["cloud"]['bucket']['image']
     for p in pairs:
         if not (path := p.get('path')):
             continue
-        bucket = config["yandex"]["cloud"]['bucket']['image']
         key = os.path.basename(path)
-        p['url'] = upload_file(path, bucket, key, session, skip_if_exists=True)
+        if upload:
+            p['url'] = upload_file(path, bucket, key, session, skip_if_exists=True)
+        else:
+            p['url'] = f"{endpoint}/{bucket}/{key}"
 
 def _clips(pix, pairs, page_no, clips_dir, md5):
     """Crop detected image regions and write them to disk."""

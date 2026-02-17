@@ -96,17 +96,18 @@ class PdfExtractor:
             except Empty:
                 self.log("No tasks for processing, shutting down thread...")
                 return
-            except NoBboxError as e:
-                print("No bbox")
-                self.channel.add_repairable_doc(e.md5)
-            except (JSONDecodeError, RecursionError, IndexError) as e:
-                if doc:
-                    import traceback
-                    print(f"Error:", "\n", e, "\n", traceback.format_exc())
-                    self.channel.add_repairable_doc(doc.md5)
+            # except NoBboxError as e:
+            #     print("No bbox")
+            #     self.channel.add_repairable_doc(e.md5)
+            # except (JSONDecodeError, RecursionError, IndexError) as e:
+            #     if doc:
+            #         import traceback
+            #         print(f"Error:", "\n", e, "\n", traceback.format_exc())
+            #         self.channel.add_repairable_doc(doc.md5)
             except Exception as e:
                 import traceback
                 self.log(f"Could not extract content from doc {doc.md5}({doc.ya_public_url}): {e} \n{traceback.format_exc()}")
+                self.channel.add_unprocessable_doc(doc.md5)
             
             
     def _extract_doc(self, doc, gemini_client):
