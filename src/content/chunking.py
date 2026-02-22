@@ -35,11 +35,11 @@ class Chunk:
 class ChunkPlanner:
     """Plan page ranges, reusing already processed chunks from disk."""
 
-    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=[5, 3, 2, 1]):
+    def __init__(self, chunked_results_dir, pages_count, chunk_sizes=None):
         self.chunked_results_dir = chunked_results_dir
         self.pages_count = pages_count
         self.last_page = pages_count - 1
-        self.chunk_sizes = chunk_sizes
+        self.chunk_sizes = list(chunk_sizes) if chunk_sizes else [5, 3, 2, 1]
         self.current_chunk_size_index = 0
         self.processed_ranges = self._load_processed_ranges()
 

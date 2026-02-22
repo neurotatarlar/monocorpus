@@ -126,6 +126,8 @@ class PdfExtractorChunkingTests(unittest.TestCase):
         has_figure_side_effect=None,
         cook_side_effect=None,
         planner_cls=None,
+        strict_missing_local: bool = False,
+        return_extractor: bool = False,
     ):
         extractor = self._make_extractor()
 
@@ -147,6 +149,12 @@ class PdfExtractorChunkingTests(unittest.TestCase):
             stack.enter_context(patch("content.pdf_extractor.pymupdf.open", return_value=_FakePdfDoc(pages_count)))
             stack.enter_context(patch.object(PdfExtractor, "_create_doc_clice", return_value="/tmp/slice.pdf"))
             stack.enter_context(patch.object(PdfExtractor, "_sleep_if_needed", return_value=None))
+            stack.enter_context(
+                patch(
+                    "content.pdf_extractor.MISSING_LOCAL_CHUNK_IS_UNPROCESSABLE",
+                    strict_missing_local,
+                )
+            )
             stack.enter_context(patch("content.pdf_extractor.tokens_info", return_value=""))
             stack.enter_context(
                 patch(
@@ -176,6 +184,8 @@ class PdfExtractorChunkingTests(unittest.TestCase):
                 stack.enter_context(patch("content.pdf_extractor.ChunkPlanner", planner_cls))
 
             result = extractor._extract_doc(doc, gemini_client=object())
+        if return_extractor:
+            return result, gemini_mock, extractor
         return result, gemini_mock
 
     @staticmethod
@@ -207,6 +217,60 @@ class PdfExtractorChunkingTests(unittest.TestCase):
         chunk_paths = [os.path.basename(p) for p in result["context"].chunk_paths]
         self.assertIn("chunk-1-2.json", chunk_paths)
         self.assertNotIn("chunk-1-1.json", chunk_paths)
+
+    def test_missing_local_chunk_marks_doc_unprocessable_without_gemini(self) -> None:
+        doc = self._doc("9" * 32)
+        self._write_chunk(doc.md5, 0, 0)
+
+        result, gemini_mock, extractor = self._extract_with_patches(
+            doc=doc,
+            pages_count=2,
+            strict_missing_local=True,
+            return_extractor=True,
+        )
+
+        self.assertFalse(result["stop_worker"])
+        self.assertIsNone(result.get("context"))
+        self.assertEqual(0, gemini_mock.call_count)
+        self.assertIn(doc.md5, extractor.channel.unprocessable)
+
+    def test_empty_local_chunk_is_reused_without_gemini(self) -> None:
+        doc = self._doc("a" * 32)
+        self._write_chunk(doc.md5, 0, 0)
+        self._write_chunk(doc.md5, 1, 1, content="")
+
+        result, gemini_mock, extractor = self._extract_with_patches(
+            doc=doc,
+            pages_count=2,
+            strict_missing_local=True,
+            return_extractor=True,
+        )
+
+        self.assertFalse(result["stop_worker"])
+        self.assertIsNotNone(result.get("context"))
+        self.assertEqual(0, gemini_mock.call_count)
+        self.assertNotIn(doc.md5, extractor.channel.unprocessable)
+
+    def test_invalid_local_chunk_marks_doc_unprocessable_without_gemini(self) -> None:
+        doc = self._doc("b" * 32)
+        self._write_chunk(doc.md5, 0, 0)
+        self._write_chunk(doc.md5, 1, 1, content="BADFIG")
+
+        def _has_bad_figure(text: str) -> bool:
+            return "BADFIG" in text
+
+        result, gemini_mock, extractor = self._extract_with_patches(
+            doc=doc,
+            pages_count=2,
+            has_figure_side_effect=_has_bad_figure,
+            strict_missing_local=True,
+            return_extractor=True,
+        )
+
+        self.assertFalse(result["stop_worker"])
+        self.assertIsNone(result.get("context"))
+        self.assertEqual(0, gemini_mock.call_count)
+        self.assertIn(doc.md5, extractor.channel.unprocessable)
 
     def test_resume_with_overlap_gap_and_stale_local_chunks(self) -> None:
         doc = self._doc("2" * 32)

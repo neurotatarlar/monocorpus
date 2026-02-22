@@ -15,7 +15,7 @@ from prompts.metadata import (
 )
 import json
 
-SLICE_SIZE = 2
+SLICE_SIZE = 4
 
 class FromPdfSliceMetadataExtractor:
     """Extract metadata by slicing representative PDF pages."""

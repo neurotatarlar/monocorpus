@@ -33,6 +33,8 @@ from content.pdf_utils import has_figure_tag_with_missing_attributes, tokens_inf
 
 
 model = 'gemini-2.5-pro'
+# Temporary mode: if a required chunk is missing locally, do not call Gemini.
+MISSING_LOCAL_CHUNK_IS_UNPROCESSABLE = True
 
 
 class ExtractionResult(BaseModel):
@@ -139,16 +141,33 @@ class PdfExtractor:
                 
                 chunk_result_complete_path = os.path.join(chunked_results_dir, f"chunk-{chunk.start}-{chunk.end}.json")
                 content = None
+                chunk_exists = os.path.exists(chunk_result_complete_path)
+                local_chunk_reusable = False
                 
-                if os.path.exists(chunk_result_complete_path):
+                if chunk_exists:
                     self.log(f"Chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url}) is already extracted")
                     with open(chunk_result_complete_path, "r") as f:
                         deserialized = ExtractionResult.model_validate_json(f.read()).content
                         if not has_figure_tag_with_missing_attributes(deserialized):
                             content = deserialized
+                            # Empty content is valid (e.g., blank page chunk).
+                            local_chunk_reusable = True
 
-                if not content:
+                if content is None:
+                    if MISSING_LOCAL_CHUNK_IS_UNPROCESSABLE:
+                        reason = "missing"
+                        if chunk_exists and not local_chunk_reusable:
+                            reason = "invalid"
+                        self.log(
+                            f"{reason.capitalize()} local chunk({chunk.start}-{chunk.end})/{context.doc_page_count} "
+                            f"for document {context.md5}({context.doc.ya_public_url}); "
+                            "marking doc as unprocessable without Gemini request"
+                        )
+                        self.channel.add_unprocessable_doc(context.md5)
+                        return {"stop_worker": False}
                     self.log(f"Extracting chunk({chunk.start}-{chunk.end})/{context.doc_page_count} of document {context.md5}({context.doc.ya_public_url})")
+                    # Needed for retries when a previously saved local chunk exists but is unusable.
+                    chunk_planner.last_attempted_chunk = chunk
                     
                     # create a pdf doc what will contain a slice of original pdf doc
                     slice_file_path = self._create_doc_clice(chunk.start, chunk.end, pdf_doc, context.md5)
