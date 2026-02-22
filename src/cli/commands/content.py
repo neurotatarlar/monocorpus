@@ -168,3 +168,95 @@ def register(app: typer.Typer) -> None:
             max_group_size=max_group_size,
             report_path=report_path,
         )
+
+    @app.command("chunk-audit")
+    def chunk_audit(
+        md5: Annotated[
+            Optional[str],
+            typer.Option(
+                "--md5",
+                callback=md5_validator,
+                help="Audit only this document MD5.",
+            ),
+        ] = None,
+        md5_file: Annotated[
+            Optional[str],
+            typer.Option(
+                "--md5-file",
+                help="Path to a text file with one MD5 per line.",
+            ),
+        ] = None,
+        path: Annotated[
+            Optional[str],
+            typer.Option(
+                "--path",
+                "-p",
+                help="Path to the document or directory in Yandex Disk.",
+            ),
+        ] = None,
+        reset_content_url: Annotated[
+            bool,
+            typer.Option(
+                "--reset-content-url",
+                help="Set document.content_url=NULL for docs with incomplete/invalid local chunk sets.",
+            ),
+        ] = False,
+        report_path: Annotated[
+            Optional[str],
+            typer.Option(
+                "--report",
+                help="Optional path to write the JSON audit report. Defaults to workdir logs.",
+            ),
+        ] = None,
+        size_anomaly_large_ratio: Annotated[
+            float,
+            typer.Option(
+                "--size-anomaly-large-ratio",
+                help="Report chunk as large anomaly if bytes/page >= this ratio to document average.",
+            ),
+        ] = 5.0,
+        size_anomaly_small_ratio: Annotated[
+            float,
+            typer.Option(
+                "--size-anomaly-small-ratio",
+                help="Report chunk as small anomaly if bytes/page <= this ratio to document average.",
+            ),
+        ] = 0.2,
+        size_anomaly_min_valid_chunks: Annotated[
+            int,
+            typer.Option(
+                "--size-anomaly-min-valid-chunks",
+                help="Minimum valid chunks in a document before size anomalies are evaluated.",
+            ),
+        ] = 4,
+    ):
+        """Audit local PDF chunk coverage and optionally reset docs for re-extraction."""
+        from content.chunk_audit import run as run_chunk_audit
+
+        if md5 and md5_file:
+            raise typer.BadParameter("Use either --md5 or --md5-file, not both.")
+        if path and md5_file:
+            raise typer.BadParameter("Use either --path or --md5-file, not both.")
+        if size_anomaly_large_ratio <= 1.0:
+            raise typer.BadParameter("--size-anomaly-large-ratio must be > 1.0")
+        if not (0.0 < size_anomaly_small_ratio < 1.0):
+            raise typer.BadParameter("--size-anomaly-small-ratio must be in (0, 1)")
+        if size_anomaly_min_valid_chunks < 1:
+            raise typer.BadParameter("--size-anomaly-min-valid-chunks must be >= 1")
+
+        md5s = None
+        if md5_file:
+            md5s = load_md5s_from_file(md5_file)
+            if not md5s:
+                raise typer.BadParameter(f"No MD5 values found in file: {md5_file}")
+
+        run_chunk_audit(
+            md5=md5.strip() if md5 else None,
+            md5s=md5s,
+            path=path.strip() if path else None,
+            reset_content_url=reset_content_url,
+            report_path=report_path,
+            size_anomaly_large_ratio=size_anomaly_large_ratio,
+            size_anomaly_small_ratio=size_anomaly_small_ratio,
+            size_anomaly_min_valid_chunks=size_anomaly_min_valid_chunks,
+        )

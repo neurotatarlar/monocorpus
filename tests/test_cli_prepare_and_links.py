@@ -102,6 +102,32 @@ class CliAndHelperTests(unittest.TestCase):
             report_path="report.json",
         )
 
+    def test_cli_chunk_audit_dispatch(self) -> None:
+        runner = CliRunner()
+        with patch("content.chunk_audit.run") as run_chunk_audit:
+            result = runner.invoke(
+                app,
+                [
+                    "chunk-audit",
+                    "--md5",
+                    "a" * 32,
+                    "--reset-content-url",
+                    "--report",
+                    "chunk_audit.json",
+                ],
+            )
+        self.assertEqual(0, result.exit_code, result.output)
+        run_chunk_audit.assert_called_once_with(
+            md5="a" * 32,
+            md5s=None,
+            path=None,
+            reset_content_url=True,
+            report_path="chunk_audit.json",
+            size_anomaly_large_ratio=5.0,
+            size_anomaly_small_ratio=0.2,
+            size_anomaly_min_valid_chunks=4,
+        )
+
     def test_cli_pps_dispatch(self) -> None:
         runner = CliRunner()
         with patch("content.pps.service.run") as run_pps:
