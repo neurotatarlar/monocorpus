@@ -11,7 +11,7 @@ class Document(Base):
 
     __tablename__ = "document"
 
-    md5 = Column(primary_key=True, nullable=False, unique=True, index=True)
+    md5 = Column(String, primary_key=True, nullable=False, unique=True, index=True)
     mime_type = Column(String)
     ya_path = Column(String)
     ya_public_url = Column(String)
@@ -30,6 +30,8 @@ class Document(Base):
         uselist=False,
         back_populates="document",
         lazy="joined",
+        cascade="all, delete-orphan",
+        single_parent=True,
     )
 
     def __str__(self):

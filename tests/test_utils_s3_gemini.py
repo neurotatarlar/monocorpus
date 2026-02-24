@@ -9,7 +9,6 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
-from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -21,7 +20,6 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 from integrations.gemini import create_client, gemini_cli, stream_text, upload_and_wait  # noqa: E402
 from integrations.s3 import download, upload_file  # noqa: E402
 from utils import (  # noqa: E402
-    _get_bucket_id,
     calculate_md5,
     decrypt,
     download_file_locally,
@@ -212,24 +210,13 @@ class UtilsS3GeminiTests(unittest.TestCase):
         self.assertEqual("client", client)
         client_ctor.assert_called_once_with(api_key="k")
 
-    def test_bucket_id_cutoff_logic(self) -> None:
-        with patch("utils.datetime") as dt:
-            dt.now.return_value = datetime(2026, 1, 2, 8, 59, tzinfo=timezone.utc)
-            self.assertEqual("20260101_1", _get_bucket_id())
-
-        with patch("utils.datetime") as dt:
-            dt.now.return_value = datetime(2026, 1, 2, 9, 0, tzinfo=timezone.utc)
-            self.assertEqual("20260102_0", _get_bucket_id())
-
     def test_dump_and_load_expired_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("utils._get_bucket_id", return_value="20250101_0"):
-                dump_expired_keys({"k1", "k2"}, dir=tmp)
-                loaded = load_expired_keys(dir=tmp)
-                self.assertEqual({"k1", "k2"}, loaded)
+            dump_expired_keys({"k1", "k2"}, dir=tmp)
+            loaded = load_expired_keys(dir=tmp)
+            self.assertEqual({"k1", "k2"}, loaded)
 
-            with patch("utils._get_bucket_id", return_value="20250101_1"):
-                self.assertEqual(set(), load_expired_keys(dir=tmp))
+            self.assertTrue(os.path.exists(os.path.join(tmp, "expired_keys.json")))
 
     def test_download_file_locally_skips_download_when_hash_matches(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from collections import deque
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import base64
-from datetime import datetime, timezone, timedelta
 import json
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -229,12 +228,12 @@ def decrypt(ciphertext, config):
 
 
 def load_expired_keys(dir='_artifacts/expired_keys'):
-    """Load the set of expired keys for the current bucket window."""
+    """Load expired Gemini keys from a single persistent file."""
     candidates = [dir]
     if dir.startswith("_artifacts/"):
         candidates.append(dir.removeprefix("_artifacts/"))
 
-    ekf_name = f"expired_keys_{_get_bucket_id()}.json"
+    ekf_name = "expired_keys.json"
     for candidate in candidates:
         ekf = os.path.join(candidate, ekf_name)
         if os.path.exists(ekf):
@@ -246,26 +245,11 @@ def load_expired_keys(dir='_artifacts/expired_keys'):
     
 
 def dump_expired_keys(keys, dir='_artifacts/expired_keys'):
-    """Persist the set of expired keys for the current bucket window."""
+    """Persist expired Gemini keys to a single persistent file."""
     os.makedirs(dir, exist_ok=True)
-    ekf = os.path.join(dir, f"expired_keys_{_get_bucket_id()}.json")
+    ekf = os.path.join(dir, "expired_keys.json")
     with open(ekf, "w") as f:
         json.dump(list(keys), f, ensure_ascii=False, indent=4)
-        
-
-def _get_bucket_id():
-    """Return bucket like '20250810_1' or '20250811_0' based on 09:00 UTC cutoff."""
-    now = datetime.now(timezone.utc)
-
-    # If before 09:00 UTC, we are still in the *previous day's* second bucket
-    if now.hour < 9:
-        date = (now - timedelta(days=1)).strftime("%Y%m%d")
-        bucket_num = 1
-    else:
-        date = now.strftime("%Y%m%d")
-        bucket_num = 0
-
-    return f"{date}_{bucket_num}"
 
 import requests
 import zipfile

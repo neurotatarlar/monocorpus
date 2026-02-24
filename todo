@@ -6,5 +6,6 @@ define value for library
 then create thumbnails 
 then normalize names and surnames
 
-
-todo check for consequitive duplicated paragraphs
+pps:
+check for consequitive duplicated paragraphs
+fix numbers in the words
